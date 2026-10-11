@@ -14,7 +14,17 @@ import type { MatchItem } from './matches.js';
  */
 const fail = (key: string) => ({ error: key });
 
-export const CONNECTION_STATUSES = ['pending', 'accepted', 'declined', 'withdrawn'] as const;
+/**
+ * `in_review`: the request waits for the agent who looks after the person asked. Approving it makes
+ * it `pending` (the person asked sees it); rejecting it ends it as `declined`.
+ */
+export const CONNECTION_STATUSES = [
+  'in_review',
+  'pending',
+  'accepted',
+  'declined',
+  'withdrawn',
+] as const;
 export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 
 /** received: waiting for my answer. sent: waiting for theirs. connected: accepted. */
@@ -45,7 +55,40 @@ export const notificationQuerySchema = z
   .strict();
 export type NotificationQuery = z.output<typeof notificationQuerySchema>;
 
-export const sendRequestSchema = z.object({ candidateId: z.uuid(fail('invalid')) }).strict();
+/** The lines to mark as read. No `ids` means every unread line. */
+export const markReadSchema = z
+  .object({
+    ids: z
+      .array(z.uuid(fail('invalid')))
+      .min(1, fail('invalid'))
+      .max(100, fail('tooLong'))
+      .optional(),
+  })
+  .strict();
+
+/** A short note may travel with a request. It is kept short so it stays an introduction. */
+export const MAX_NOTE_WORDS = 40;
+export const MAX_NOTE_LENGTH = 300;
+
+const noteSchema = z
+  .string(fail('invalid'))
+  .trim()
+  .min(1, fail('required'))
+  .max(MAX_NOTE_LENGTH, fail('tooLong'))
+  .refine((text) => text.split(/\s+/).length <= MAX_NOTE_WORDS, fail('tooLong'));
+
+export const sendRequestSchema = z
+  .object({ candidateId: z.uuid(fail('invalid')), note: noteSchema.optional() })
+  .strict();
+
+export const reviewSchema = z
+  .object({ decision: z.enum(['approve', 'reject'], fail('invalidOption')) })
+  .strict();
+
+export const reviewQueueQuerySchema = z
+  .object({ limit: pageSize, after: z.string().max(300, fail('tooLong')).optional() })
+  .strict();
+export type ReviewQueueQuery = z.output<typeof reviewQueueQuerySchema>;
 export const respondSchema = z
   .object({ response: z.enum(['accept', 'decline'], fail('invalidOption')) })
   .strict();
@@ -73,7 +116,7 @@ export interface ConnectionRecord {
   toShared: boolean;
 }
 
-/** What happened when a client asked to connect. */
+/** What happened when a client asked to connect. `requested` also covers a request now waiting for review. */
 export type SendOutcome = 'requested' | 'accepted' | 'unchanged';
 
 export interface SendResult {
@@ -91,6 +134,8 @@ export interface ConnectionRow {
   respondedAt: string | null;
   iShared: boolean;
   theyShared: boolean;
+  /** The short note the asker added, when there is one and the viewer is the person asked. */
+  note: string | null;
   position: string;
   profile: MatchItem;
 }
@@ -100,13 +145,26 @@ export interface ConnectionPage {
   next: string | null;
 }
 
-export type NotificationKind = 'connection_request' | 'connection_accepted' | 'connection_declined';
+export type NotificationKind =
+  | 'connection_request'
+  | 'connection_accepted'
+  | 'connection_declined'
+  /** Staff: a request for a client of theirs waits for their review. */
+  | 'connection_review'
+  /** Staff: a request has waited for review for a while. */
+  | 'connection_review_reminder'
+  /** A request was withdrawn because the person asked matched with another participant. */
+  | 'connection_matched'
+  /** A request was withdrawn because the person asked is no longer available (paused or closed). */
+  | 'connection_unavailable';
 
 export interface NotificationItem {
   id: string;
   kind: NotificationKind;
   createdAt: string;
   position: string;
+  /** The recipient has read it. */
+  read: boolean;
   connectionId: string;
   /** The profile this is about for the recipient: their own, or the client they look after. */
   forProfileId: string;
@@ -121,6 +179,36 @@ export interface NotificationItem {
 export interface NotificationPage {
   items: NotificationItem[];
   next: string | null;
+}
+
+/** A request waiting for review: who asked whom, and the note if there is one. */
+export interface ReviewRequestRow {
+  connectionId: string;
+  createdAt: string;
+  /** When it started waiting, which is what the reminders count from. */
+  waitingSince: string;
+  remindersSent: number;
+  note: string | null;
+  position: string;
+  asker: ReviewParty;
+  /** The client the request is for. */
+  client: ReviewParty;
+}
+
+export interface ReviewParty {
+  profileId: string;
+  memberCode: string;
+  fullName: string;
+  age: number | null;
+  professionCode: string | null;
+  currentDistrictCode: string | null;
+}
+
+export interface ReviewQueuePage {
+  items: ReviewRequestRow[];
+  next: string | null;
+  /** How many wait in all, for the badge. */
+  total: number;
 }
 
 /** A connection on a client's page, for staff: who asked whom and where it stands. */

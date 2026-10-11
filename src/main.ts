@@ -2,6 +2,7 @@ import { loadConfig } from './config/env.js';
 import { createLogger } from './config/logger.js';
 import { createApiContainer } from './container.js';
 import { buildApp } from './controller/app.js';
+import { startReviewReminders } from './scheduler/review-reminder-scheduler.js';
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config);
@@ -9,6 +10,13 @@ async function main() {
   try {
     const app = await buildApp(container);
     app.addHook('onClose', () => container.close());
+    // Requests waiting for an agent's review are reminded about on a timer (after 2 days, then every 3).
+    const stopReminders = startReviewReminders(
+      container.connections,
+      [...new Set(Object.values(config.TENANT_HOSTS))],
+      logger,
+    );
+    app.addHook('onClose', () => stopReminders());
     let stopping = false;
     const stop = async () => {
       if (stopping) return;

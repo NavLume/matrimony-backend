@@ -37,25 +37,98 @@ export const connectionQueries = {
   pair: `SELECT ${CONNECTION} FROM matrimony.interests WHERE ${BETWEEN}`,
   byId: `SELECT ${CONNECTION} FROM matrimony.interests WHERE agency_id = $1 AND id = $2`,
 
-  // $1 agency, $2 from, $3 to, $4 who.
-  insert: `INSERT INTO matrimony.interests (agency_id, sender_profile_id, recipient_profile_id, initiated_by_account_id)
- VALUES ($1, $2, $3, $4) RETURNING id`,
+  // $1 agency, $2 from, $3 to, $4 who, $5 where it starts (in_review or pending), $6 the note or null.
+  insert: `INSERT INTO matrimony.interests (agency_id, sender_profile_id, recipient_profile_id, initiated_by_account_id,
+                                        status, note, review_started_at)
+ VALUES ($1, $2, $3, $4, $5::text, $6::text, CASE WHEN $5::text = 'in_review' THEN now() END) RETURNING id`,
 
-  // A withdrawn request asked again, by either side. $1 agency, $2 interest, $3 from, $4 to, $5 who.
+  // A withdrawn request asked again, by either side. $1 agency, $2 interest, $3 from, $4 to, $5 who,
+  // $6 where it starts, $7 the note or null. The review and reminder history starts again too.
   repend: `UPDATE matrimony.interests
-   SET sender_profile_id = $3, recipient_profile_id = $4, status = 'pending', initiated_by_account_id = $5,
-       responded_by_account_id = NULL, responded_at = NULL, sender_contact_consent_at = NULL,
-       recipient_contact_consent_at = NULL, created_at = now(), updated_at = now()
+   SET sender_profile_id = $3, recipient_profile_id = $4, status = $6::text, initiated_by_account_id = $5,
+       note = $7::text, responded_by_account_id = NULL, responded_at = NULL, sender_contact_consent_at = NULL,
+       recipient_contact_consent_at = NULL, reviewed_by_account_id = NULL, reviewed_at = NULL,
+       review_started_at = CASE WHEN $6::text = 'in_review' THEN now() END, reminders_sent = 0,
+       last_reminded_at = NULL, created_at = now(), updated_at = now()
  WHERE agency_id = $1 AND id = $2 AND status = 'withdrawn' RETURNING id`,
+
+  // $1 agency, $2 interest, $3 approve (true) or reject (false), $4 the reviewer. Only a request
+  // still waiting for review can be decided. A rejection ends it as declined, so the asker is told so.
+  reviewDecide: `UPDATE matrimony.interests
+   SET status = CASE WHEN $3::boolean THEN 'pending' ELSE 'declined' END::text,
+       reviewed_by_account_id = $4::uuid, reviewed_at = now(),
+       responded_by_account_id = CASE WHEN $3::boolean THEN NULL ELSE $4::uuid END,
+       responded_at = CASE WHEN $3::boolean THEN NULL ELSE now() END,
+       updated_at = now()
+ WHERE agency_id = $1 AND id = $2 AND status = 'in_review' RETURNING id`,
+
+  // $1 agency, $2 interest. A declined pair can be asked again, by either side.
+  reopen: `UPDATE matrimony.interests SET status = 'withdrawn', updated_at = now()
+ WHERE agency_id = $1 AND id = $2 AND status = 'declined' RETURNING id`,
+
+  // $1 agency. The admins, who review when nobody looks after the person asked.
+  admins: `SELECT id FROM matrimony.accounts WHERE agency_id = $1 AND role = 'admin' AND status = 'active'
+ ORDER BY id`,
+
+  /**
+   * $1 agency, $2 whether the reader is an admin, $3 the reader, $4 cursor time, $5 cursor id,
+   * $6 limit. Oldest first, so the request that has waited longest is on top. An admin sees every
+   * request; an agent only those for the clients assigned to them.
+   */
+  reviewQueue: `SELECT x.id AS connection_id, x.created_at, x.note, x.reminders_sent,
+       x.review_started_at, ${POSITION('x.review_started_at')} AS position,
+       a.id AS from_id, a.member_code AS from_code, a.full_name AS from_name,
+       to_char(a.date_of_birth, 'YYYY-MM-DD') AS from_dob, a.profession_code AS from_profession,
+       a.current_district_code AS from_district,
+       b.id AS to_id, b.member_code AS to_code, b.full_name AS to_name,
+       to_char(b.date_of_birth, 'YYYY-MM-DD') AS to_dob, b.profession_code AS to_profession,
+       b.current_district_code AS to_district
+  FROM matrimony.interests x
+  JOIN matrimony.member_profiles a ON a.agency_id = x.agency_id AND a.id = x.sender_profile_id
+  JOIN matrimony.member_profiles b ON b.agency_id = x.agency_id AND b.id = x.recipient_profile_id
+ WHERE x.agency_id = $1 AND x.status = 'in_review'
+   AND ($2::boolean OR b.assigned_agent_id = $3::uuid)
+   AND ($4::timestamptz IS NULL OR (x.review_started_at, x.id) > ($4::timestamptz, $5::uuid))
+ ORDER BY x.review_started_at ASC, x.id ASC
+ LIMIT $6`,
+
+  // $1 agency, $2 whether the reader is an admin, $3 the reader.
+  reviewCount: `SELECT count(*)::int AS total
+  FROM matrimony.interests x
+  JOIN matrimony.member_profiles b ON b.agency_id = x.agency_id AND b.id = x.recipient_profile_id
+ WHERE x.agency_id = $1 AND x.status = 'in_review'
+   AND ($2::boolean OR b.assigned_agent_id = $3::uuid)`,
+
+  /**
+   * $1 agency, $2 now, $3 the first reminder after (seconds), $4 each later one after (seconds),
+   * $5 limit. Requests whose next reminder is due, oldest first, with who looks after the person
+   * asked and the asker, so the reminder can say who. Locked so two job runs never remind twice.
+   */
+  dueReminders: `SELECT x.id, x.review_started_at, x.reminders_sent,
+       x.sender_profile_id AS from_profile_id, x.recipient_profile_id AS to_profile_id,
+       b.assigned_agent_id
+  FROM matrimony.interests x
+  JOIN matrimony.member_profiles b ON b.agency_id = x.agency_id AND b.id = x.recipient_profile_id
+ WHERE x.agency_id = $1 AND x.status = 'in_review'
+   AND CASE WHEN x.reminders_sent = 0
+            THEN x.review_started_at <= $2::timestamptz - make_interval(secs => $3::int)
+            ELSE x.last_reminded_at <= $2::timestamptz - make_interval(secs => $4::int) END
+ ORDER BY x.review_started_at ASC, x.id ASC
+ LIMIT $5
+ FOR UPDATE OF x SKIP LOCKED`,
+
+  // $1 agency, $2 interest, $3 now.
+  markReminded: `UPDATE matrimony.interests SET reminders_sent = reminders_sent + 1, last_reminded_at = $3::timestamptz
+ WHERE agency_id = $1 AND id = $2 AND status = 'in_review' RETURNING id`,
 
   // $1 agency, $2 interest, $3 accepted or declined, $4 who. Only a request still waiting can be answered.
   respond: `UPDATE matrimony.interests
    SET status = $3, responded_by_account_id = $4, responded_at = now(), updated_at = now()
  WHERE agency_id = $1 AND id = $2 AND status = 'pending' RETURNING id`,
 
-  // $1 agency, $2 interest, $3 the profile that asked.
+  // $1 agency, $2 interest, $3 the profile that asked. A request can be taken back while it waits for review too.
   withdraw: `UPDATE matrimony.interests SET status = 'withdrawn', updated_at = now()
- WHERE agency_id = $1 AND id = $2 AND status = 'pending' AND sender_profile_id = $3 RETURNING id`,
+ WHERE agency_id = $1 AND id = $2 AND status IN ('in_review', 'pending') AND sender_profile_id = $3 RETURNING id`,
 
   shareFrom: `UPDATE matrimony.interests SET sender_contact_consent_at = COALESCE(sender_contact_consent_at, now()), updated_at = now()
  WHERE agency_id = $1 AND id = $2 AND status = 'accepted' AND sender_profile_id = $3 RETURNING id`,
@@ -68,6 +141,7 @@ export const connectionQueries = {
 
   // $1 agency, $2 recipient, $3 cursor time, $4 cursor id, $5 limit, $6 whether the recipient may see names.
   notifications: `SELECT n.id, n.template_key, n.payload, n.created_at, ${POSITION('n.created_at')} AS position,
+       (n.read_at IS NOT NULL) AS is_read,
        m.id AS about_profile_id, m.member_code, CASE WHEN $6::boolean THEN m.full_name END AS full_name
   FROM matrimony.notifications n
   JOIN matrimony.member_profiles m ON m.agency_id = n.agency_id AND m.id = (n.payload->>'aboutProfileId')::uuid
@@ -76,6 +150,17 @@ export const connectionQueries = {
    AND ($3::timestamptz IS NULL OR (n.created_at, n.id) < ($3::timestamptz, $4::uuid))
  ORDER BY n.created_at DESC, n.id DESC
  LIMIT $5`,
+
+  // $1 agency, $2 recipient. The same lines the inbox lists, so the count matches what is shown.
+  unreadCount: `SELECT count(*)::int AS unread FROM matrimony.notifications
+ WHERE agency_id = $1 AND recipient_account_id = $2 AND read_at IS NULL AND template_key LIKE 'interest.%'`,
+
+  // $1 agency, $2 recipient, $3 the lines to mark, or null for every unread line. Only the
+  // recipient's own, and only the ones not read yet, so a repeat changes nothing.
+  markRead: `UPDATE matrimony.notifications SET read_at = now()
+ WHERE agency_id = $1 AND recipient_account_id = $2 AND read_at IS NULL
+   AND template_key LIKE 'interest.%' AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
+ RETURNING id`,
 
   /**
    * $1 agency, $2 the viewer's profile, $3 the box, $4 cursor time, $5 cursor id, $6 limit. The
@@ -87,13 +172,14 @@ export const connectionQueries = {
        (x.sender_profile_id = $2) AS connection_sent,
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared,
        (x.recipient_contact_consent_at IS NOT NULL) AS to_shared, x.created_at, x.responded_at,
+       CASE WHEN x.recipient_profile_id = $2 THEN x.note END AS note,
        ${POSITION('x.updated_at')} AS position, m.id, m.member_code${selectionFor(visible)}
   FROM matrimony.interests x
   JOIN matrimony.member_profiles m ON m.agency_id = x.agency_id
    AND m.id = CASE WHEN x.sender_profile_id = $2 THEN x.recipient_profile_id ELSE x.sender_profile_id END
  WHERE x.agency_id = $1 AND (x.sender_profile_id = $2 OR x.recipient_profile_id = $2) AND m.status = 'active'
    AND (($3 = 'received' AND x.status = 'pending' AND x.recipient_profile_id = $2)
-     OR ($3 = 'sent' AND x.status = 'pending' AND x.sender_profile_id = $2)
+     OR ($3 = 'sent' AND x.status IN ('in_review', 'pending') AND x.sender_profile_id = $2)
      OR ($3 = 'connected' AND x.status = 'accepted'))
    AND ($4::timestamptz IS NULL OR (x.updated_at, x.id) < ($4::timestamptz, $5::uuid))
  ORDER BY x.updated_at DESC, x.id DESC

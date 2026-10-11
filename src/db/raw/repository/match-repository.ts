@@ -102,6 +102,7 @@ export class MatchRepository {
         respondedAt: row.responded_at ? (row.responded_at as Date).toISOString() : null,
         iShared: link!.iShared,
         theyShared: link!.theyShared,
+        note: (row.note as string | null) ?? null,
         position: row.position as string,
         profile: item,
       };

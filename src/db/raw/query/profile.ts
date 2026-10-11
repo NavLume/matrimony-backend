@@ -57,6 +57,30 @@ export const profileQueries = {
  WHERE agency_id = $1 AND id = $2`,
   updateStatus: `UPDATE matrimony.member_profiles SET status = $3 WHERE agency_id = $1 AND id = $2`,
 
+  /**
+   * A profile that is no longer published (matched, paused or closed) takes every request that is
+   * still waiting, to or from it, out of play: they become withdrawn. Each person who had asked it is
+   * told, in their inbox (or their agent is, for a client with no login). $1 agency, $2 the profile,
+   * $3 the inbox template: interest.matched or interest.unavailable. Returns the requests withdrawn.
+   */
+  withdrawOpenRequests: `WITH gone AS (
+    UPDATE matrimony.interests SET status = 'withdrawn', updated_at = now()
+     WHERE agency_id = $1 AND status IN ('in_review', 'pending')
+       AND (sender_profile_id = $2 OR recipient_profile_id = $2)
+    RETURNING id, sender_profile_id, recipient_profile_id
+  ), told AS (
+    INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+    SELECT $1, CASE WHEN s.service_mode = 'self_service' THEN s.owner_account_id ELSE s.assigned_agent_id END,
+           'withdrawn-with-profile:' || g.id::text || ':' || gen_random_uuid()::text, $3::text,
+           jsonb_build_object('interestId', g.id, 'forProfileId', s.id, 'aboutProfileId', $2::uuid)
+      FROM gone g
+      JOIN matrimony.member_profiles s ON s.agency_id = $1 AND s.id = g.sender_profile_id
+     WHERE g.recipient_profile_id = $2
+       AND CASE WHEN s.service_mode = 'self_service' THEN s.owner_account_id ELSE s.assigned_agent_id END IS NOT NULL
+    RETURNING 1
+  )
+  SELECT (SELECT count(*) FROM gone)::int AS withdrawn`,
+
   contact: `SELECT ${selectList(CONTACT_COLUMNS)} FROM matrimony.profile_contacts WHERE agency_id = $1 AND profile_id = $2`,
   upsertContact: `INSERT INTO matrimony.profile_contacts (agency_id, profile_id, ${names(CONTACT_COLUMNS)})
  VALUES ($1, $2, ${marks(CONTACT_COLUMNS, 3)})

@@ -9,6 +9,8 @@ import {
   type NotificationPage,
   type NotificationQuery,
   type ProfileLite,
+  type ReviewQueuePage,
+  type ReviewQueueQuery,
   type SendResult,
   type StaffConnectionRow,
 } from '../bo/connection.js';
@@ -22,14 +24,31 @@ import type { ProfileActor } from './profile-service.js';
 type EventType = Extract<
   WorkflowEvent['type'],
   | 'interest.requested'
+  | 'interest.review_approved'
+  | 'interest.review_rejected'
+  | 'interest.reopened'
+  | 'interest.review_reminded'
   | 'interest.accepted'
   | 'interest.declined'
   | 'interest.withdrawn'
   | 'interest.contact_shared'
 >;
 
+/** The first reminder for a request waiting for review comes after 2 days, each later one after 3. */
+export const FIRST_REMINDER_SECONDS = 2 * 24 * 3600;
+export const NEXT_REMINDER_SECONDS = 3 * 24 * 3600;
+/** From this many reminders sent (so the third, about a week in) the admins are told as well. */
+const ADMINS_FROM_REMINDER = 2;
+const REMINDER_BATCH = 100;
+
 /**
  * Connection requests and the inbox (slice 3.F, docs/features/discovery-loop.md).
+ *
+ * Since slice 3.H a request to a member who has a login first waits for review: the agent who looks
+ * after the person asked (an admin when nobody does) approves it, and only then does the person see
+ * it. Rejecting ends it as declined, which is what the asker is told. A client with no login (an
+ * assisted client) is answered for by their agent anyway, so for them the request goes straight to
+ * the agent without a separate review step.
  *
  * - Only a member with a published profile asks, and only someone in their released window. Anything
  *   else is reported as not found, so a profile outside the window is never confirmed to exist.
@@ -51,7 +70,12 @@ export class ConnectionService {
   ) {}
 
   /** A member asks to connect with someone in their window. */
-  async send(actor: ProfileActor, candidateId: string, correlationId: string): Promise<SendResult> {
+  async send(
+    actor: ProfileActor,
+    candidateId: string,
+    correlationId: string,
+    note: string | null = null,
+  ): Promise<SendResult> {
     this.requireMember(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const own = await this.publishedOwn(unit, actor);
@@ -63,27 +87,44 @@ export class ConnectionService {
         throw new AppError(404, 'PROFILE_NOT_FOUND');
       }
 
+      // A person with a login is reached only after their agent has reviewed the request. A client
+      // with no login is answered for by the agent, so the request goes straight to the agent.
+      const start: 'in_review' | 'pending' =
+        them.serviceMode === 'assisted' ? 'pending' : 'in_review';
       const existing = await unit.pair(actor.agencyId, me.id, them.id);
       if (!existing) {
-        const id = await unit.insert(actor.agencyId, me.id, them.id, actor.accountId);
-        await this.tell(unit, actor.agencyId, 'connection_request', id, them, me);
+        const id = await unit.insert(actor.agencyId, me.id, them.id, actor.accountId, start, note);
+        await this.announce(unit, actor.agencyId, start, id, them, me);
         await unit.appendEvent(this.event('interest.requested', actor, id, correlationId));
-        return { outcome: 'requested', connectionId: id, status: 'pending' };
+        return { outcome: 'requested', connectionId: id, status: start };
       }
       if (existing.status === 'declined') throw new AppError(409, 'CONNECTION_DECLINED');
       if (existing.status === 'accepted') {
         return { outcome: 'unchanged', connectionId: existing.id, status: 'accepted' };
       }
       if (existing.status === 'withdrawn') {
-        await unit.repend(actor.agencyId, existing.id, me.id, them.id, actor.accountId);
-        await this.tell(unit, actor.agencyId, 'connection_request', existing.id, them, me);
+        await unit.repend(
+          actor.agencyId,
+          existing.id,
+          me.id,
+          them.id,
+          actor.accountId,
+          start,
+          note,
+        );
+        await this.announce(unit, actor.agencyId, start, existing.id, them, me);
         await unit.appendEvent(this.event('interest.requested', actor, existing.id, correlationId));
-        return { outcome: 'requested', connectionId: existing.id, status: 'pending' };
+        return { outcome: 'requested', connectionId: existing.id, status: start };
       }
-      // Pending. Their request to me and mine to them meet: that is an accepted connection.
+      // Waiting, from me: asking again changes nothing.
       if (existing.fromProfileId === me.id) {
-        return { outcome: 'unchanged', connectionId: existing.id, status: 'pending' };
+        return { outcome: 'unchanged', connectionId: existing.id, status: existing.status };
       }
+      // Waiting for review, from them: it is not mine to approve, and not theirs to see yet.
+      if (existing.status === 'in_review') {
+        return { outcome: 'unchanged', connectionId: existing.id, status: 'in_review' };
+      }
+      // Pending from them: their request to me and mine to them meet, which is an accepted connection.
       await unit.respond(actor.agencyId, existing.id, 'accepted', actor.accountId);
       await this.tell(unit, actor.agencyId, 'connection_accepted', existing.id, them, me);
       await this.tell(unit, actor.agencyId, 'connection_accepted', existing.id, me, them);
@@ -191,6 +232,23 @@ export class ConnectionService {
     });
   }
 
+  /** How many inbox lines the account has not read yet. */
+  async unreadCount(actor: ProfileActor): Promise<number> {
+    return this.db.inTransaction(actor.agencyId, (unit) =>
+      unit.unreadCount(actor.agencyId, actor.accountId),
+    );
+  }
+
+  /**
+   * Marks the given lines, or all unread ones, as read. A line that is not the account's own, or
+   * already read, is simply not touched; asking again is harmless.
+   */
+  async markRead(actor: ProfileActor, ids: readonly string[] | null): Promise<void> {
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      await unit.markRead(actor.agencyId, actor.accountId, ids);
+    });
+  }
+
   // ---- staff, for the clients they look after -----------------------------------------------
 
   /** Every connection of a client, for the staff who look after them. */
@@ -228,6 +286,155 @@ export class ConnectionService {
     await this.db.inTransaction(actor.agencyId, async (unit) => {
       await this.managed(unit, actor, clientId, true);
       await this.share(unit, actor, clientId, connectionId, correlationId);
+    });
+  }
+
+  // ---- review ---------------------------------------------------------------------------------
+
+  /** Requests waiting for this staff member's review: an admin's are all of them, an agent's their clients'. */
+  async reviewQueue(actor: ProfileActor, query: ReviewQueueQuery): Promise<ReviewQueuePage> {
+    this.requireStaff(actor);
+    const after = query.after ? decodeCursor(query.after) : null;
+    if (query.after && !after) throw new AppError(400, 'INVALID_REQUEST');
+    const reader = { accountId: actor.accountId, isAdmin: actor.role === 'admin' };
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const rows = await unit.reviewQueue(
+        actor.agencyId,
+        reader,
+        { limit: query.limit, after },
+        this.now(),
+      );
+      const items = rows.slice(0, query.limit);
+      const last = items.at(-1);
+      return {
+        items,
+        next:
+          rows.length > query.limit && last
+            ? encodeCursor({ createdAt: last.position, id: last.connectionId })
+            : null,
+        total: await unit.reviewCount(actor.agencyId, reader),
+      };
+    });
+  }
+
+  /**
+   * Approve a request (the person asked then sees it) or reject it (the asker is told it was
+   * declined, and the pair is declined until staff reopen it). Only the agent who looks after the
+   * person asked, or an admin, decides.
+   */
+  async review(
+    actor: ProfileActor,
+    connectionId: string,
+    approve: boolean,
+    correlationId: string,
+  ): Promise<void> {
+    this.requireStaff(actor);
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const first = await unit.byId(actor.agencyId, connectionId);
+      if (!first) throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      const [client] = await unit.readProfiles(actor.agencyId, [first.toProfileId]);
+      if (!client || !canManage(actor, client)) throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      const { connection, profiles } = await this.lockedParty(
+        unit,
+        actor.agencyId,
+        first.toProfileId,
+        connectionId,
+      );
+      if (!(await unit.reviewDecide(actor.agencyId, connection.id, approve, actor.accountId))) {
+        throw new AppError(409, 'CONNECTION_NOT_IN_REVIEW');
+      }
+      const asker = profiles.find((p) => p.id === connection.fromProfileId);
+      const asked = profiles.find((p) => p.id === connection.toProfileId);
+      if (asker && asked) {
+        if (approve) {
+          await this.tell(unit, actor.agencyId, 'connection_request', connection.id, asked, asker);
+        } else {
+          await this.tell(unit, actor.agencyId, 'connection_declined', connection.id, asker, asked);
+        }
+      }
+      await unit.appendEvent(
+        this.event(
+          approve ? 'interest.review_approved' : 'interest.review_rejected',
+          actor,
+          connection.id,
+          correlationId,
+        ),
+      );
+    });
+  }
+
+  /**
+   * Staff open a declined pair again, so either side can ask. Not the members: a decline stays
+   * final for them. Staff who look after either side may do it.
+   */
+  async reopen(actor: ProfileActor, connectionId: string, correlationId: string): Promise<void> {
+    this.requireStaff(actor);
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const first = await unit.byId(actor.agencyId, connectionId);
+      if (!first) throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      const sides = await unit.readProfiles(actor.agencyId, [
+        first.fromProfileId,
+        first.toProfileId,
+      ]);
+      if (!sides.some((p) => canManage(actor, p))) {
+        throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      }
+      await unit.lockProfiles(actor.agencyId, [first.fromProfileId, first.toProfileId]);
+      if (!(await unit.reopen(actor.agencyId, connectionId))) {
+        throw new AppError(409, 'CONNECTION_NOT_DECLINED');
+      }
+      await unit.appendEvent(this.event('interest.reopened', actor, connectionId, correlationId));
+    });
+  }
+
+  /**
+   * Reminds whoever must review the requests that have waited too long: the first reminder after 2
+   * days, then every 3. The agent who looks after the person asked is reminded, or the admins when
+   * nobody does; from the third reminder on (about a week) the admins are told as well. Run by a
+   * timer, once for an agency at a time. Returns how many requests were reminded about.
+   */
+  async remindStale(agencyId: string, correlationId: string): Promise<number> {
+    return this.db.inTransaction(agencyId, async (unit) => {
+      const now = this.now();
+      const due = await unit.dueReminders(
+        agencyId,
+        now,
+        FIRST_REMINDER_SECONDS,
+        NEXT_REMINDER_SECONDS,
+        REMINDER_BATCH,
+      );
+      if (due.length === 0) return 0;
+      const admins = await unit.admins(agencyId);
+      for (const request of due) {
+        const reviewers = new Set<string>();
+        if (request.assignedAgentId) reviewers.add(request.assignedAgentId);
+        if (!request.assignedAgentId || request.remindersSent >= ADMINS_FROM_REMINDER) {
+          for (const admin of admins) reviewers.add(admin);
+        }
+        for (const account of reviewers) {
+          await unit.notify(
+            agencyId,
+            account,
+            'connection_review_reminder',
+            request.id,
+            request.toProfileId,
+            request.fromProfileId,
+            `connection_review_reminder:${request.id}:${request.remindersSent + 1}:${account}`,
+          );
+        }
+        await unit.markReminded(agencyId, request.id, now);
+        await unit.appendEvent({
+          id: randomUUID(),
+          agencyId,
+          actorId: null,
+          type: 'interest.review_reminded',
+          version: 1,
+          occurredAt: now.toISOString(),
+          correlationId,
+          subjectId: request.id,
+        });
+      }
+      return due.length;
     });
   }
 
@@ -322,6 +529,41 @@ export class ConnectionService {
     const connection = await unit.byId(agencyId, connectionId);
     if (!connection) throw new AppError(404, 'CONNECTION_NOT_FOUND');
     return { connection, profiles };
+  }
+
+  /**
+   * Tells the right people about a new request. One that starts in review goes to the agent who
+   * looks after the person asked, or to the admins when nobody does. One that starts pending goes to
+   * the person asked, or for a client with no login to their agent; with no agent either, the
+   * admins, so a request is never left with nobody.
+   */
+  private async announce(
+    unit: ConnectionUnit,
+    agencyId: string,
+    start: 'in_review' | 'pending',
+    connectionId: string,
+    recipient: ProfileLite,
+    about: ProfileLite,
+  ) {
+    if (start === 'pending' && recipientOf(recipient)) {
+      return this.tell(unit, agencyId, 'connection_request', connectionId, recipient, about);
+    }
+    const kind: NotificationKind =
+      start === 'in_review' ? 'connection_review' : 'connection_request';
+    const accounts = recipient.assignedAgentId
+      ? [recipient.assignedAgentId]
+      : await unit.admins(agencyId);
+    for (const account of accounts) {
+      await unit.notify(
+        agencyId,
+        account,
+        kind,
+        connectionId,
+        recipient.id,
+        about.id,
+        `${kind}:${connectionId}:${randomUUID()}`,
+      );
+    }
   }
 
   /** Tells whoever looks after `recipient` that something happened with `about`. */

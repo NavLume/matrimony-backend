@@ -131,6 +131,24 @@ export class ProfileRepository {
     await tx.query(profileQueries.updateStatus, [agencyId, profileId, status]);
   }
 
+  /**
+   * Withdraws every request still waiting to or from the profile, and tells the people who had asked
+   * it. `matched` says it matched with another participant; `unavailable` that it is not available.
+   */
+  async withdrawOpenRequests(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+    reason: 'matched' | 'unavailable',
+  ): Promise<number> {
+    const result = await tx.query(profileQueries.withdrawOpenRequests, [
+      agencyId,
+      profileId,
+      reason === 'matched' ? 'interest.matched' : 'interest.unavailable',
+    ]);
+    return (result.rows[0]?.withdrawn as number | undefined) ?? 0;
+  }
+
   async insertReview(
     tx: Transaction,
     agencyId: string,

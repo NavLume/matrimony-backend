@@ -1,6 +1,7 @@
 import type {
   ConnectionPage,
   NotificationPage,
+  ReviewQueuePage,
   SendResult,
   StaffConnectionRow,
 } from '../bo/connection.js';
@@ -21,6 +22,7 @@ export const connectionPageResponse = (page: ConnectionPage) => ({
     respondedAt: row.respondedAt,
     iSharedContact: row.iShared,
     theySharedContact: row.theyShared,
+    note: row.note,
     profile: matchItemResponse(row.profile),
   })),
   next: page.next,
@@ -31,6 +33,7 @@ export const notificationPageResponse = (page: NotificationPage) => ({
     id: n.id,
     kind: n.kind,
     createdAt: n.createdAt,
+    read: n.read,
     connectionId: n.connectionId,
     forProfileId: n.forProfileId,
     about: {
@@ -62,4 +65,19 @@ export const staffConnectionsResponse = (rows: StaffConnectionRow[]) => ({
       serviceMode: row.other.serviceMode,
     },
   })),
+});
+
+/** The requests waiting for a staff member's review, with who asked and the note. */
+export const reviewQueueResponse = (page: ReviewQueuePage) => ({
+  items: page.items.map((row) => ({
+    connectionId: row.connectionId,
+    createdAt: row.createdAt,
+    waitingSince: row.waitingSince,
+    remindersSent: row.remindersSent,
+    note: row.note,
+    asker: row.asker,
+    client: row.client,
+  })),
+  next: page.next,
+  total: page.total,
 });

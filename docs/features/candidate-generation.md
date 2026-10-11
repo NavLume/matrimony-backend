@@ -25,7 +25,7 @@ A profile is a candidate for a client only if all of these hold:
 1. Same agency (also enforced by row-level security).
 2. Its status is `active`, so it is approved and published. Drafts, waiting, rejected, paused, matched and closed profiles are never proposed.
 3. It is not the client's own profile.
-4. Its gender is different from the client's. *(Assumption, to confirm.)*
+4. Its gender is different from the client's. _(Assumption, to confirm.)_
 5. It has not already been proposed, released or removed for this client. A candidate staff removed never comes back.
 
 Matching reads only **published** content, never a pending edit.
@@ -34,18 +34,18 @@ Matching reads only **published** content, never a pending edit.
 
 Each preference the client stated is one **criterion**. An empty preference means "does not matter" and is not a criterion. The score is the number of criteria the candidate meets out of the criteria stated, and the saved result lists which were met, not met and unknown, so staff can see why a profile was proposed.
 
-| Preference | Candidate meets it when |
-| --- | --- |
-| Age range | age on today's date is within the range |
-| Height range | height is within the range |
-| Religion, sect, marital status | the candidate's value is in the list |
-| Minimum education | the candidate's highest degree is at or above it (the list is ordered) |
-| Occupation type, profession | the candidate's value is in the list |
-| Districts | current district is in the list |
-| Income range | the candidate's income band is within the range |
-| Minimum family status | at or above it |
-| Religious practice, diet, smoking, children, relocation | the candidate's value is in the list |
-| **Complexion** | **ignored: never a criterion** (owner's decision) |
+| Preference                                              | Candidate meets it when                                                |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Age range                                               | age on today's date is within the range                                |
+| Height range                                            | height is within the range                                             |
+| Religion, sect, marital status                          | the candidate's value is in the list                                   |
+| Minimum education                                       | the candidate's highest degree is at or above it (the list is ordered) |
+| Occupation type, profession                             | the candidate's value is in the list                                   |
+| Districts                                               | current district is in the list                                        |
+| Income range                                            | the candidate's income band is within the range                        |
+| Minimum family status                                   | at or above it                                                         |
+| Religious practice, diet, smoking, children, relocation | the candidate's value is in the list                                   |
+| **Complexion**                                          | **ignored: never a criterion** (owner's decision)                      |
 
 A criterion the candidate has not answered is **unknown**: it neither counts as met nor excludes the profile, and staff see it marked unknown.
 

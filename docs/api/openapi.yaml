@@ -1638,22 +1638,71 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - { name: q, in: query, description: A member code, schema: { type: string, maxLength: 20 } }
+        - {
+            name: q,
+            in: query,
+            description: A member code,
+            schema: { type: string, maxLength: 20 },
+          }
         - { name: ageMin, in: query, schema: { type: integer, minimum: 18, maximum: 100 } }
         - { name: ageMax, in: query, schema: { type: integer, minimum: 18, maximum: 100 } }
         - { name: religion, in: query, schema: { $ref: '#/components/schemas/Religion' } }
         - { name: maritalStatus, in: query, schema: { $ref: '#/components/schemas/MaritalStatus' } }
         - { name: profession, in: query, schema: { $ref: '#/components/schemas/Profession' } }
         - { name: district, in: query, schema: { $ref: '#/components/schemas/District' } }
-        - { name: educationMin, in: query, description: The lowest education level wanted, schema: { $ref: '#/components/schemas/EducationLevel' } }
-        - { name: heightMin, in: query, description: Advanced search, schema: { type: integer, minimum: 100, maximum: 250 } }
-        - { name: heightMax, in: query, description: Advanced search, schema: { type: integer, minimum: 100, maximum: 250 } }
-        - { name: incomeMin, in: query, description: Advanced search, schema: { $ref: '#/components/schemas/IncomeBand' } }
-        - { name: incomeMax, in: query, description: Advanced search, schema: { $ref: '#/components/schemas/IncomeBand' } }
-        - { name: familyStatusMin, in: query, description: Advanced search, schema: { $ref: '#/components/schemas/FamilyStatus' } }
-        - { name: originDistrict, in: query, description: Advanced search, schema: { $ref: '#/components/schemas/District' } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
-        - { name: after, in: query, description: The next value of the previous page, schema: { type: string } }
+        - {
+            name: educationMin,
+            in: query,
+            description: The lowest education level wanted,
+            schema: { $ref: '#/components/schemas/EducationLevel' },
+          }
+        - {
+            name: heightMin,
+            in: query,
+            description: Advanced search,
+            schema: { type: integer, minimum: 100, maximum: 250 },
+          }
+        - {
+            name: heightMax,
+            in: query,
+            description: Advanced search,
+            schema: { type: integer, minimum: 100, maximum: 250 },
+          }
+        - {
+            name: incomeMin,
+            in: query,
+            description: Advanced search,
+            schema: { $ref: '#/components/schemas/IncomeBand' },
+          }
+        - {
+            name: incomeMax,
+            in: query,
+            description: Advanced search,
+            schema: { $ref: '#/components/schemas/IncomeBand' },
+          }
+        - {
+            name: familyStatusMin,
+            in: query,
+            description: Advanced search,
+            schema: { $ref: '#/components/schemas/FamilyStatus' },
+          }
+        - {
+            name: originDistrict,
+            in: query,
+            description: Advanced search,
+            schema: { $ref: '#/components/schemas/District' },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 20 },
+          }
+        - {
+            name: after,
+            in: query,
+            description: The next value of the previous page,
+            schema: { type: string },
+          }
       responses:
         '200':
           description: One page of matches.
@@ -1728,8 +1777,11 @@ paths:
         A member with a published profile asks someone in their released window. There is one connection
         per pair: asking again while waiting changes nothing, and two people asking each other end as one
         accepted connection (outcome accepted, both are told). A declined pair stays declined. A
-        withdrawn request can be asked again. The person asked is told in their inbox; a client with no
-        login is answered for by the agent who looks after them.
+        withdrawn request can be asked again. A request to a member with a login first waits for review
+        (status in_review): the agent who looks after the person asked, or an admin when nobody does,
+        approves it, and only then is the person asked told. A client with no login is answered for by
+        the agent who looks after them, so for them the request goes straight to the agent. A short
+        note (at most 300 characters and 40 words) may travel with the request.
       security:
         - bearerAuth: []
       requestBody:
@@ -1765,8 +1817,16 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - { name: box, in: query, schema: { type: string, enum: [received, sent, connected], default: received } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - {
+            name: box,
+            in: query,
+            schema: { type: string, enum: [received, sent, connected], default: received },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 20 },
+          }
         - { name: after, in: query, schema: { type: string } }
       responses:
         '200':
@@ -1862,11 +1922,15 @@ paths:
       summary: My inbox
       description: |
         Newest first. For a member, what happened to them. For staff, what happened to the clients they
-        look after. A name is present only if the member may see names. There is no read or unread state.
+        look after. A name is present only if the member may see names. Each line says whether it was read.
       security:
         - bearerAuth: []
       parameters:
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 20 },
+          }
         - { name: after, in: query, schema: { type: string } }
       responses:
         '200':
@@ -1877,6 +1941,140 @@ paths:
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
         '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/notifications/unread-count:
+    get:
+      tags: [Connections]
+      summary: Unread inbox count
+      description: How many lines of my inbox I have not read. Cheap enough to ask every few seconds.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The count.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [unread]
+                properties:
+                  unread: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/notifications/read:
+    post:
+      tags: [Connections]
+      summary: Mark inbox lines as read
+      description: |
+        With `ids`, marks those lines; without, every unread line. Lines that are not mine or are
+        already read are left alone, so repeating the call is harmless.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+      responses:
+        '204': { description: Marked. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/connection-reviews:
+    get:
+      tags: [Connections]
+      summary: Requests waiting for my review
+      description: |
+        Requests to members with a login that wait for review, longest waiting first. An admin sees
+        every request; an agent only those for the clients assigned to them. `total` is how many wait in
+        all, for the badge. The first reminder goes out after 2 days, each later one every 3.
+      security:
+        - bearerAuth: []
+      parameters:
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 20 },
+          }
+        - { name: after, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewRequestPage' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/connections/{connectionId}/review:
+    post:
+      tags: [Connections]
+      summary: Approve or reject a request
+      description: |
+        Approving shows the request to the person asked. Rejecting ends it as declined, which is what
+        the asker is told. Only the agent who looks after the person asked, or an admin.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+      responses:
+        '204': { description: Decided. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'CONNECTION_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409':
+          {
+            description: 'CONNECTION_NOT_IN_REVIEW: already decided or taken back.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/connections/{connectionId}/reopen:
+    post:
+      tags: [Connections]
+      summary: Reopen a declined pair
+      description: |
+        Makes a declined pair one that either side can ask again. Not available to members: a decline
+        is final for them. Staff who look after either side.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Reopened. }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'CONNECTION_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409':
+          {
+            description: 'CONNECTION_NOT_DECLINED.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
   /api/v1/staff/clients/{profileId}/connections:
     get:
       tags: [Clients]
@@ -2005,7 +2203,11 @@ paths:
       parameters:
         - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: state, in: query, schema: { $ref: '#/components/schemas/CandidateState' } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 100 },
+          }
       responses:
         '200':
           description: The candidates.
@@ -3161,8 +3363,25 @@ components:
       type: object
       additionalProperties: false
       required:
-        [candidateId, memberCode, fullName, age, professionCode, occupationCode, currentDistrictCode,
-         religionCode, maritalStatus, profileStatus, state, met, unmet, unknown, forward, reverse, proposedAt]
+        [
+          candidateId,
+          memberCode,
+          fullName,
+          age,
+          professionCode,
+          occupationCode,
+          currentDistrictCode,
+          religionCode,
+          maritalStatus,
+          profileStatus,
+          state,
+          met,
+          unmet,
+          unknown,
+          forward,
+          reverse,
+          proposedAt,
+        ]
       properties:
         candidateId: { type: string, format: uuid }
         memberCode: { type: string }
@@ -3217,7 +3436,8 @@ components:
         visibleFields:
           type: array
           items: { $ref: '#/components/schemas/VisibleField' }
-        releasedCount: { type: integer, description: How many profiles are in the client's window now. }
+        releasedCount:
+          { type: integer, description: How many profiles are in the client's window now. }
         isDefault: { type: boolean, description: True when staff have not set anything yet. }
     ReleaseSettingsInput:
       type: object
@@ -3266,10 +3486,13 @@ components:
         heightCm: { type: [integer, 'null'] }
         maritalStatus: { anyOf: [{ $ref: '#/components/schemas/MaritalStatus' }, { type: 'null' }] }
         religionCode: { anyOf: [{ $ref: '#/components/schemas/Religion' }, { type: 'null' }] }
-        currentDistrictCode: { anyOf: [{ $ref: '#/components/schemas/District' }, { type: 'null' }] }
+        currentDistrictCode:
+          { anyOf: [{ $ref: '#/components/schemas/District' }, { type: 'null' }] }
         originDistrictCode: { anyOf: [{ $ref: '#/components/schemas/District' }, { type: 'null' }] }
-        monthlyIncomeBandCode: { anyOf: [{ $ref: '#/components/schemas/IncomeBand' }, { type: 'null' }] }
-        familyStatusCode: { anyOf: [{ $ref: '#/components/schemas/FamilyStatus' }, { type: 'null' }] }
+        monthlyIncomeBandCode:
+          { anyOf: [{ $ref: '#/components/schemas/IncomeBand' }, { type: 'null' }] }
+        familyStatusCode:
+          { anyOf: [{ $ref: '#/components/schemas/FamilyStatus' }, { type: 'null' }] }
         hobbies: { type: [string, 'null'] }
         connection:
           anyOf: [{ $ref: '#/components/schemas/ConnectionSummary' }, { type: 'null' }]
@@ -3280,8 +3503,13 @@ components:
       required: [id, status, direction]
       properties:
         id: { type: string, format: uuid }
-        status: { type: string, enum: [pending, accepted, declined, withdrawn] }
-        direction: { type: string, enum: [sent, received], description: 'sent: I asked. received: they asked.' }
+        status: { type: string, enum: [in_review, pending, accepted, declined, withdrawn] }
+        direction:
+          {
+            type: string,
+            enum: [sent, received],
+            description: 'sent: I asked. received: they asked.',
+          }
     ProfileDetail:
       type: object
       additionalProperties: false
@@ -3295,7 +3523,7 @@ components:
               required: [id, status, direction, iSharedContact, theySharedContact]
               properties:
                 id: { type: string, format: uuid }
-                status: { type: string, enum: [pending, accepted, declined, withdrawn] }
+                status: { type: string, enum: [in_review, pending, accepted, declined, withdrawn] }
                 direction: { type: string, enum: [sent, received] }
                 iSharedContact: { type: boolean }
                 theySharedContact: { type: boolean }
@@ -3319,6 +3547,13 @@ components:
       required: [candidateId]
       properties:
         candidateId: { type: string, format: uuid }
+        note:
+          {
+            type: string,
+            minLength: 1,
+            maxLength: 300,
+            description: At most 40 words. Shown to the person asked once the request is approved.,
+          }
     ConnectionResponseInput:
       type: object
       additionalProperties: false
@@ -3332,19 +3567,35 @@ components:
       properties:
         outcome: { type: string, enum: [requested, accepted, unchanged] }
         connectionId: { type: string, format: uuid }
-        status: { type: string, enum: [pending, accepted, declined, withdrawn] }
+        status: { type: string, enum: [in_review, pending, accepted, declined, withdrawn] }
     ConnectionRow:
       type: object
       additionalProperties: false
-      required: [connectionId, status, direction, createdAt, respondedAt, iSharedContact, theySharedContact, profile]
+      required:
+        [
+          connectionId,
+          status,
+          direction,
+          createdAt,
+          respondedAt,
+          iSharedContact,
+          theySharedContact,
+          note,
+          profile,
+        ]
       properties:
         connectionId: { type: string, format: uuid }
-        status: { type: string, enum: [pending, accepted, declined, withdrawn] }
+        status: { type: string, enum: [in_review, pending, accepted, declined, withdrawn] }
         direction: { type: string, enum: [sent, received] }
         createdAt: { type: string, format: date-time }
         respondedAt: { type: [string, 'null'], format: date-time }
         iSharedContact: { type: boolean }
         theySharedContact: { type: boolean }
+        note:
+          {
+            type: [string, 'null'],
+            description: The note the asker added. Present only for the person asked.,
+          }
         profile: { $ref: '#/components/schemas/MatchItem' }
     ConnectionPage:
       type: object
@@ -3353,16 +3604,66 @@ components:
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ConnectionRow' } }
         next: { type: [string, 'null'] }
+    ReviewParty:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName, age, professionCode, currentDistrictCode]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        age: { type: [integer, 'null'] }
+        professionCode: { type: [string, 'null'] }
+        currentDistrictCode: { type: [string, 'null'] }
+    ReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [connectionId, createdAt, waitingSince, remindersSent, note, asker, client]
+      properties:
+        connectionId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        waitingSince: { type: string, format: date-time }
+        remindersSent: { type: integer, minimum: 0 }
+        note: { type: [string, 'null'] }
+        asker: { $ref: '#/components/schemas/ReviewParty' }
+        client: { $ref: '#/components/schemas/ReviewParty' }
+    ReviewRequestPage:
+      type: object
+      additionalProperties: false
+      required: [items, next, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ReviewRequest' } }
+        next: { type: [string, 'null'] }
+        total: { type: integer, minimum: 0 }
     NotificationItem:
       type: object
       additionalProperties: false
-      required: [id, kind, createdAt, connectionId, forProfileId, about]
+      required: [id, kind, createdAt, read, connectionId, forProfileId, about]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [connection_request, connection_accepted, connection_declined] }
+        kind:
+          {
+            type: string,
+            enum:
+              [
+                connection_request,
+                connection_accepted,
+                connection_declined,
+                connection_review,
+                connection_review_reminder,
+                connection_matched,
+                connection_unavailable,
+              ],
+          }
         createdAt: { type: string, format: date-time }
+        read: { type: boolean, description: The recipient has read this line. }
         connectionId: { type: string, format: uuid }
-        forProfileId: { type: string, format: uuid, description: "The profile this is about for the recipient: their own, or the client they look after." }
+        forProfileId:
+          {
+            type: string,
+            format: uuid,
+            description: 'The profile this is about for the recipient: their own, or the client they look after.',
+          }
         about:
           type: object
           additionalProperties: false
@@ -3370,7 +3671,8 @@ components:
           properties:
             profileId: { type: string, format: uuid }
             memberCode: { type: string }
-            fullName: { type: [string, 'null'], description: Null when the recipient may not see names. }
+            fullName:
+              { type: [string, 'null'], description: Null when the recipient may not see names. }
     NotificationPage:
       type: object
       additionalProperties: false
@@ -3381,10 +3683,20 @@ components:
     StaffConnection:
       type: object
       additionalProperties: false
-      required: [connectionId, status, direction, createdAt, respondedAt, clientSharedContact, otherSharedContact, other]
+      required:
+        [
+          connectionId,
+          status,
+          direction,
+          createdAt,
+          respondedAt,
+          clientSharedContact,
+          otherSharedContact,
+          other,
+        ]
       properties:
         connectionId: { type: string, format: uuid }
-        status: { type: string, enum: [pending, accepted, declined, withdrawn] }
+        status: { type: string, enum: [in_review, pending, accepted, declined, withdrawn] }
         direction: { type: string, enum: [sent, received], description: From the client's side. }
         createdAt: { type: string, format: date-time }
         respondedAt: { type: [string, 'null'], format: date-time }
@@ -3393,7 +3705,8 @@ components:
         other:
           type: object
           additionalProperties: false
-          required: [profileId, memberCode, fullName, age, professionCode, currentDistrictCode, serviceMode]
+          required:
+            [profileId, memberCode, fullName, age, professionCode, currentDistrictCode, serviceMode]
           properties:
             profileId: { type: string, format: uuid }
             memberCode: { type: string }
@@ -3415,14 +3728,15 @@ components:
       properties:
         visibleFields:
           type: array
-          description: "The fields staff let this member see: what a card may show and what can be searched."
+          description: 'The fields staff let this member see: what a card may show and what can be searched.'
           items: { $ref: '#/components/schemas/VisibleField' }
         items: { type: array, items: { $ref: '#/components/schemas/MatchItem' } }
         next: { type: [string, 'null'], description: Pass as after to get the next page. }
         profileStatus:
           anyOf: [{ $ref: '#/components/schemas/ProfileStatus' }, { type: 'null' }]
           description: The member's own profile status, or null when they have none yet.
-        releasedTotal: { type: integer, description: Profiles released to them in all, whatever the filter. }
+        releasedTotal:
+          { type: integer, description: Profiles released to them in all, whatever the filter. }
     CandidateList:
       type: object
       additionalProperties: false

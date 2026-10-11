@@ -393,3 +393,22 @@ await test('the list of staff an admin can choose from', async () => {
   );
   await rejects(t.service.listStaff(t.asAbir), 403, 'ROLE_FORBIDDEN');
 });
+
+await test('a profile that stops being published takes its waiting requests with it, and says why', async () => {
+  const t = setup();
+  const own = t.store.addAndGet(randomUUID(), t.ids.abir);
+  const profile = t.store.profiles.get(own)!;
+  profile.status = 'active';
+  profile.version = 5;
+
+  await t.service.changeStatus(t.asAbir, own, 'paused', 5, 'c');
+  assert.deepEqual(t.store.withdrawn, [{ profileId: own, reason: 'unavailable' }]);
+  // Coming back changes nothing about requests: they stay withdrawn and can be asked again.
+  await t.service.changeStatus(t.asAbir, own, 'active', profile.version, 'c');
+  assert.equal(t.store.withdrawn.length, 1);
+  await t.service.changeStatus(t.asAbir, own, 'matched', profile.version, 'c');
+  assert.deepEqual(t.store.withdrawn.at(-1), { profileId: own, reason: 'matched' });
+  // Moving between states that are not published does not do it again.
+  await t.service.changeStatus(t.asAbir, own, 'closed', profile.version, 'c');
+  assert.equal(t.store.withdrawn.length, 2);
+});

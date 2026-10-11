@@ -33,6 +33,8 @@ const RELEASED = `FROM matrimony.client_candidates c
    LEFT JOIN matrimony.interests x ON x.agency_id = c.agency_id
      AND ((x.sender_profile_id = c.client_profile_id AND x.recipient_profile_id = c.candidate_profile_id)
        OR (x.sender_profile_id = c.candidate_profile_id AND x.recipient_profile_id = c.client_profile_id))
+     -- A request still in review is the asker's alone to see: the person asked is not told yet.
+     AND (x.status <> 'in_review' OR x.sender_profile_id = c.client_profile_id)
   WHERE c.agency_id = $1 AND c.client_profile_id = $2 AND c.state = 'released' AND m.status = 'active'`;
 
 /**
@@ -97,6 +99,7 @@ export const matchQueries = {
   LEFT JOIN matrimony.interests x ON x.agency_id = m.agency_id
      AND ((x.sender_profile_id = $2 AND x.recipient_profile_id = m.id)
        OR (x.sender_profile_id = m.id AND x.recipient_profile_id = $2))
+     AND (x.status <> 'in_review' OR x.sender_profile_id = $2)
  WHERE ${VIEWABLE}`,
 
   // $1 agency, $2 client profile, $3 candidate. Whether the client may look at this profile at all.

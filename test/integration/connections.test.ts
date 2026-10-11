@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 import { migrate } from '../../scripts/migrate.js';
 import { clientInputSchema } from '../../src/bo/client.js';
 import { connectionListQuerySchema, notificationQuerySchema } from '../../src/bo/connection.js';
+import { matchQuerySchema } from '../../src/bo/matches.js';
 import { profileInputSchema } from '../../src/bo/profile.js';
 import { Database } from '../../src/db/config/database.js';
 import { CandidateRepository } from '../../src/db/raw/repository/candidate-repository.js';
@@ -190,15 +191,25 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
   const m2 = await member('Nila Two', 'female');
   const z = await assisted('Zara Client', 'female', abir);
   const orphan = await assisted('Olive Client', 'female', null);
+  // A request now waits for review. Most of what these tests check begins once an admin has approved it,
+  // so `ask` sends the request and approves it; the review itself is tested on its own further down.
+  const ask = async (actor: ProfileActor, to: string) => {
+    const sent = await connections.send(actor, to, 'c');
+    if (sent.outcome === 'requested' && sent.status === 'in_review') {
+      await connections.review(boss.actor, sent.connectionId, true, 'c');
+      return { ...sent, status: 'pending' as const };
+    }
+    return sent;
+  };
   await release(m1.profileId, m2.profileId);
   await release(m1.profileId, z);
   await release(m1.profileId, orphan);
   // M2's window does not hold M1: a request will be what lets M2 look at M1.
 
   await t.test('a request is stored once and tells the person asked, by name', async () => {
-    const sent = await connections.send(m1.actor, m2.profileId, 'c');
+    const sent = await ask(m1.actor, m2.profileId);
     assert.equal(sent.outcome, 'requested');
-    const again = await connections.send(m1.actor, m2.profileId, 'c');
+    const again = await ask(m1.actor, m2.profileId);
     assert.deepEqual([again.outcome, again.connectionId], ['unchanged', sent.connectionId]);
     assert.equal((await connectionRows(m1.profileId, m2.profileId)).length, 1);
 
@@ -209,6 +220,19 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     assert.equal(told.items[0]!.forProfileId, m2.profileId);
     // The one who asked is not told about their own request.
     assert.deepEqual((await connections.notifications(m1.actor, inbox())).items, []);
+
+    // The line is unread until its recipient reads it, and nobody else can read it for them.
+    assert.equal(told.items[0]!.read, false);
+    assert.equal(await connections.unreadCount(m2.actor), 1);
+    assert.equal(await connections.unreadCount(m1.actor), 0);
+    await connections.markRead(m1.actor, [told.items[0]!.id]);
+    assert.equal(await connections.unreadCount(m2.actor), 1);
+    await connections.markRead(m2.actor, [told.items[0]!.id]);
+    assert.equal(await connections.unreadCount(m2.actor), 0);
+    assert.equal((await connections.notifications(m2.actor, inbox())).items[0]!.read, true);
+    // Reading again, or reading everything, changes nothing.
+    await connections.markRead(m2.actor, null);
+    assert.equal(await connections.unreadCount(m2.actor), 0);
   });
 
   await t.test(
@@ -323,7 +347,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     const m3 = await member('Pending Pat', 'male');
     const m4 = await member('Pending Pia', 'female');
     await release(m3.profileId, m4.profileId);
-    await connections.send(m3.actor, m4.profileId, 'c');
+    await ask(m3.actor, m4.profileId);
     await assert.rejects(
       admin.query(
         `UPDATE matrimony.interests SET sender_contact_consent_at = now() WHERE agency_id = $1 AND sender_profile_id = $2`,
@@ -338,7 +362,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     const b = await member('Decline Dee', 'female');
     await release(a.profileId, b.profileId);
     await release(b.profileId, a.profileId);
-    const { connectionId } = await connections.send(a.actor, b.profileId, 'c');
+    const { connectionId } = await ask(a.actor, b.profileId);
     await connections.respond(b.actor, connectionId, false, 'c');
     assert.deepEqual(
       (await connections.notifications(a.actor, inbox())).items.map((n) => n.kind),
@@ -348,14 +372,8 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       (await connections.notifications(b.actor, inbox())).items.map((n) => n.kind),
       ['connection_request'],
     );
-    await assert.rejects(
-      connections.send(a.actor, b.profileId, 'c'),
-      refused(409, 'CONNECTION_DECLINED'),
-    );
-    await assert.rejects(
-      connections.send(b.actor, a.profileId, 'c'),
-      refused(409, 'CONNECTION_DECLINED'),
-    );
+    await assert.rejects(ask(a.actor, b.profileId), refused(409, 'CONNECTION_DECLINED'));
+    await assert.rejects(ask(b.actor, a.profileId), refused(409, 'CONNECTION_DECLINED'));
     assert.equal((await connectionRows(a.profileId, b.profileId)).length, 1);
   });
 
@@ -366,7 +384,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       const b = await member('Withdraw Win', 'female');
       await release(a.profileId, b.profileId);
       await release(b.profileId, a.profileId);
-      const first = await connections.send(a.actor, b.profileId, 'c');
+      const first = await ask(a.actor, b.profileId);
       await assert.rejects(
         connections.withdraw(b.actor, first.connectionId, 'c'),
         refused(404, 'CONNECTION_NOT_FOUND'),
@@ -376,7 +394,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
         connections.respond(b.actor, first.connectionId, true, 'c'),
         refused(409, 'CONNECTION_NOT_PENDING'),
       );
-      const again = await connections.send(b.actor, a.profileId, 'c');
+      const again = await ask(b.actor, a.profileId);
       assert.deepEqual([again.outcome, again.connectionId], ['requested', first.connectionId]);
       const [row] = await connectionRows(a.profileId, b.profileId);
       assert.equal(row.from_profile_id, b.profileId);
@@ -396,12 +414,297 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
           connections.send(a.actor, b.profileId, 'c'),
           connections.send(b.actor, a.profileId, 'c'),
         ]);
+        // One row, whoever won: the other side's ask finds the request already there.
         const rows = await connectionRows(a.profileId, b.profileId);
         assert.equal(rows.length, 1, `round ${round}`);
-        assert.equal(rows[0].status, 'accepted', `round ${round}`);
-        assert.deepEqual(results.map((r) => r.outcome).sort(), ['accepted', 'requested']);
         assert.equal(results[0]!.connectionId, results[1]!.connectionId);
+        assert.deepEqual(results.map((r) => r.outcome).sort(), ['requested', 'unchanged']);
+        // Once approved, the other side asking is what makes it one accepted connection.
+        const second = rows[0].from_profile_id === a.profileId ? b : a;
+        assert.equal(rows[0].status, 'in_review', `round ${round}`);
+        await connections.review(boss.actor, results[0]!.connectionId, true, 'c');
+        assert.equal((await connectionRows(a.profileId, b.profileId))[0].status, 'pending');
+        assert.equal((await ask(second.actor, rows[0].from_profile_id)).outcome, 'accepted');
+        assert.equal((await connectionRows(a.profileId, b.profileId))[0].status, 'accepted');
       }
+    },
+  );
+
+  await t.test(
+    'a request waits for the agent first: the person asked is told nothing, sees nothing and cannot answer',
+    async () => {
+      const a = await member('Review Rafi', 'male');
+      const b = await member('Review Rima', 'female');
+      await release(a.profileId, b.profileId);
+      await admin.query(
+        `UPDATE matrimony.member_profiles SET assigned_agent_id = $3 WHERE agency_id = $1 AND id = $2`,
+        [agencyId, b.profileId, abir.id],
+      );
+      const sent = await connections.send(
+        a.actor,
+        b.profileId,
+        'c',
+        'Our families know each other',
+      );
+      assert.deepEqual([sent.outcome, sent.status], ['requested', 'in_review']);
+
+      // The person asked: nothing in the inbox, nothing in the lists, no way to open the profile or answer.
+      assert.deepEqual((await connections.notifications(b.actor, inbox())).items, []);
+      assert.deepEqual((await connections.list(b.actor, box('received'))).items, []);
+      await assert.rejects(matches.detail(b.actor, a.profileId), refused(404, 'PROFILE_NOT_FOUND'));
+      await assert.rejects(
+        connections.respond(b.actor, sent.connectionId, true, 'c'),
+        refused(409, 'CONNECTION_NOT_PENDING'),
+      );
+      // The asker sees it waiting; the agent is told and sees it in their queue with the note.
+      const mine = await connections.list(a.actor, box('sent'));
+      assert.deepEqual(
+        mine.items.filter((i) => i.profile.candidateId === b.profileId).map((i) => i.status),
+        ['in_review'],
+      );
+      const told = await connections.notifications(abir.actor, inbox());
+      assert.equal(told.items[0]!.kind, 'connection_review');
+      assert.equal(told.items[0]!.forProfileId, b.profileId);
+      const queue = await connections.reviewQueue(abir.actor, { limit: 20 });
+      const waiting = queue.items.find((r) => r.connectionId === sent.connectionId)!;
+      assert.equal(waiting.note, 'Our families know each other');
+      assert.equal(waiting.client.profileId, b.profileId);
+      // Another agent sees none of it; an admin sees it.
+      assert.equal(
+        (await connections.reviewQueue(rival.actor, { limit: 20 })).items.some(
+          (r) => r.connectionId === sent.connectionId,
+        ),
+        false,
+      );
+      assert.ok(
+        (await connections.reviewQueue(boss.actor, { limit: 50 })).items.some(
+          (r) => r.connectionId === sent.connectionId,
+        ),
+      );
+      await assert.rejects(
+        connections.review(rival.actor, sent.connectionId, true, 'c'),
+        refused(404, 'CONNECTION_NOT_FOUND'),
+      );
+
+      // Approved: the person asked is told, sees the asker and the note, and can answer.
+      await connections.review(abir.actor, sent.connectionId, true, 'c');
+      const inboxB = await connections.notifications(b.actor, inbox());
+      assert.deepEqual(
+        inboxB.items.map((n) => n.kind),
+        ['connection_request'],
+      );
+      const received = (await connections.list(b.actor, box('received'))).items;
+      assert.equal(received[0]!.note, 'Our families know each other');
+      assert.equal((await matches.detail(b.actor, a.profileId)).connection?.direction, 'received');
+      await connections.respond(b.actor, sent.connectionId, true, 'c');
+      assert.equal((await connectionRows(a.profileId, b.profileId))[0].status, 'accepted');
+      // The note is for the person asked to see, not for the asker's own list.
+      assert.equal((await connections.list(a.actor, box('connected'))).items[0]!.note, null);
+    },
+  );
+
+  await t.test(
+    'rejecting ends it as declined for the asker, withdrawing works while waiting, and staff can reopen',
+    async () => {
+      const a = await member('Reject Ruhi', 'male');
+      const b = await member('Reject Rina', 'female');
+      await release(a.profileId, b.profileId);
+      const first = await connections.send(a.actor, b.profileId, 'c');
+      await connections.review(boss.actor, first.connectionId, false, 'c');
+      assert.equal((await connectionRows(a.profileId, b.profileId))[0].status, 'declined');
+      assert.equal(
+        (await connections.notifications(a.actor, inbox())).items[0]!.kind,
+        'connection_declined',
+      );
+      await assert.rejects(
+        connections.send(a.actor, b.profileId, 'c'),
+        refused(409, 'CONNECTION_DECLINED'),
+      );
+      await assert.rejects(
+        connections.review(boss.actor, first.connectionId, true, 'c'),
+        refused(409, 'CONNECTION_NOT_IN_REVIEW'),
+      );
+
+      // Staff reopen it, and then it can be asked again; a member cannot reopen.
+      await assert.rejects(
+        connections.reopen(a.actor, first.connectionId, 'c'),
+        refused(403, 'ROLE_FORBIDDEN'),
+      );
+      await connections.reopen(boss.actor, first.connectionId, 'c');
+      assert.equal((await connectionRows(a.profileId, b.profileId))[0].status, 'withdrawn');
+      const again = await connections.send(a.actor, b.profileId, 'c');
+      assert.deepEqual([again.outcome, again.status], ['requested', 'in_review']);
+      await assert.rejects(
+        connections.reopen(boss.actor, first.connectionId, 'c'),
+        refused(409, 'CONNECTION_NOT_DECLINED'),
+      );
+
+      // Taken back while waiting, it can no longer be reviewed.
+      await connections.withdraw(a.actor, again.connectionId, 'c');
+      assert.equal((await connectionRows(a.profileId, b.profileId))[0].status, 'withdrawn');
+      await assert.rejects(
+        connections.review(boss.actor, again.connectionId, true, 'c'),
+        refused(409, 'CONNECTION_NOT_IN_REVIEW'),
+      );
+    },
+  );
+
+  await t.test(
+    'reminders: the agent after 2 days, then every 3, and the admins too from the third',
+    async () => {
+      const a = await member('Remind Raju', 'male');
+      const b = await member('Remind Rani', 'female');
+      await release(a.profileId, b.profileId);
+      await admin.query(
+        `UPDATE matrimony.member_profiles SET assigned_agent_id = $3 WHERE agency_id = $1 AND id = $2`,
+        [agencyId, b.profileId, abir.id],
+      );
+      const sent = await connections.send(a.actor, b.profileId, 'c');
+      const reminders = async (who: ProfileActor) =>
+        (await connections.notifications(who, inbox(50))).items.filter(
+          (n) => n.kind === 'connection_review_reminder' && n.forProfileId === b.profileId,
+        ).length;
+      // Makes the request look as if it started waiting, and was last reminded, `days` days ago.
+      const age = (days: number) =>
+        admin.query(
+          `UPDATE matrimony.interests SET review_started_at = now() - make_interval(days => $3::int, mins => 1),
+                  last_reminded_at = CASE WHEN reminders_sent > 0 THEN now() - make_interval(days => $3::int, mins => 1) END
+            WHERE agency_id = $1 AND id = $2`,
+          [agencyId, sent.connectionId, days],
+        );
+      // Runs the job and says how many reminders this request's agent gained.
+      const run = async () => {
+        const before = await reminders(abir.actor);
+        await connections.remindStale(agencyId, 'job');
+        return (await reminders(abir.actor)) - before;
+      };
+
+      // One day in: nothing. Two days in: the first reminder, to the agent.
+      await age(1);
+      assert.equal(await run(), 0);
+      await age(2);
+      assert.equal(await run(), 1);
+      assert.equal(await reminders(boss.actor), 0);
+      // Not again at once, nor before 3 days have passed since the last one.
+      assert.equal(await run(), 0);
+      await age(2);
+      assert.equal(await run(), 0);
+      await age(3);
+      assert.equal(await run(), 1);
+      assert.equal(await reminders(boss.actor), 0);
+      // The third reminder goes to the admins as well.
+      await age(3);
+      assert.equal(await run(), 1);
+      assert.equal(await reminders(boss.actor), 1);
+      const row = (
+        await admin.query(
+          `SELECT reminders_sent FROM matrimony.interests WHERE agency_id = $1 AND id = $2`,
+          [agencyId, sent.connectionId],
+        )
+      ).rows[0];
+      assert.equal(row.reminders_sent, 3);
+      // Once approved, there is nothing left to remind about.
+      await connections.review(abir.actor, sent.connectionId, true, 'c');
+      await age(10);
+      assert.equal(await run(), 0);
+    },
+  );
+
+  await t.test(
+    'a profile that matches leaves the windows, its waiting requests are withdrawn and the senders told',
+    async () => {
+      const a = await member('Match Asif', 'male');
+      const c = await member('Match Chaiti', 'male');
+      const b = await member('Match Bina', 'female');
+      await release(a.profileId, b.profileId);
+      await release(c.profileId, b.profileId);
+      await release(b.profileId, a.profileId);
+      // One request still in review, one approved and waiting for her, and one she sent herself.
+      const first = await connections.send(a.actor, b.profileId, 'c');
+      const second = await ask(c.actor, b.profileId);
+      const f = await member('Match Farhan', 'male');
+      await release(b.profileId, f.profileId);
+      const hers = await ask(b.actor, f.profileId);
+      assert.equal(first.status, 'in_review');
+      assert.equal(second.status, 'pending');
+      assert.equal(hers.status, 'pending');
+
+      const status = async (id: string) =>
+        (
+          await admin.query(`SELECT status, version FROM matrimony.member_profiles WHERE id = $1`, [
+            id,
+          ])
+        ).rows[0];
+      const before = await status(b.profileId);
+      await clients.changeStatus(boss.actor, b.profileId, 'matched', before.version, 'c');
+
+      // Everything waiting to or from her is withdrawn, and the people who asked her are told why.
+      for (const x of [a, c]) {
+        assert.equal((await connectionRows(x.profileId, b.profileId))[0].status, 'withdrawn');
+        const told = (await connections.notifications(x.actor, inbox(50))).items.filter(
+          (n) => n.about.profileId === b.profileId && n.kind === 'connection_matched',
+        );
+        assert.equal(told.length, 1);
+        assert.equal(told[0]!.forProfileId, x.profileId);
+        // She is gone from their windows and lists, and her profile can no longer be opened.
+        assert.equal(
+          (await matches.page(x.actor, matchQuerySchema.parse({ limit: 50 }))).items.some(
+            (i) => i.candidateId === b.profileId,
+          ),
+          false,
+        );
+        await assert.rejects(
+          matches.detail(x.actor, b.profileId),
+          refused(404, 'PROFILE_NOT_FOUND'),
+        );
+        await assert.rejects(ask(x.actor, b.profileId), refused(404, 'PROFILE_NOT_FOUND'));
+      }
+      // The one she had sent is withdrawn too, and nobody is told that she matched.
+      assert.equal((await connectionRows(b.profileId, f.profileId))[0].status, 'withdrawn');
+      assert.equal(
+        (await connections.notifications(f.actor, inbox(50))).items.some(
+          (n) => n.kind === 'connection_matched' || n.kind === 'connection_unavailable',
+        ),
+        false,
+      );
+      // The review queue no longer holds the request that was waiting.
+      assert.equal(
+        (await connections.reviewQueue(boss.actor, { limit: 50 })).items.some(
+          (r) => r.connectionId === first.connectionId,
+        ),
+        false,
+      );
+
+      // Paused says she is not available, not that she matched. Coming back does not revive requests.
+      const d = await member('Pause Dilip', 'male');
+      const e = await member('Pause Elora', 'female');
+      await release(d.profileId, e.profileId);
+      await ask(d.actor, e.profileId);
+      await clients.changeStatus(
+        boss.actor,
+        e.profileId,
+        'paused',
+        (await status(e.profileId)).version,
+        'c',
+      );
+      const paused = (await connections.notifications(d.actor, inbox(50))).items.filter(
+        (n) => n.about.profileId === e.profileId,
+      );
+      assert.deepEqual(
+        paused.map((n) => n.kind),
+        ['connection_unavailable'],
+      );
+      assert.equal((await connectionRows(d.profileId, e.profileId))[0].status, 'withdrawn');
+      await clients.changeStatus(
+        boss.actor,
+        e.profileId,
+        'active',
+        (await status(e.profileId)).version,
+        'c',
+      );
+      assert.equal((await connectionRows(d.profileId, e.profileId))[0].status, 'withdrawn');
+      // Asking again works, on the same row.
+      assert.equal((await ask(d.actor, e.profileId)).outcome, 'requested');
     },
   );
 
@@ -409,29 +712,14 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     'only someone in the window can be asked, and anything else is simply not found',
     async () => {
       const outsider = await member('Outside Ola', 'female');
-      await assert.rejects(
-        connections.send(m1.actor, outsider.profileId, 'c'),
-        refused(404, 'PROFILE_NOT_FOUND'),
-      );
-      await assert.rejects(
-        connections.send(m1.actor, randomUUID(), 'c'),
-        refused(404, 'PROFILE_NOT_FOUND'),
-      );
-      await assert.rejects(
-        connections.send(m1.actor, m1.profileId, 'c'),
-        refused(404, 'PROFILE_NOT_FOUND'),
-      );
+      await assert.rejects(ask(m1.actor, outsider.profileId), refused(404, 'PROFILE_NOT_FOUND'));
+      await assert.rejects(ask(m1.actor, randomUUID()), refused(404, 'PROFILE_NOT_FOUND'));
+      await assert.rejects(ask(m1.actor, m1.profileId), refused(404, 'PROFILE_NOT_FOUND'));
       // A profile in another agency does not exist here at all.
       const foreign = await member('Foreign Fay', 'female', elsewhereId);
-      await assert.rejects(
-        connections.send(m1.actor, foreign.profileId, 'c'),
-        refused(404, 'PROFILE_NOT_FOUND'),
-      );
+      await assert.rejects(ask(m1.actor, foreign.profileId), refused(404, 'PROFILE_NOT_FOUND'));
       // Staff and members who run nothing cannot ask.
-      await assert.rejects(
-        connections.send(abir.actor, m2.profileId, 'c'),
-        refused(403, 'ROLE_FORBIDDEN'),
-      );
+      await assert.rejects(ask(abir.actor, m2.profileId), refused(403, 'ROLE_FORBIDDEN'));
       assert.equal((await connectionRows(m1.profileId, outsider.profileId)).length, 0);
     },
   );
@@ -442,7 +730,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       const x = await member('Own Ozzy', 'male');
       const y = await member('Own Yara', 'female');
       await release(x.profileId, y.profileId);
-      const { connectionId } = await connections.send(x.actor, y.profileId, 'c');
+      const { connectionId } = await ask(x.actor, y.profileId);
       await assert.rejects(
         connections.staffRespond(boss.actor, y.profileId, connectionId, true, 'c'),
         refused(403, 'PROFILE_SELF_SERVICE'),
@@ -454,12 +742,13 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
   await t.test(
     'a client with no login: the agent who looks after them is told, and answers for them',
     async () => {
-      const { connectionId } = await connections.send(m1.actor, z, 'c');
-      const told = await connections.notifications(abir.actor, inbox());
-      assert.equal(told.items.length, 1);
-      assert.equal(told.items[0]!.kind, 'connection_request');
-      assert.equal(told.items[0]!.forProfileId, z);
-      assert.equal(told.items[0]!.about.fullName, 'Mahir One');
+      const { connectionId } = await ask(m1.actor, z);
+      const told = (await connections.notifications(abir.actor, inbox(50))).items.filter(
+        (n) => n.forProfileId === z,
+      );
+      assert.equal(told.length, 1);
+      assert.equal(told[0]!.kind, 'connection_request');
+      assert.equal(told[0]!.about.fullName, 'Mahir One');
       // Not the rival, not a member; and not the other agency.
       assert.deepEqual((await connections.notifications(rival.actor, inbox())).items, []);
 
@@ -501,7 +790,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
   await t.test(
     'a client nobody looks after can be asked; nobody is told, and an admin can still answer',
     async () => {
-      const { connectionId } = await connections.send(m1.actor, orphan, 'c');
+      const { connectionId } = await ask(m1.actor, orphan);
       const told = await connections.notifications(abir.actor, inbox());
       assert.ok(!told.items.some((n) => n.forProfileId === orphan));
       await connections.staffRespond(boss.actor, orphan, connectionId, false, 'c');
@@ -513,7 +802,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     const a = await member('Hidden Hal', 'male');
     const b = await member('Hidden Hana', 'female');
     await release(a.profileId, b.profileId);
-    await connections.send(a.actor, b.profileId, 'c');
+    await ask(a.actor, b.profileId);
     assert.equal(
       (await connections.notifications(b.actor, inbox())).items[0]!.about.fullName,
       'Hidden Hal',

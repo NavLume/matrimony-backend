@@ -28,6 +28,8 @@ function completeData(): ProfileData {
 
 export class FakeStore {
   profiles = new Map<string, ProfileRecord & { agencyId: string }>();
+  /** Profiles whose waiting connection requests were withdrawn, and why. */
+  withdrawn: { profileId: string; reason: string }[] = [];
   reviews: (ReviewRecord & { profileId: string; submittedBy?: string })[] = [];
   events: WorkflowEvent[] = [];
   /** Make the next create() lose a race with another request for the same member. */
@@ -115,6 +117,10 @@ export class FakeStore {
         const profile = this.byId(agencyId, profileId);
         profile.status = status;
         this.bump(profile);
+      },
+      withdrawOpenRequests: async (_agencyId, profileId, reason) => {
+        this.withdrawn.push({ profileId, reason });
+        return 0;
       },
       insertReview: async (_agencyId, profileId, by, kind: ReviewKind, baseVersion, changes) => {
         const review = {

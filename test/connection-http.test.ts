@@ -66,6 +66,7 @@ async function setup(role: 'admin' | 'agent' | 'member') {
             kind: 'connection_request' as const,
             createdAt: '2026-10-10T08:00:00.000Z',
             position: '2026-10-10T08:00:00.000000Z',
+            read: false,
             connectionId: ID,
             forProfileId: ID,
             about: { profileId: OTHER, memberCode: 'M1', fullName: 'Ayesha' },
@@ -73,6 +74,11 @@ async function setup(role: 'admin' | 'agent' | 'member') {
         ],
         next: null,
       }),
+      unreadCount: record('unreadCount', 2),
+      markRead: record('markRead', undefined),
+      reviewQueue: record('reviewQueue', { items: [], next: null, total: 0 }),
+      review: record('review', undefined),
+      reopen: record('reopen', undefined),
       staffList: record('staffList', []),
       staffRespond: record('staffRespond', undefined),
       staffShareContact: record('staffShareContact', undefined),
@@ -108,6 +114,9 @@ const MEMBER_ROUTES: [string, string, unknown][] = [
   ['POST', `/api/v1/me/connections/${ID}/share-contact`, undefined],
 ];
 const STAFF_ROUTES: [string, string, unknown][] = [
+  ['GET', '/api/v1/staff/connection-reviews', undefined],
+  ['POST', `/api/v1/staff/connections/${ID}/review`, { decision: 'approve' }],
+  ['POST', `/api/v1/staff/connections/${ID}/reopen`, undefined],
   ['GET', `/api/v1/staff/clients/${ID}/connections`, undefined],
   ['POST', `/api/v1/staff/clients/${ID}/connections/${OTHER}/respond`, { response: 'decline' }],
   ['POST', `/api/v1/staff/clients/${ID}/connections/${OTHER}/share-contact`, undefined],
@@ -155,6 +164,7 @@ await test('the inbox is open to every signed-in role', async (t) => {
       'forProfileId',
       'id',
       'kind',
+      'read',
     ]);
     // The internal cursor position is never sent.
     assert.equal('position' in res.json().items[0], false);
@@ -217,4 +227,57 @@ await test('staff answer for a client with the ids from the path, and never a pe
     400,
   );
   assert.equal((await call('GET', '/api/v1/staff/clients/not-an-id/connections')).statusCode, 400);
+});
+
+await test('the bell and mark-as-read are open to every signed-in role and take only valid input', async (t) => {
+  for (const role of ['member', 'agent', 'admin'] as const) {
+    const { app, call, calls } = await setup(role);
+    t.after(() => app.close());
+    const count = await call('GET', '/api/v1/me/notifications/unread-count');
+    assert.equal(count.statusCode, 200, role);
+    assert.deepEqual(count.json(), { unread: 2 });
+    assert.equal((await call('POST', '/api/v1/me/notifications/read')).statusCode, 204, role);
+    assert.equal(
+      (await call('POST', '/api/v1/me/notifications/read', { ids: [ID] })).statusCode,
+      204,
+      role,
+    );
+    for (const body of [{ ids: [] }, { ids: ['nope'] }, { all: true }]) {
+      assert.equal((await call('POST', '/api/v1/me/notifications/read', body)).statusCode, 400);
+    }
+    assert.ok(calls.some((c) => c.name === 'markRead'));
+  }
+});
+
+await test('a request may carry a short note, within the limits', async (t) => {
+  const { app, call, calls } = await setup('member');
+  t.after(() => app.close());
+  const ok = await call('POST', '/api/v1/me/connections', {
+    candidateId: ID,
+    note: '  Assalamu alaikum, our families know each other.  ',
+  });
+  assert.equal(ok.statusCode, 200);
+  const sent = calls.find((c) => c.name === 'send')!;
+  assert.deepEqual(sent.args, [
+    ID,
+    sent.args[1],
+    'Assalamu alaikum, our families know each other.',
+  ]);
+  const tooMany = Array.from({ length: 41 }, () => 'word').join(' ');
+  for (const note of ['', '   ', 'x'.repeat(301), tooMany, 5]) {
+    const res = await call('POST', '/api/v1/me/connections', { candidateId: ID, note });
+    assert.equal(res.statusCode, 400, JSON.stringify(note).slice(0, 20));
+  }
+});
+
+await test('staff review takes only approve or reject', async (t) => {
+  const { app, call } = await setup('agent');
+  t.after(() => app.close());
+  for (const body of [{ decision: 'maybe' }, {}, { decision: 'approve', extra: 1 }]) {
+    const res = await call('POST', `/api/v1/staff/connections/${ID}/review`, body);
+    assert.equal(res.statusCode, 400);
+  }
+  const queue = await call('GET', '/api/v1/staff/connection-reviews');
+  assert.equal(queue.statusCode, 200);
+  assert.deepEqual(queue.json(), { items: [], next: null, total: 0 });
 });

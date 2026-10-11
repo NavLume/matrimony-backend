@@ -238,6 +238,15 @@ export class ProfileService {
       const allowed = STATUS_MOVES[current.status] as readonly string[];
       if (!allowed.includes(status)) throw new AppError(409, 'STATUS_CHANGE_NOT_ALLOWED');
       await unit.setStatus(actor.agencyId, current.id, status);
+      // A profile that stops being published takes its waiting requests with it, and the people who
+      // asked it are told why. Matched says so; paused and closed say it is not available.
+      if (current.status === 'active' && status !== 'active') {
+        await unit.withdrawOpenRequests(
+          actor.agencyId,
+          current.id,
+          status === 'matched' ? 'matched' : 'unavailable',
+        );
+      }
       await unit.appendEvent(
         this.event('profile.status_changed', actor, current.id, correlationId),
       );

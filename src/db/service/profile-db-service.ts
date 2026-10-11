@@ -41,6 +41,11 @@ export interface ProfileUnit {
     data: ProfileData,
   ): Promise<void>;
   setStatus(agencyId: string, profileId: string, status: ProfileRecord['status']): Promise<void>;
+  withdrawOpenRequests(
+    agencyId: string,
+    profileId: string,
+    reason: 'matched' | 'unavailable',
+  ): Promise<number>;
   insertReview(
     agencyId: string,
     profileId: string,
@@ -79,6 +84,8 @@ export class ProfileDbService {
       saveContent: (agencyId, profileId, status, data) =>
         repo.saveContent(tx, agencyId, profileId, status, data),
       setStatus: (agencyId, profileId, status) => repo.setStatus(tx, agencyId, profileId, status),
+      withdrawOpenRequests: (agencyId, profileId, reason) =>
+        repo.withdrawOpenRequests(tx, agencyId, profileId, reason),
       insertReview: (agencyId, profileId, by, kind, baseVersion, changes) =>
         repo.insertReview(tx, agencyId, profileId, by, kind, baseVersion, changes),
       pendingReview: (agencyId, profileId) => repo.pendingReview(tx, agencyId, profileId),

@@ -144,7 +144,7 @@ export function hiddenFilters(
 /** Where a connection with this profile stands, from the viewer's side. Null when there is none. */
 export interface ConnectionSummary {
   id: string;
-  status: 'pending' | 'accepted' | 'declined' | 'withdrawn';
+  status: 'in_review' | 'pending' | 'accepted' | 'declined' | 'withdrawn';
   /** `sent`: the viewer asked. `received`: the other person asked. */
   direction: 'sent' | 'received';
 }

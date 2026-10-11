@@ -2,13 +2,17 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   connectionListQuerySchema,
+  markReadSchema,
   notificationQuerySchema,
   respondSchema,
+  reviewQueueQuerySchema,
+  reviewSchema,
   sendRequestSchema,
 } from '../bo/connection.js';
 import {
   connectionPageResponse,
   notificationPageResponse,
+  reviewQueueResponse,
   sendResponse,
   staffConnectionsResponse,
 } from '../factory/connection-response.js';
@@ -37,6 +41,11 @@ export function registerConnectionController(
     | 'shareContact'
     | 'list'
     | 'notifications'
+    | 'unreadCount'
+    | 'markRead'
+    | 'reviewQueue'
+    | 'review'
+    | 'reopen'
     | 'staffList'
     | 'staffRespond'
     | 'staffShareContact'
@@ -54,7 +63,10 @@ export function registerConnectionController(
 
   app.post('/api/v1/me/connections', { config: memberOnly }, async (req) =>
     sendResponse(
-      await connections.send(actor(req), sendRequestSchema.parse(req.body).candidateId, req.id),
+      await (async () => {
+        const body = sendRequestSchema.parse(req.body);
+        return connections.send(actor(req), body.candidateId, req.id, body.note ?? null);
+      })(),
     ),
   );
 
@@ -101,6 +113,47 @@ export function registerConnectionController(
     notificationPageResponse(
       await connections.notifications(actor(req), notificationQuerySchema.parse(req.query)),
     ),
+  );
+
+  // The bell: how many lines are unread. Cheap enough for the page to ask every few seconds.
+  app.get('/api/v1/me/notifications/unread-count', { config: anyRole }, async (req) => ({
+    unread: await connections.unreadCount(actor(req)),
+  }));
+
+  // No `ids` marks every unread line as read.
+  app.post('/api/v1/me/notifications/read', { config: anyRole }, async (req, reply) => {
+    await connections.markRead(actor(req), markReadSchema.parse(req.body ?? {}).ids ?? null);
+    return reply.code(204).send();
+  });
+
+  // Requests waiting for the staff member's review, longest waiting first.
+  app.get('/api/v1/staff/connection-reviews', { config: staffOnly }, async (req) =>
+    reviewQueueResponse(
+      await connections.reviewQueue(actor(req), reviewQueueQuerySchema.parse(req.query)),
+    ),
+  );
+
+  app.post(
+    '/api/v1/staff/connections/:connectionId/review',
+    { config: staffOnly },
+    async (req, reply) => {
+      await connections.review(
+        actor(req),
+        connectionId(req),
+        reviewSchema.parse(req.body).decision === 'approve',
+        req.id,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    '/api/v1/staff/connections/:connectionId/reopen',
+    { config: staffOnly },
+    async (req, reply) => {
+      await connections.reopen(actor(req), connectionId(req), req.id);
+      return reply.code(204).send();
+    },
   );
 
   app.get('/api/v1/staff/clients/:profileId/connections', { config: staffOnly }, async (req) =>
