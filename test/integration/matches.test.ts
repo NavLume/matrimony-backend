@@ -282,8 +282,26 @@ await test("a member's matches on real PostgreSQL", async (t) => {
     async () => {
       const code = (await service.page(me.actor, query({ profession: 'nurse' }))).items[0]!
         .memberCode;
+      // The member code field is there only once staff turn it on for this member.
+      await assert.rejects(
+        names(me.actor, { q: code.toLowerCase() }),
+        (e) => e instanceof AppError && e.code === 'FILTER_NOT_AVAILABLE',
+      );
+      const current = await candidates.settings(boss.actor, me.profileId);
+      await candidates.saveSettings(
+        boss.actor,
+        me.profileId,
+        { cap: current.cap, visibleFields: current.visibleFields, allowCodeSearch: true },
+        'c',
+      );
       assert.deepEqual(await names(me.actor, { q: code.toLowerCase() }), ['Bushra']);
       assert.deepEqual(await names(me.actor, { q: 'M0000000' }), []);
+      await candidates.saveSettings(
+        boss.actor,
+        me.profileId,
+        { cap: current.cap, visibleFields: current.visibleFields, allowCodeSearch: false },
+        'c',
+      );
       assert.deepEqual(await names(me.actor, { district: 'dhaka' }), ['Chitra', 'Ayesha']);
       assert.deepEqual(await names(me.actor, { religion: 'hinduism' }), ['Chitra']);
       assert.deepEqual(await names(me.actor, { profession: 'doctor' }), ['Ayesha']);
@@ -303,7 +321,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
     await candidates.saveSettings(
       boss.actor,
       me.profileId,
-      { cap: 50, visibleFields: ['fullName', 'highestDegreeCode'] },
+      { cap: 50, visibleFields: ['fullName', 'highestDegreeCode'], allowCodeSearch: false },
       'c',
     );
     assert.deepEqual(await names(me.actor, { educationMin: 'bachelors' }), ['Chitra', 'Ayesha']);
@@ -336,6 +354,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
           'currentDistrictCode',
           'religionCode',
         ],
+        allowCodeSearch: false,
       },
       'c',
     );
@@ -369,6 +388,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
             'familyStatusCode',
             'originDistrictCode',
           ],
+          allowCodeSearch: false,
         },
         'c',
       );
@@ -418,6 +438,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
             'currentDistrictCode',
             'religionCode',
           ],
+          allowCodeSearch: false,
         },
         'c',
       );
@@ -479,6 +500,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
         profileStatus: 'draft',
         releasedTotal: 0,
         visibleFields: [],
+        canSearchByCode: false,
       });
     },
   );
@@ -510,7 +532,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
       await candidates.saveSettings(
         boss.actor,
         me.profileId,
-        { cap: 50, visibleFields: ['fullName'] },
+        { cap: 50, visibleFields: ['fullName'], allowCodeSearch: false },
         'c',
       );
       await assert.rejects(matches.photo(me.actor, B, 'thumb'), refused(404, 'PHOTO_NOT_FOUND'));

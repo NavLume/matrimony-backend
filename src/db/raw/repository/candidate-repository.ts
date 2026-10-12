@@ -4,6 +4,7 @@ import type { VisibleField } from '../../../bo/release.js';
 import type { Transaction } from '../../config/database.js';
 import { mapCandidate } from '../mapper/candidate.js';
 import { mapProfile } from '../mapper/profile.js';
+import { notifyReleased } from './notice.js';
 import { candidateQueries } from '../query/candidate.js';
 
 /** Every candidate-list read and write. Each method runs inside the transaction it is given. */
@@ -72,17 +73,42 @@ export class CandidateRepository {
     tx: Transaction,
     agencyId: string,
     clientId: string,
-  ): Promise<{ cap: number; visibleFields: VisibleField[] } | null> {
+  ): Promise<{ cap: number; visibleFields: VisibleField[]; allowCodeSearch: boolean } | null> {
     const result = await tx.query(candidateQueries.settings, [agencyId, clientId]);
-    const row = result.rows[0] as { cap: number; visible_fields: string[] } | undefined;
-    return row ? { cap: row.cap, visibleFields: row.visible_fields as VisibleField[] } : null;
+    const row = result.rows[0] as
+      { cap: number; visible_fields: string[]; allow_code_search: boolean } | undefined;
+    return row
+      ? {
+          cap: row.cap,
+          visibleFields: row.visible_fields as VisibleField[],
+          allowCodeSearch: row.allow_code_search === true,
+        }
+      : null;
+  }
+
+  /** Published clients that can have a list, for the nightly refresh. */
+  async activeClients(tx: Transaction, agencyId: string): Promise<string[]> {
+    const result = await tx.query(candidateQueries.activeClients, [agencyId]);
+    return result.rows.map((row) => (row as { id: string }).id);
+  }
+
+  /** True when this call is the one that owns today's run of the job. */
+  async claimJob(
+    tx: Transaction,
+    agencyId: string,
+    name: string,
+    now: Date,
+    startOfDay: Date,
+  ): Promise<boolean> {
+    const result = await tx.query(candidateQueries.claimJob, [agencyId, name, now, startOfDay]);
+    return result.rows.length > 0;
   }
 
   async saveSettings(
     tx: Transaction,
     agencyId: string,
     clientId: string,
-    input: { cap: number; visibleFields: readonly VisibleField[] },
+    input: { cap: number; visibleFields: readonly VisibleField[]; allowCodeSearch: boolean },
     accountId: string,
   ): Promise<void> {
     await tx.query(candidateQueries.saveSettings, [
@@ -91,6 +117,7 @@ export class CandidateRepository {
       input.cap,
       [...input.visibleFields],
       accountId,
+      input.allowCodeSearch,
     ]);
   }
 
@@ -123,7 +150,10 @@ export class CandidateRepository {
       [...ids],
       accountId,
     ]);
-    return result.rows.map((row) => (row as { id: string }).id);
+    const moved = result.rows.map((row) => (row as { id: string }).id);
+    // A client who signs in is told that new profiles are waiting for them.
+    await notifyReleased(tx, agencyId, clientId, moved.length);
+    return moved;
   }
 
   async markRemoved(

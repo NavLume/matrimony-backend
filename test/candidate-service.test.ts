@@ -6,7 +6,8 @@ import { profileInputSchema } from '../src/bo/profile.js';
 import type { ProfileRecord } from '../src/bo/profile-state.js';
 import type { CandidateUnit } from '../src/db/service/candidate-db-service.js';
 import { AppError } from '../src/exception/app-error.js';
-import { CandidateService } from '../src/service/candidate-service.js';
+import { CandidateService, startOfBangladeshDay } from '../src/service/candidate-service.js';
+import { bangladeshHour, startNightlyRefresh } from '../src/scheduler/nightly-refresh-scheduler.js';
 import type { ProfileActor } from '../src/service/profile-service.js';
 
 const agencyId = '11111111-1111-4111-8111-111111111111';
@@ -56,6 +57,7 @@ function record(
 function fake(client: ProfileRecord | null, pool: ProfileRecord[]) {
   const saved: ProposalRow[][] = [];
   const asked: { gender: string; limit: number }[] = [];
+  const job = { claimed: false };
   const unit: CandidateUnit = {
     lockClient: async () => client,
     readClient: async () => client,
@@ -69,6 +71,8 @@ function fake(client: ProfileRecord | null, pool: ProfileRecord[]) {
     list: async () => [],
     settings: async () => null,
     saveSettings: async () => {},
+    activeClients: async () => (client ? [client.id] : []),
+    claimJob: async () => (job.claimed ? false : (job.claimed = true)),
     releasedCount: async () => 0,
     releasable: async () => [],
     markReleased: async () => [],
@@ -192,4 +196,60 @@ await test('reading a list needs staff who may manage the client', async () => {
   assert.deepEqual(await service.list(agent, client.id, { state: 'proposed', limit: 100 }), {
     items: [],
   });
+});
+
+await test('the nightly refresh runs once a day, for every published client, and says when it already ran', async () => {
+  const client = record(clientMan);
+  const t = fake(client, [record(doctorWoman)]);
+  assert.equal(await t.service.refreshNightly('agency'), 1);
+  assert.equal(t.saved.length, 1);
+  // The same day again: today’s run was claimed, so nothing is done.
+  assert.equal(await t.service.refreshNightly('agency'), null);
+  assert.equal(t.saved.length, 1);
+});
+
+await test('one client that fails does not stop the rest of the nightly refresh', async () => {
+  const client = record(clientMan);
+  const t = fake(client, []);
+  // A client without a gender is quietly skipped: nothing to refresh, nothing failed.
+  assert.equal(
+    await fake(record({ dateOfBirth: '1992-01-01' }), []).service.refreshNightly('a'),
+    0,
+  );
+  assert.equal(await t.service.refreshNightly('agency'), 1);
+});
+
+await test('a day is a Bangladesh day: it starts at 18:00 UTC the evening before', () => {
+  assert.equal(
+    startOfBangladeshDay(new Date('2026-10-12T20:00:00Z')).toISOString(),
+    '2026-10-12T18:00:00.000Z',
+  );
+  assert.equal(
+    startOfBangladeshDay(new Date('2026-10-12T17:59:00Z')).toISOString(),
+    '2026-10-11T18:00:00.000Z',
+  );
+  assert.equal(bangladeshHour(new Date('2026-10-12T20:00:00Z')), 2);
+  assert.equal(bangladeshHour(new Date('2026-10-12T17:00:00Z')), 23);
+  assert.equal(bangladeshHour(new Date('2026-10-12T19:30:00Z')), 1);
+});
+
+await test('the scheduler does nothing before 2 am Bangladesh time and asks every agency after', async () => {
+  const calls: string[] = [];
+  const candidates = {
+    refreshNightly: async (agency: string) => {
+      calls.push(agency);
+      return 3;
+    },
+  };
+  const logger = pino({ level: 'silent' });
+  // 19:00 UTC is 01:00 in Bangladesh: too early.
+  let now = new Date('2026-10-12T19:00:00Z');
+  const stop = startNightlyRefresh(candidates, ['a', 'b'], logger, 5, () => now);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(calls.length, 0);
+  // 20:00 UTC is 02:00 in Bangladesh.
+  now = new Date('2026-10-12T20:00:00Z');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  stop();
+  assert.ok(new Set<string>(calls).has('a') && new Set<string>(calls).has('b'));
 });

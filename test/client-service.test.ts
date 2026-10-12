@@ -49,7 +49,7 @@ function setup() {
   ) => {
     const id = randomUUID();
     names.set(id, name);
-    staff.push({ id, displayName: name, email: null, role, status });
+    staff.push({ id, displayName: name, email: null, role, status, clientCount: 0 });
     return id;
   };
   const admin = person('Admin', 'admin');
@@ -60,6 +60,7 @@ function setup() {
   const calls: { viewer: string | null; filter: unknown; page: unknown }[] = [];
   let rows: ClientListItem[] = [];
   const events: string[] = [];
+  const history: { profileId: string; from: string | null; to: string | null; by: string }[] = [];
 
   const unit: ClientUnit = {
     list: async (_agencyId, filter, viewer, page) => {
@@ -81,10 +82,44 @@ function setup() {
     staffMember: async (_agencyId, id) => staff.find((s) => s.id === id) ?? null,
     assign: async (_agencyId, profileId, agentId) => {
       const p = store.profiles.get(profileId);
-      if (!p) return false;
+      if (!p) return undefined;
+      const previous = p.assignedAgentId ?? null;
       p.assignedAgentId = agentId;
+      return { previous };
+    },
+    recordAssignment: async (_agencyId, input) => {
+      history.push({ ...input });
+    },
+    setStatus: async (_agencyId, accountId, status) => {
+      const member = staff.find((s) => s.id === accountId);
+      if (!member || member.status === 'invited' || member.status === status) return false;
+      member.status = status;
       return true;
     },
+    activeAdmins: async () =>
+      staff.filter((s) => s.role === 'admin' && s.status === 'active').length,
+    handOver: async (_agencyId, from, to, by) => {
+      const moved: string[] = [];
+      for (const [id, p] of store.profiles) {
+        if (p.assignedAgentId === from) {
+          p.assignedAgentId = to;
+          moved.push(id);
+          history.push({ profileId: id, from, to, by });
+        }
+      }
+      return moved;
+    },
+    assignments: async (_agencyId, profileId) =>
+      history
+        .filter((h) => h.profileId === profileId)
+        .map((h, index) => ({
+          id: String(index),
+          at: '2026-10-06T10:00:00.000Z',
+          from: h.from ? { id: h.from, displayName: names.get(h.from) ?? '?' } : null,
+          to: h.to ? { id: h.to, displayName: names.get(h.to) ?? '?' } : null,
+          by: { id: h.by, displayName: names.get(h.by) ?? '?' },
+          reason: 'assigned' as const,
+        })),
     appendEvent: async (event) => {
       events.push(event.type);
     },
@@ -105,6 +140,8 @@ function setup() {
     calls,
     events,
     ids: { admin, abir, other, gone },
+    staff,
+    history,
     setRows: (next: ClientListItem[]) => (rows = next),
     asAdmin: as(admin, 'admin'),
     asAbir: as(abir, 'agent'),
@@ -411,4 +448,110 @@ await test('a profile that stops being published takes its waiting requests with
   // Moving between states that are not published does not do it again.
   await t.service.changeStatus(t.asAbir, own, 'closed', profile.version, 'c');
   assert.equal(t.store.withdrawn.length, 2);
+});
+
+await test('an admin turns staff off and on, but not themselves and not the last admin', async () => {
+  const t = setup();
+  const second = randomUUID();
+  t.staff.push({
+    id: second,
+    displayName: 'Second admin',
+    email: null,
+    role: 'admin',
+    status: 'active',
+    clientCount: 0,
+  });
+  await rejects(
+    t.service.setStaffStatus(t.asAbir, t.ids.other, 'disabled', 'c'),
+    403,
+    'ROLE_FORBIDDEN',
+  );
+  await rejects(
+    t.service.setStaffStatus(t.asAdmin, t.ids.admin, 'disabled', 'c'),
+    409,
+    'CANNOT_DISABLE_SELF',
+  );
+  await rejects(
+    t.service.setStaffStatus(t.asAdmin, randomUUID(), 'disabled', 'c'),
+    404,
+    'STAFF_NOT_FOUND',
+  );
+
+  const off = await t.service.setStaffStatus(t.asAdmin, t.ids.abir, 'disabled', 'c');
+  assert.equal(off.status, 'disabled');
+  assert.ok(t.events.includes('staff.disabled'));
+  const on = await t.service.setStaffStatus(t.asAdmin, t.ids.abir, 'active', 'c');
+  assert.equal(on.status, 'active');
+  assert.ok(t.events.includes('staff.enabled'));
+  // The same again changes nothing and is not an event.
+  const count = t.events.length;
+  await t.service.setStaffStatus(t.asAdmin, t.ids.abir, 'active', 'c');
+  assert.equal(t.events.length, count);
+
+  // With two active admins one can be turned off; the other then cannot.
+  await t.service.setStaffStatus(t.asAdmin, second, 'disabled', 'c');
+  const asSecond = { agencyId: agency, accountId: second, role: 'admin' as const };
+  await t.service.setStaffStatus(t.asAdmin, second, 'active', 'c');
+  await t.service.setStaffStatus(asSecond, t.ids.admin, 'disabled', 'c');
+  await rejects(
+    t.service.setStaffStatus(asSecond, second, 'disabled', 'c'),
+    409,
+    'CANNOT_DISABLE_SELF',
+  );
+});
+
+await test('handing over takes every client of an agent to another and keeps the history', async () => {
+  const t = setup();
+  const a = t.store.addAndGet(randomUUID(), t.ids.abir);
+  const b = t.store.addAndGet(randomUUID(), t.ids.abir);
+  const c = t.store.addAndGet(randomUUID(), t.ids.other);
+
+  await rejects(t.service.handOver(t.asAbir, t.ids.abir, t.ids.other, 'c'), 403, 'ROLE_FORBIDDEN');
+  await rejects(
+    t.service.handOver(t.asAdmin, t.ids.abir, t.ids.abir, 'c'),
+    422,
+    'AGENT_NOT_AVAILABLE',
+  );
+  await rejects(
+    t.service.handOver(t.asAdmin, t.ids.abir, t.ids.gone, 'c'),
+    422,
+    'AGENT_NOT_AVAILABLE',
+  );
+  await rejects(
+    t.service.handOver(t.asAdmin, randomUUID(), t.ids.other, 'c'),
+    404,
+    'STAFF_NOT_FOUND',
+  );
+
+  const done = await t.service.handOver(t.asAdmin, t.ids.abir, t.ids.other, 'c');
+  assert.equal(done.moved, 2);
+  assert.equal(t.store.profiles.get(a)?.assignedAgentId, t.ids.other);
+  assert.equal(t.store.profiles.get(b)?.assignedAgentId, t.ids.other);
+  assert.equal(t.store.profiles.get(c)?.assignedAgentId, t.ids.other);
+  assert.ok(t.events.includes('staff.handed_over'));
+  const trail = await t.service.assignments(t.asAdmin, a);
+  assert.deepEqual(
+    trail.map((r) => [r.from?.id, r.to?.id]),
+    [[t.ids.abir, t.ids.other]],
+  );
+
+  // To nobody is allowed, and nobody has nothing left to move.
+  assert.equal((await t.service.handOver(t.asAdmin, t.ids.other, null, 'c')).moved, 3);
+  assert.equal((await t.service.handOver(t.asAdmin, t.ids.other, null, 'c')).moved, 0);
+});
+
+await test('an assignment is recorded once, and only the agent who looks after the client or an admin reads the history', async () => {
+  const t = setup();
+  const own = t.store.addAndGet(randomUUID(), t.ids.abir);
+  await t.service.assign(t.asAdmin, own, t.ids.other, 'c');
+  // The same choice again is not a change.
+  await t.service.assign(t.asAdmin, own, t.ids.other, 'c');
+  const trail = await t.service.assignments(t.asAdmin, own);
+  assert.equal(trail.length, 1);
+  assert.deepEqual([trail[0]?.from?.id, trail[0]?.to?.id], [t.ids.abir, t.ids.other]);
+  // The new agent reads it; the one who had the client does not any more.
+  const asOther = { agencyId: agency, accountId: t.ids.other, role: 'agent' as const };
+  assert.equal((await t.service.assignments(asOther, own)).length, 1);
+  await rejects(t.service.assignments(t.asAbir, own), 404, 'PROFILE_NOT_FOUND');
+  await rejects(t.service.assignments(t.asMember, own), 403, 'ROLE_FORBIDDEN');
 });

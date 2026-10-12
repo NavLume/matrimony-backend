@@ -44,7 +44,14 @@ export class MatchService {
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const own = await unit.ownProfile(actor.agencyId, actor.accountId);
       if (!own) {
-        return { items: [], next: null, profileStatus: null, releasedTotal: 0, visibleFields: [] };
+        return {
+          items: [],
+          next: null,
+          profileStatus: null,
+          releasedTotal: 0,
+          visibleFields: [],
+          canSearchByCode: false,
+        };
       }
       if (own.status !== 'active') {
         return {
@@ -53,10 +60,13 @@ export class MatchService {
           profileStatus: own.status,
           releasedTotal: 0,
           visibleFields: [],
+          canSearchByCode: false,
         };
       }
-      const visible = await this.visibleFields(unit, actor.agencyId, own.id);
-      const hidden = hiddenFilters(filters, visible);
+      const settings = await unit.settings(actor.agencyId, own.id);
+      const visible = settings?.visibleFields ?? DEFAULT_VISIBLE_FIELDS;
+      const canSearchByCode = settings?.allowCodeSearch ?? false;
+      const hidden = hiddenFilters(filters, visible, canSearchByCode);
       if (hidden.length > 0) {
         throw new AppError(400, 'FILTER_NOT_AVAILABLE', {
           fields: hidden.map((path) => ({ path, code: 'notAvailable' })),
@@ -82,6 +92,7 @@ export class MatchService {
         profileStatus: own.status,
         releasedTotal: await unit.releasedTotal(actor.agencyId, own.id),
         visibleFields: [...visible],
+        canSearchByCode,
       };
     });
   }

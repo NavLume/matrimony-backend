@@ -140,3 +140,133 @@ change as follows; where this section and the earlier one differ, this one is cu
 - Coming back to published does not revive requests. They stay withdrawn and can be asked again.
 - Done in `ProfileService.changeStatus` through one query (`withdrawOpenRequests`), so the status and the
   withdrawals commit or fail together. No new migration.
+
+## Slice 3.J: a CV for every profile (built 13 October 2026, in review)
+
+Decided with the friend on 12 October 2026 (answers 14 and 16) and by the owner on 13 October: **PDF only
+(photos inside the PDF are fine), one CV per profile that the owner can replace, shown to the other person
+only after a connection is accepted.**
+
+- **Storage and model.** Migration 018 `profile_cvs`. A profile has at most one `published` CV and at most
+  one `pending` or `rejected` replacement (partial unique indexes). A removed CV keeps its row and its file
+  is deleted. The runtime role cannot delete rows. Files go through the same `FileStorage` as photos
+  (local disk in development, S3-compatible in production), under `{agency}/{profile}/cv-{id}.pdf`.
+- **Who uploads.** A member for their own profile: it waits for staff. Staff for an assisted client:
+  published at once. Staff cannot upload for a member who runs their own profile
+  (`PROFILE_SELF_SERVICE`) but they review what the member uploaded.
+- **Replacing.** The old CV stays published until the new one is approved. Approving retires the old one
+  (its file is deleted); turning down keeps the old one and shows the member the reason.
+- **Who sees it.** The owner, staff who look after the profile, and a member with an **accepted**
+  connection to them. Never in a list, search or window. For anyone else the answer is the same as "no CV".
+- **The file is checked** by its bytes (`%PDF-` header, `%%EOF` trailer, 5 MB) and screened for
+  `/JavaScript`, `/JS`, `/Launch`, `/OpenAction`, `/AA`, embedded files, rich media and submit forms,
+  including `#xx`-escaped names. It is a screen, not a guarantee: content inside compressed object streams
+  is not seen, so the file is only ever served with `X-Content-Type-Options: nosniff`, a sandboxing
+  `Content-Security-Policy`, `Cache-Control: private, no-store`, and only to someone allowed to see it.
+- **Endpoints.** `GET/PUT/DELETE /me/profile/cv`, `GET /me/profile/cv/file`, `GET /me/matches/{id}/cv`,
+  `GET /me/matches/{id}/cv/file`, `GET/PUT/DELETE /staff/clients/{id}/cv`, `GET .../cv/file`,
+  `POST .../cv/review`.
+- **Frontend.** A CV section on My profile, on the client's page (staff) and a CV card on a connected
+  person's full profile. The same-origin proxy forwards `X-File-Name` and allows 5 MB on the CV paths.
+- **Not built:** virus scanning, scanning inside compressed PDF streams, a preview inside the page
+  (the CV opens in a new tab), photos for assisted clients.
+
+## Slices 3.K to 3.N (built 13 October 2026, in review)
+
+Decided with the friend on 12 October 2026 (answers 14 to 29) and built together.
+
+### 3.K A family member who uses the account
+
+- A profile whose `managedFor` is not `self` (child, sibling, relative, other) is run through an account that
+  a family member uses. Before it can be sent for review the contact person and the relationship must be
+  given (`REQUIRED_WHEN_FOR_SOMEONE_ELSE`, backend and frontend rules match).
+- The form shows a note in the contact section and marks the two fields required; staff see "Account used
+  by a family member" with the name and relationship on the client's page.
+- Consent: the registration already records the authority confirmation when someone registers for another
+  person. Nothing more is stored; the agent handles the account, as decided.
+
+### 3.L Staff: turn off, hand over, history
+
+- `PUT /admin/staff/{id}/status` turns a staff account off or on. Not your own (`CANNOT_DISABLE_SELF`), never
+  the last active admin (`LAST_ADMIN`), not an unaccepted invitation (`STAFF_NOT_ACCEPTED`). A disabled person
+  is refused on their next request, because the account is read as active on every request.
+- `POST /admin/staff/{id}/hand-over` gives every client of one agent to another, or to nobody. Waiting
+  requests and reminders follow the client, because they follow who looks after the person asked.
+- `GET /staff/clients/{id}/assignments` is the history, newest first (migration 019 `client_assignments`):
+  every change of agent, who made it, and the starting point for clients assigned before it was kept.
+  Admins read it, and the agent who looks after the client now.
+- The staff list says how many clients each person has.
+
+### 3.M The nightly refresh, and the member code field
+
+- Once a day for each agency, from 2 am Bangladesh time, every published client's proposals are refreshed
+  (the same rule as the button: released and removed are never touched). `job_runs` (migration 019) holds
+  the day's claim, so a restart or a second process never repeats it. Runs inside the API process.
+- The member code field in a member's filter box is off until staff turn it on for that client
+  (`allowCodeSearch`, migration 020; default off). It only finds profiles in the member's own window, never
+  anyone else in the agency. _Interpretation:_ answer 28 was read as "the agent or admin decides which
+  fields appear in the member's filter box"; searching the whole agency by code was not built.
+
+### 3.N Every change reviewed, and digits
+
+- Audit of what changes an approved profile: a member's save is refused (`PROFILE_EDIT_REQUIRES_REVIEW`)
+  and goes through an edit request; staff cannot change a member who runs their own profile; for an
+  assisted client staff changes also go through an edit request reviewed by someone else; photos and a
+  member's CV are reviewed. Not reviewed, by decision: status changes by staff, the assignment, the release
+  settings, and a CV that staff upload for an assisted client.
+- Digits follow the page's language: Bengali digits in Bengali, Latin in English (numbers, sizes, dates).
+  Phone numbers, member codes and one-time codes stay Latin. `lib/format.ts` is the one place, and
+  `useNumber` formats a number placed straight into a page.
+
+## Slice 3.O: notifications for the rest, live push, an agent for everyone, direct staff accounts (built 13 October 2026, in review)
+
+Decided by the owner on 13 October 2026, after the list of what the meeting decided and was not yet built.
+
+### More inbox lines
+
+- **Released to a client:** a client who signs in gets "your agent released N profiles" (`candidates_released`),
+  written in the same transaction as the release. A client with no login is not told: their agent did it.
+- **Sent for review:** when a profile, a change to one, a photo or a CV is sent, the agent who looks after the
+  profile and every active admin get a line (`review_requested`, with what it was). Never the sender.
+- **A new client:** the agent a client was given to is told (`client_assigned`).
+- The inbox, the unread count and "mark as read" now cover every kind of line. A line that is not about a
+  connection has `connectionId: null`.
+
+### Live push
+
+- Migration 021: a trigger on `notifications` sends `pg_notify('notifications', {agency, account})` after
+  commit. The API process holds one `LISTEN` connection (`NotificationHub`), reconnecting with a growing
+  pause and telling every listener once it is back, so nobody misses a line.
+- `GET /me/notifications/stream` is a server-sent event stream for the signed-in account. It carries only
+  the unread count (`event: unread`), once at start and again each time a line is added for the account.
+  Five streams per account, ten minutes each (the page reconnects with a fresh token), a heartbeat every
+  20 seconds. Several API processes work, because each listens.
+- The page reads it with `fetch` (the stream needs the bearer token, which `EventSource` cannot send);
+  the same-origin proxy passes this one path through as a stream. Polling on the badge stays as a fallback.
+- What a tab does on an `unread` event: sets the badge, and reads the inbox, the review requests and the
+  review count again.
+
+### An agent for everyone
+
+- A profile created without an agent (a member's first save, or a client an admin adds without choosing) is
+  given to the active agent who looks after the fewest clients, at once, in the same transaction. The history
+  records it as `automatic` with nobody as the person who did it, and the agent is told. With no active
+  agent in the agency it stays unassigned (admins see it in the list of clients nobody looks after).
+- Existing unassigned profiles are not changed.
+
+### Creating staff directly
+
+- `POST /admin/staff` creates an active staff account at once with a first password the admin chose
+  (checked like any password, hashed, never kept). An address that has an account is refused. Staff can
+  still be invited by email, which lets the person choose their own password and is the better way.
+- Migration 023 and 024: the application may write `accounts.status`, and the database refuses it for any
+  account that is not staff, so a mistake can never switch a member off through that grant.
+
+### Answers still to confirm
+
+- **Member code (answer 28):** built as "staff decide which fields appear in the member's filter box", on a
+  per-client switch. A search across the whole agency by code was not built; it would let a client reach a
+  profile the agent never released, which sits badly with an agent-curated model.
+- **Family (answer 27):** the family member who uses the account is named in My profile (contact person and
+  relationship, required when the profile is for someone else). Anything more about them is a field to add
+  to that section.

@@ -112,7 +112,7 @@ export const matchQuerySchema = z
 export type MatchQuery = z.output<typeof matchQuerySchema>;
 export type MatchFilters = Omit<MatchQuery, 'limit' | 'after'>;
 
-/** The field a client must be allowed to see before they may search on it. A member code is always allowed. */
+/** The field a client must be allowed to see before they may search on it. A member code needs the code-search switch instead. */
 const FILTER_NEEDS: Record<keyof MatchFilters, VisibleField | null> = {
   q: null,
   ageMin: 'age',
@@ -134,10 +134,14 @@ const FILTER_NEEDS: Record<keyof MatchFilters, VisibleField | null> = {
 export function hiddenFilters(
   filters: MatchFilters,
   visible: readonly VisibleField[],
+  allowCodeSearch = false,
 ): (keyof MatchFilters)[] {
   return (Object.keys(FILTER_NEEDS) as (keyof MatchFilters)[]).filter((key) => {
+    if (filters[key] === undefined) return false;
+    // The member code is searched only when staff turned it on for this client.
+    if (key === 'q') return !allowCodeSearch;
     const needed = FILTER_NEEDS[key];
-    return filters[key] !== undefined && needed !== null && !visible.includes(needed);
+    return needed !== null && !visible.includes(needed);
   });
 }
 
@@ -207,4 +211,6 @@ export interface MatchPage {
   releasedTotal: number;
   /** The fields staff let this member see: what a card may show and what can be searched. */
   visibleFields: VisibleField[];
+  /** Staff turned on the member code field of the filter box for this member. */
+  canSearchByCode: boolean;
 }

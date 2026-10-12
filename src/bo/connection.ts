@@ -156,7 +156,13 @@ export type NotificationKind =
   /** A request was withdrawn because the person asked matched with another participant. */
   | 'connection_matched'
   /** A request was withdrawn because the person asked is no longer available (paused or closed). */
-  | 'connection_unavailable';
+  | 'connection_unavailable'
+  /** Staff: something was sent for review (a profile, a change, a photo or a CV). */
+  | 'review_requested'
+  /** A client who signs in: new profiles were released to them. */
+  | 'candidates_released'
+  /** An agent: a new client was given to them. */
+  | 'client_assigned';
 
 export interface NotificationItem {
   id: string;
@@ -165,7 +171,12 @@ export interface NotificationItem {
   position: string;
   /** The recipient has read it. */
   read: boolean;
-  connectionId: string;
+  /** The connection this is about. Null for lines that are not about a connection. */
+  connectionId: string | null;
+  /** For a review request: what was sent (profile, edit, photo or cv). */
+  what: string | null;
+  /** For a release: how many profiles. */
+  count: number | null;
   /** The profile this is about for the recipient: their own, or the client they look after. */
   forProfileId: string;
   about: {

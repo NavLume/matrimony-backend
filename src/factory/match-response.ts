@@ -16,6 +16,7 @@ export const matchPageResponse = (page: MatchPage) => ({
   profileStatus: page.profileStatus,
   releasedTotal: page.releasedTotal,
   visibleFields: page.visibleFields,
+  canSearchByCode: page.canSearchByCode,
 });
 
 /** The full view of one profile. The contact is only what the other person shared, never an address. */

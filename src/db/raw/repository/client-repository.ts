@@ -1,7 +1,12 @@
 import type { Cursor } from '../../../bo/review.js';
-import type { ClientListItem, ClientMeta, StaffMember } from '../../../bo/client.js';
+import type {
+  AssignmentRecord,
+  ClientListItem,
+  ClientMeta,
+  StaffMember,
+} from '../../../bo/client.js';
 import type { Transaction } from '../../config/database.js';
-import { mapClientItem, mapClientMeta, mapStaff } from '../mapper/client.js';
+import { mapAssignment, mapClientItem, mapClientMeta, mapStaff } from '../mapper/client.js';
 import { clientListQuery, clientQueries } from '../query/client.js';
 
 /** What narrows the list. Every part is optional. */
@@ -65,14 +70,68 @@ export class ClientRepository {
     return result.rows[0] ? mapStaff(result.rows[0]) : null;
   }
 
-  /** False when there is no such profile. */
+  /** Who looked after the profile before, or `undefined` when there is no such profile. */
   async assign(
     tx: Transaction,
     agencyId: string,
     profileId: string,
     agentId: string | null,
+  ): Promise<{ previous: string | null } | undefined> {
+    const before = await tx.query(clientQueries.assignee, [agencyId, profileId]);
+    const row = before.rows[0] as { assigned_agent_id: string | null } | undefined;
+    if (!row) return undefined;
+    await tx.query(clientQueries.assign, [agencyId, profileId, agentId]);
+    return { previous: row.assigned_agent_id ?? null };
+  }
+
+  async recordAssignment(
+    tx: Transaction,
+    agencyId: string,
+    input: { profileId: string; from: string | null; to: string | null; by: string },
+  ): Promise<void> {
+    await tx.query(clientQueries.recordAssignment, [
+      agencyId,
+      input.profileId,
+      input.from,
+      input.to,
+      input.by,
+    ]);
+  }
+
+  /** False when the account is not staff, or is not in the other of active and disabled. */
+  async setStatus(
+    tx: Transaction,
+    agencyId: string,
+    accountId: string,
+    status: 'active' | 'disabled',
   ): Promise<boolean> {
-    const result = await tx.query(clientQueries.assign, [agencyId, profileId, agentId]);
+    const result = await tx.query(clientQueries.setStatus, [agencyId, accountId, status]);
     return result.rows.length > 0;
+  }
+
+  async activeAdmins(tx: Transaction, agencyId: string): Promise<number> {
+    const result = await tx.query(clientQueries.activeAdmins, [agencyId]);
+    return (result.rows[0] as { n: number }).n;
+  }
+
+  /** The profiles that were handed over. */
+  async handOver(
+    tx: Transaction,
+    agencyId: string,
+    fromAgentId: string,
+    toAgentId: string | null,
+    by: string,
+  ): Promise<string[]> {
+    const result = await tx.query(clientQueries.handOver, [agencyId, fromAgentId, toAgentId, by]);
+    return result.rows.map((row) => (row as { profile_id: string }).profile_id);
+  }
+
+  async assignments(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+  ): Promise<AssignmentRecord[]> {
+    const result = await tx.query(clientQueries.assignments, [agencyId, profileId]);
+    return result.rows.map(mapAssignment);
   }
 }

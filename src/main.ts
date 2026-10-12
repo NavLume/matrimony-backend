@@ -2,6 +2,7 @@ import { loadConfig } from './config/env.js';
 import { createLogger } from './config/logger.js';
 import { createApiContainer } from './container.js';
 import { buildApp } from './controller/app.js';
+import { startNightlyRefresh } from './scheduler/nightly-refresh-scheduler.js';
 import { startReviewReminders } from './scheduler/review-reminder-scheduler.js';
 async function main() {
   const config = loadConfig();
@@ -17,6 +18,13 @@ async function main() {
       logger,
     );
     app.addHook('onClose', () => stopReminders());
+    // Candidate lists are refreshed once a night, from 2 am Bangladesh time.
+    const stopNightly = startNightlyRefresh(
+      container.candidates,
+      [...new Set(Object.values(config.TENANT_HOSTS))],
+      logger,
+    );
+    app.addHook('onClose', () => stopNightly());
     let stopping = false;
     const stop = async () => {
       if (stopping) return;

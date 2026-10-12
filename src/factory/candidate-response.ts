@@ -33,6 +33,7 @@ export const generationResponse = (result: GenerationResult) => ({
 export const settingsResponse = (settings: ReleaseSettings) => ({
   cap: settings.cap,
   visibleFields: settings.visibleFields,
+  allowCodeSearch: settings.allowCodeSearch,
   releasedCount: settings.releasedCount,
   isDefault: settings.isDefault,
 });

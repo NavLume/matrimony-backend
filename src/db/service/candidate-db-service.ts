@@ -27,13 +27,15 @@ export interface CandidateUnit {
   settings(
     agencyId: string,
     clientId: string,
-  ): Promise<{ cap: number; visibleFields: VisibleField[] } | null>;
+  ): Promise<{ cap: number; visibleFields: VisibleField[]; allowCodeSearch: boolean } | null>;
   saveSettings(
     agencyId: string,
     clientId: string,
-    input: { cap: number; visibleFields: readonly VisibleField[] },
+    input: { cap: number; visibleFields: readonly VisibleField[]; allowCodeSearch: boolean },
     accountId: string,
   ): Promise<void>;
+  activeClients(agencyId: string): Promise<string[]>;
+  claimJob(agencyId: string, name: string, now: Date, startOfDay: Date): Promise<boolean>;
   releasedCount(agencyId: string, clientId: string): Promise<number>;
   releasable(agencyId: string, clientId: string, ids: readonly string[]): Promise<string[]>;
   markReleased(
@@ -73,6 +75,9 @@ export class CandidateDbService {
       list: (agencyId, clientId, state, limit, today) =>
         repo.list(tx, agencyId, clientId, state, limit, today),
       settings: (agencyId, clientId) => repo.settings(tx, agencyId, clientId),
+      activeClients: (agencyId) => repo.activeClients(tx, agencyId),
+      claimJob: (agencyId, name, now, startOfDay) =>
+        repo.claimJob(tx, agencyId, name, now, startOfDay),
       saveSettings: (agencyId, clientId, input, accountId) =>
         repo.saveSettings(tx, agencyId, clientId, input, accountId),
       releasedCount: (agencyId, clientId) => repo.releasedCount(tx, agencyId, clientId),

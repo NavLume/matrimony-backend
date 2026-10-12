@@ -29,6 +29,26 @@ export const staffInviteInputSchema = z
   .strict();
 export type StaffInviteInput = z.output<typeof staffInviteInputSchema>;
 
+/**
+ * An admin creates a staff account directly, choosing its first password. The person is then told
+ * the password by the admin and can change it with "Forgot your password". Prefer an invitation,
+ * which lets the person choose their own.
+ */
+export const staffCreateInputSchema = z
+  .object({
+    email: emailSchema,
+    displayName: z
+      .string(fail('required'))
+      .trim()
+      .min(1, fail('required'))
+      .max(100, fail('tooLong')),
+    role: z.enum(STAFF_ROLES, fail('invalidOption')),
+    locale: z.enum(REGISTRATION_LOCALES, fail('invalidOption')),
+    password: newPasswordSchema,
+  })
+  .strict();
+export type StaffCreateInput = z.output<typeof staffCreateInputSchema>;
+
 export const invitationLinkInputSchema = z.object({ token: oneTimeTokenSchema }).strict();
 
 export const acceptInvitationInputSchema = z

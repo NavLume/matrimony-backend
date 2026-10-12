@@ -24,6 +24,9 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   connection_review_reminder: 'interest.review_reminder',
   connection_matched: 'interest.matched',
   connection_unavailable: 'interest.unavailable',
+  review_requested: 'profile.review_requested',
+  candidates_released: 'candidates.released',
+  client_assigned: 'client.assigned',
 };
 const KIND_OF = Object.fromEntries(
   Object.entries(TEMPLATE_OF).map(([kind, template]) => [template, kind]),
@@ -340,7 +343,9 @@ export class ConnectionRepository {
       createdAt: (row.created_at as Date).toISOString(),
       position: row.position as string,
       read: row.is_read === true,
-      connectionId: (row.payload as { interestId: string }).interestId,
+      connectionId: (row.payload as { interestId?: string }).interestId ?? null,
+      what: (row.payload as { what?: string }).what ?? null,
+      count: (row.payload as { count?: number }).count ?? null,
       forProfileId: (row.payload as { forProfileId: string }).forProfileId,
       about: {
         profileId: row.about_profile_id as string,

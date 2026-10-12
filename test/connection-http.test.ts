@@ -15,6 +15,8 @@ import {
   unusedInvitations,
   unusedMatches,
   unusedPhotos,
+  unusedCvs,
+  unusedLive,
   unusedProfiles,
   unusedReviews,
 } from './fixtures.js';
@@ -44,6 +46,8 @@ async function setup(role: 'admin' | 'agent' | 'member') {
     ready: async () => {},
     profiles: unusedProfiles,
     photos: unusedPhotos,
+    cvs: unusedCvs,
+    live: unusedLive,
     reviews: unusedReviews,
     clients: unusedClients,
     candidates: unusedCandidates,
@@ -68,6 +72,8 @@ async function setup(role: 'admin' | 'agent' | 'member') {
             position: '2026-10-10T08:00:00.000000Z',
             read: false,
             connectionId: ID,
+            what: null,
+            count: null,
             forProfileId: ID,
             about: { profileId: OTHER, memberCode: 'M1', fullName: 'Ayesha' },
           },
@@ -160,11 +166,13 @@ await test('the inbox is open to every signed-in role', async (t) => {
     assert.deepEqual(Object.keys(res.json().items[0]).sort(), [
       'about',
       'connectionId',
+      'count',
       'createdAt',
       'forProfileId',
       'id',
       'kind',
       'read',
+      'what',
     ]);
     // The internal cursor position is never sent.
     assert.equal('position' in res.json().items[0], false);

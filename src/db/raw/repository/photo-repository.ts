@@ -3,6 +3,7 @@ import type { Transaction } from '../../config/database.js';
 import { profileRef } from '../../entity/photo.js';
 import { mapPhoto, mapPhotoFile } from '../mapper/photo.js';
 import { photoQueries } from '../query/photo.js';
+import { notifyReviewers } from './notice.js';
 
 /** All photo reads and writes. Every method runs inside the transaction it is given. */
 export class PhotoRepository {
@@ -53,6 +54,7 @@ export class PhotoRepository {
       uploadedBy,
     ]);
     await tx.query(photoQueries.insertReview, [agencyId, profileId, uploadedBy, photoId]);
+    await notifyReviewers(tx, agencyId, profileId, uploadedBy, 'photo');
   }
 
   /** Removes the photo from the member's list and cancels any review waiting on it. */

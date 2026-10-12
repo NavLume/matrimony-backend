@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { staffInviteInputSchema, type StaffInvitation } from '../bo/staff.js';
+import {
+  staffCreateInputSchema,
+  staffInviteInputSchema,
+  type StaffInvitation,
+} from '../bo/staff.js';
 import type { StaffInvitationProcess } from '../process/staff-invitation-process.js';
 import './context.js';
 
@@ -25,7 +29,7 @@ const invitationResponse = (invitation: StaffInvitation) => ({
  */
 export function registerStaffController(
   app: FastifyInstance,
-  invitations: Pick<StaffInvitationProcess, 'invite' | 'resend' | 'list' | 'revoke'>,
+  invitations: Pick<StaffInvitationProcess, 'invite' | 'resend' | 'list' | 'revoke' | 'create'>,
 ) {
   const context = (req: FastifyRequest) => ({
     agencyId: req.tenant!.id,
@@ -65,6 +69,28 @@ export function registerStaffController(
       invitationResponse(
         await invitations.resend(context(req), admin(req), invitationId(req), req.id),
       ),
+  );
+
+  // Creates an account at once with a first password, for an agency that sets people up in person.
+  app.post(
+    '/api/v1/admin/staff',
+    { config: { ...adminOnly, rateLimit: { max: 30, timeWindow: 600000 } } },
+    async (req, reply) => {
+      const created = await invitations.create(
+        context(req),
+        admin(req),
+        staffCreateInputSchema.parse(req.body),
+        req.id,
+      );
+      return reply.code(201).send({
+        id: created.account.id,
+        displayName: created.account.displayName,
+        email: created.email,
+        role: created.account.role,
+        status: 'active',
+        clientCount: 0,
+      });
+    },
   );
 
   app.delete(

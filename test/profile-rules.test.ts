@@ -242,6 +242,31 @@ await test('a profile is ready to submit only when the required fields are fille
   assert.deepEqual(missingRequired(noPhone), ['contact.phone']);
 });
 
+await test('a profile for someone else also needs the family member who uses the account', () => {
+  const forChild = schema.parse({
+    ...complete,
+    profile: { ...complete.profile, managedFor: 'child' },
+  }) as ProfileData;
+  assert.deepEqual(missingRequired(forChild), [
+    'contact.contactName',
+    'contact.contactRelationship',
+  ]);
+
+  const named = schema.parse({
+    ...complete,
+    profile: { ...complete.profile, managedFor: 'sibling' },
+    contact: { ...complete.contact, contactName: 'Karim', contactRelationship: 'Brother' },
+  }) as ProfileData;
+  assert.deepEqual(missingRequired(named), []);
+
+  // A profile for oneself needs neither.
+  const own = schema.parse({
+    ...complete,
+    profile: { ...complete.profile, managedFor: 'self' },
+  }) as ProfileData;
+  assert.deepEqual(missingRequired(own), []);
+});
+
 await test('a change request carries only the fields that differ', () => {
   const current = schema.parse(complete) as ProfileData;
 

@@ -69,6 +69,34 @@ export class CandidateService {
     });
   }
 
+  /**
+   * Once a day, for an agency: every published client's list of proposals is refreshed, so an agent
+   * who forgot to press "Find candidates" still finds new members there. What staff already released
+   * or removed is not touched (same rule as the button). Returns how many clients were refreshed, or
+   * `null` when today's run was already done, which is what makes a restart or a second process safe.
+   */
+  async refreshNightly(agencyId: string): Promise<number | null> {
+    const now = this.now();
+    const claimed = await this.db.inTransaction(agencyId, (unit) =>
+      unit.claimJob(agencyId, 'candidates.nightly', now, startOfBangladeshDay(now)),
+    );
+    if (!claimed) return null;
+    const ids = await this.db.inTransaction(agencyId, (unit) => unit.activeClients(agencyId));
+    let refreshed = 0;
+    for (const id of ids) {
+      try {
+        if (await this.refresh(agencyId, id)) refreshed += 1;
+      } catch {
+        // One client must not stop the rest. The code is logged; the next night tries again.
+        this.logger.error(
+          { code: 'CANDIDATE_NIGHTLY_FAILED', agencyId, profileId: id },
+          'Nightly refresh failed for one client',
+        );
+      }
+    }
+    return refreshed;
+  }
+
   async list(
     actor: ProfileActor,
     profileId: string,
@@ -185,6 +213,7 @@ export class CandidateService {
     return {
       cap: saved?.cap ?? DEFAULT_CAP,
       visibleFields: saved?.visibleFields ?? [...DEFAULT_VISIBLE_FIELDS],
+      allowCodeSearch: saved?.allowCodeSearch ?? false,
       releasedCount: await unit.releasedCount(agencyId, clientId),
       isDefault: saved === null,
     };
@@ -253,4 +282,15 @@ export class CandidateService {
   private requireStaff(actor: ProfileActor) {
     if (!isStaff(actor.role)) throw new AppError(403, 'ROLE_FORBIDDEN');
   }
+}
+
+/**
+ * Midnight of the current day in Bangladesh (UTC+6, no daylight saving), as an instant. A daily job
+ * counts days by it, so "once a day" means a Bangladesh day whatever the server's timezone is.
+ */
+export function startOfBangladeshDay(now: Date): Date {
+  const OFFSET_MS = 6 * 60 * 60 * 1000;
+  const local = new Date(now.getTime() + OFFSET_MS);
+  const midnightLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  return new Date(midnightLocal - OFFSET_MS);
 }

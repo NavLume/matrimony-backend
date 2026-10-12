@@ -40,6 +40,10 @@ import { PhotoRepository } from './db/raw/repository/photo-repository.js';
 import { PhotoDbService } from './db/service/photo-db-service.js';
 import { PhotoService } from './service/photo-service.js';
 import { PhotoProcess } from './process/photo-process.js';
+import { CvRepository } from './db/raw/repository/cv-repository.js';
+import { CvDbService } from './db/service/cv-db-service.js';
+import { CvService } from './service/cv-service.js';
+import { CvProcess } from './process/cv-process.js';
 import { processImage } from './security/image-processor.js';
 import { createFileStorage } from './storage/config/storage.js';
 import { RegistrationRepository } from './db/raw/repository/registration-repository.js';
@@ -62,6 +66,8 @@ import { MatchProcess } from './process/match-process.js';
 import { ConnectionRepository } from './db/raw/repository/connection-repository.js';
 import { ConnectionDbService } from './db/service/connection-db-service.js';
 import { ConnectionService } from './service/connection-service.js';
+import type { ProfileActor } from './service/profile-service.js';
+import { listenClientFor, NotificationHub } from './notify/notification-hub.js';
 import { EventDeliveryProcess } from './process/event-delivery-process.js';
 /** The console driver is for development only: the configuration refuses it in production. */
 function createMailer(config: AppConfig): Mailer {
@@ -95,6 +101,17 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       new CandidateDbService(db, new CandidateRepository(), new EventRepository()),
       logger,
     );
+    const connections = new ConnectionService(
+      new ConnectionDbService(
+        db,
+        new ConnectionRepository(),
+        new MatchRepository(),
+        new CandidateRepository(),
+        new EventRepository(),
+      ),
+    );
+    // One database connection listens for every account's live notifications.
+    const hub = new NotificationHub(listenClientFor(config.DATABASE_URL), logger);
     const identities = new IdentityService(
       new IdentityDbService(db, new IdentityRepository()),
       config.TENANT_HOSTS,
@@ -187,6 +204,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
             logger,
           )
         : undefined;
+    await hub.start();
     return {
       config,
       logger,
@@ -198,6 +216,11 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       google,
       phone,
       registrations,
+      cvs: new CvProcess(
+        new CvService(new CvDbService(db, new CvRepository(), new EventRepository())),
+        storage,
+        logger,
+      ),
       photos: new PhotoProcess(
         new PhotoService(new PhotoDbService(db, new PhotoRepository(), new EventRepository())),
         storage,
@@ -219,15 +242,12 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         logger,
       ),
       candidates,
-      connections: new ConnectionService(
-        new ConnectionDbService(
-          db,
-          new ConnectionRepository(),
-          new MatchRepository(),
-          new CandidateRepository(),
-          new EventRepository(),
-        ),
-      ),
+      connections,
+      live: {
+        subscribe: (agencyId: string, accountId: string, listener: () => void) =>
+          hub.subscribe(agencyId, accountId, () => listener()),
+        unread: (actor: ProfileActor) => connections.unreadCount(actor),
+      },
       matches: new MatchProcess(
         new MatchService(new MatchDbService(db, new MatchRepository(), new CandidateRepository())),
         storage,
@@ -241,6 +261,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         await redis.ping();
       },
       close: async () => {
+        await hub.stop();
         await access.idle();
         await invitations.idle();
         await phone?.idle();

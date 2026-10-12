@@ -59,6 +59,37 @@ export class StaffInvitationService {
     });
   }
 
+  /**
+   * Creates a staff account at once, with the password hash already made. An address that already has
+   * an account is refused (a member is never turned into staff here), and any open invitation for it
+   * stays and is of no use any more, because accepting finds the account taken.
+   */
+  async createDirect(
+    admin: InvitingAdmin,
+    input: { email: string; displayName: string; role: string; locale: string },
+    passwordHash: string,
+    correlationId: string,
+  ): Promise<Account> {
+    this.requireAdmin(admin);
+    return this.db.inTransaction(admin.agencyId, async (unit) => {
+      if (await unit.findAccountByEmail(admin.agencyId, input.email))
+        throw new AppError(409, 'EMAIL_IN_USE');
+      const account = await unit.createStaff(admin.agencyId, {
+        id: randomUUID(),
+        displayName: input.displayName,
+        email: input.email,
+        role: input.role,
+        locale: input.locale,
+      });
+      if (!account) throw new AppError(409, 'EMAIL_IN_USE');
+      await unit.createCredential(admin.agencyId, account.id, passwordHash);
+      await unit.appendEvent(
+        this.event('staff.created', admin.agencyId, admin.accountId, account.id, correlationId),
+      );
+      return account;
+    });
+  }
+
   /** Replaces the link of an open invitation with a new one. */
   async reissue(
     admin: InvitingAdmin,

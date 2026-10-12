@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { Logger } from 'pino';
 import { passwordMatchesEmail } from '../bo/credentials.js';
 import type { Role } from '../bo/access.js';
-import type { AcceptInvitationInput, StaffInviteInput } from '../bo/staff.js';
+import type { AcceptInvitationInput, StaffCreateInput, StaffInviteInput } from '../bo/staff.js';
 import type { ThrottleRepository } from '../cache/repository/throttle-repository.js';
 import { AppError } from '../exception/app-error.js';
 import { staffInvitationEmail } from '../mail/messages.js';
@@ -50,7 +50,7 @@ export class StaffInvitationProcess {
   constructor(
     private readonly invitations: Pick<
       StaffInvitationService,
-      'invite' | 'reissue' | 'open' | 'revoke' | 'preview' | 'accept'
+      'invite' | 'reissue' | 'open' | 'revoke' | 'preview' | 'accept' | 'createDirect'
     >,
     private readonly credentials: Pick<CredentialService, 'hash'>,
     private readonly auth: Pick<AuthProcess, 'startSession'>,
@@ -83,6 +83,34 @@ export class StaffInvitationProcess {
     );
     this.sendLink(context, admin, invitation, token);
     return invitation;
+  }
+
+  /** Creates a staff account at once, with the first password the admin chose. */
+  async create(
+    context: InvitationContext,
+    admin: InvitationAdmin,
+    input: StaffCreateInput,
+    correlationId: string,
+  ) {
+    this.requireAdmin(admin);
+    await this.limit(
+      `staff-create:${context.agencyId}:${admin.id}`,
+      INVITATIONS_PER_ADMIN_PER_HOUR,
+    );
+    // A password that is the email is among the first things guessed.
+    if (passwordMatchesEmail(input.password, input.email))
+      throw new AppError(400, 'INVALID_REQUEST', {
+        fields: [{ path: 'password', code: 'sameAsEmail' }],
+      });
+    // The password goes no further than the hash: the service only ever sees the hash.
+    const { password, ...details } = input;
+    const account = await this.invitations.createDirect(
+      this.actor(context, admin),
+      details,
+      await this.credentials.hash(password),
+      correlationId,
+    );
+    return { account, email: input.email, locale: input.locale };
   }
 
   /** A new link for an open invitation; the earlier link stops working. */

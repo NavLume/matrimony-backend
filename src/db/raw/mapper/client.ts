@@ -1,4 +1,10 @@
-import type { ClientListItem, ClientMeta, StaffMember } from '../../../bo/client.js';
+import { z } from 'zod';
+import type {
+  AssignmentRecord,
+  ClientListItem,
+  ClientMeta,
+  StaffMember,
+} from '../../../bo/client.js';
 import { clientListRow, clientMetaRow, staffRow } from '../../entity/client.js';
 
 export function mapClientItem(value: unknown): ClientListItem {
@@ -44,5 +50,32 @@ export function mapStaff(value: unknown): StaffMember {
     email: row.email,
     role: row.role,
     status: row.status,
+    clientCount: row.client_count,
+  };
+}
+
+const assignmentRow = z.object({
+  id: z.uuid(),
+  created_at: z.date(),
+  from_id: z.uuid().nullable(),
+  from_name: z.string().nullable(),
+  to_id: z.uuid().nullable(),
+  to_name: z.string().nullable(),
+  by_id: z.uuid().nullable(),
+  by_name: z.string().nullable(),
+  reason: z.enum(['assigned', 'handed_over', 'earlier', 'automatic']),
+});
+
+export function mapAssignment(value: unknown): AssignmentRecord {
+  const row = assignmentRow.parse(value);
+  const ref = (id: string | null, name: string | null) =>
+    id && name ? { id, displayName: name } : null;
+  return {
+    id: row.id,
+    at: row.created_at.toISOString(),
+    from: ref(row.from_id, row.from_name),
+    to: ref(row.to_id, row.to_name),
+    by: ref(row.by_id, row.by_name),
+    reason: row.reason,
   };
 }

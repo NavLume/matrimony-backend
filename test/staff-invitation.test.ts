@@ -55,6 +55,10 @@ function setup(options: { mailFails?: boolean; passwordHash?: string } = {}) {
         return stored;
       },
       open: async () => [stored],
+      createDirect: async (...args: unknown[]) => {
+        seen.push({ name: 'createDirect', args });
+        return { id: 'c', agencyId: agency, role: 'agent' as const, displayName: 'Direct' };
+      },
       revoke: async () => {},
       preview: async (_agency: string, hash: string) =>
         hash === good
@@ -235,4 +239,40 @@ await test('a password that is the email is refused before anything is created',
     f.seen.some((s) => s.name === 'accept'),
     false,
   );
+});
+
+await test('an account created directly gets the password the admin chose, hashed, and no email is sent', async () => {
+  const f = setup();
+  const created = await f.process.create(
+    context,
+    boss,
+    { ...input, password: 'Direct-Strong-Pass-1' },
+    'r1',
+  );
+  assert.equal(created.account.id, 'c');
+  assert.deepEqual(f.hashes, ['Direct-Strong-Pass-1']);
+  const call = f.seen.find((c) => c.name === 'createDirect')!;
+  assert.equal(call.args[2], 'HASH');
+  // The password never reaches the service in the clear, and nothing is mailed.
+  assert.equal(JSON.stringify(call.args).includes('Direct-Strong-Pass-1'), false);
+  await f.process.idle();
+  assert.equal(f.mails.length, 0);
+});
+
+await test('only an admin creates an account directly, and a password that is the email is refused', async () => {
+  const f = setup();
+  await assert.rejects(
+    f.process.create(
+      context,
+      { ...boss, role: 'agent' },
+      { ...input, password: 'Whatever-123456' },
+      'r',
+    ),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
+  await assert.rejects(
+    f.process.create(context, boss, { ...input, password: input.email }, 'r'),
+    code(400, 'INVALID_REQUEST'),
+  );
+  assert.equal(f.seen.filter((c) => c.name === 'createDirect').length, 0);
 });

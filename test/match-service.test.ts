@@ -20,6 +20,7 @@ const query = (over: Record<string, unknown> = {}) => matchQuerySchema.parse(ove
 type Start = {
   own?: { id: string; status: string } | null;
   visible?: VisibleField[] | null;
+  codeSearch?: boolean;
   rows?: MatchItem[];
   photoKey?: string | null;
   total?: number;
@@ -37,7 +38,11 @@ function fake(start: Start = {}) {
     settings: async () =>
       start.visible === null
         ? null
-        : { cap: 50, visibleFields: start.visible ?? ['fullName', 'age'] },
+        : {
+            cap: 50,
+            visibleFields: start.visible ?? ['fullName', 'age'],
+            allowCodeSearch: start.codeSearch ?? false,
+          },
     releasedTotal: async () => start.total ?? (start.rows ?? []).length,
     page: async (_a, _c, visible, filters, page) => {
       seen.push({ visible, filters, limit: page.limit, after: page.after });
@@ -75,6 +80,7 @@ await test('a member with no profile, or one not published, gets an empty window
     profileStatus: null,
     releasedTotal: 0,
     visibleFields: [],
+    canSearchByCode: false,
   });
   const waiting = await fake({
     own: { id: OWN, status: 'pending_review' },
@@ -86,6 +92,7 @@ await test('a member with no profile, or one not published, gets an empty window
     profileStatus: 'pending_review',
     releasedTotal: 0,
     visibleFields: [],
+    canSearchByCode: false,
   });
 });
 
@@ -109,9 +116,21 @@ await test('a filter on a field the member may not see is refused', async () => 
         JSON.stringify({ fields: [{ path: 'district', code: 'notAvailable' }] }),
   );
   assert.equal(seen.length, 0);
-  // Age is allowed here, and a member code is always allowed.
-  await service.page(member, query({ ageMin: 25, q: 'M1' }));
+  // Age is allowed here. A member code is searched only once staff turn it on.
+  await assert.rejects(
+    service.page(member, query({ ageMin: 25, q: 'M1' })),
+    (e) =>
+      refused(400, 'FILTER_NOT_AVAILABLE')(e) &&
+      JSON.stringify((e as AppError).details) ===
+        JSON.stringify({ fields: [{ path: 'q', code: 'notAvailable' }] }),
+  );
+  await service.page(member, query({ ageMin: 25 }));
   assert.equal(seen.length, 1);
+  const allowed = fake({ visible: ['fullName', 'age'], codeSearch: true });
+  const page = await allowed.service.page(member, query({ q: 'M1' }));
+  assert.equal(page.canSearchByCode, true);
+  assert.equal(allowed.seen.length, 1);
+  assert.equal((await service.page(member, query({}))).canSearchByCode, false);
   assert.deepEqual(hiddenFilters({ profession: 'doctor', religion: 'islam' }, ['religionCode']), [
     'profession',
   ]);

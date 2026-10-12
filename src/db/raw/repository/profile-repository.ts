@@ -3,6 +3,8 @@ import type { ProfileData, ProposedChanges } from '../../../bo/profile.js';
 import type { ProfileRecord, ReviewKind, ReviewRecord } from '../../../bo/profile-state.js';
 import type { Transaction } from '../../config/database.js';
 import { mapProfile, mapReview } from '../mapper/profile.js';
+import { notifyReviewers } from './notice.js';
+import { autoAssign } from '../query/auto-assign.js';
 import { profileQueries } from '../query/profile.js';
 import {
   CONTACT_COLUMNS,
@@ -77,7 +79,23 @@ export class ProfileRepository {
     ]);
     const id = (result.rows[0] as { id: string } | undefined)?.id ?? null;
     if (id) await this.saveChildren(tx, agencyId, id, data);
+    // A client an admin adds without choosing an agent still gets one.
+    if (id && assignedAgentId === null) await this.assignAutomatically(tx, agencyId, id);
     return id;
+  }
+
+  /**
+   * Every client has an agent from the start: one who has none is given to the agent with the fewest
+   * clients. Returns that agent, or null when the agency has no active agent yet (the admins are then
+   * the ones who see it, in the list of clients nobody looks after).
+   */
+  async assignAutomatically(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+  ): Promise<string | null> {
+    const result = await tx.query(autoAssign, [agencyId, profileId]);
+    return (result.rows[0] as { assigned_agent_id: string } | undefined)?.assigned_agent_id ?? null;
   }
 
   /** Inserts a new draft. False when the owner already has a profile or the member code is taken. */
@@ -96,7 +114,11 @@ export class ProfileRepository {
       ...valuesFor(PROFILE_COLUMNS, data.profile),
     ]);
     const id = (result.rows[0] as { id: string } | undefined)?.id ?? null;
-    if (id) await this.saveChildren(tx, agencyId, id, data);
+    if (id) {
+      await this.saveChildren(tx, agencyId, id, data);
+      // A member who registers is given an agent at once, so their profile is never nobody's.
+      await this.assignAutomatically(tx, agencyId, id);
+    }
     return id;
   }
 
@@ -166,6 +188,14 @@ export class ProfileRepository {
       baseVersion,
       JSON.stringify(changes),
     ]);
+    // Whoever reviews it is told in their inbox, in the same transaction.
+    await notifyReviewers(
+      tx,
+      agencyId,
+      profileId,
+      submittedBy,
+      kind === 'initial_submission' ? 'profile' : 'edit',
+    );
     return mapReview(result.rows[0]);
   }
 

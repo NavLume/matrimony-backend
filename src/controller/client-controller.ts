@@ -4,12 +4,16 @@ import {
   assignmentSchema,
   clientInputSchema,
   clientListQuerySchema,
+  handOverSchema,
+  staffStatusSchema,
   statusChangeSchema,
 } from '../bo/client.js';
 import {
   clientDetailResponse,
+  assignmentsResponse,
   clientPageResponse,
   staffListResponse,
+  staffMemberResponse,
 } from '../factory/client-response.js';
 import type { ClientService } from '../service/client-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
@@ -37,6 +41,9 @@ export function registerClientController(
     | 'cancelPending'
     | 'changeStatus'
     | 'assign'
+    | 'setStaffStatus'
+    | 'handOver'
+    | 'assignments'
     | 'listStaff'
   >,
 ) {
@@ -94,6 +101,34 @@ export function registerClientController(
   app.put('/api/v1/staff/clients/:profileId/assignment', { config: adminOnly }, async (req) =>
     clientDetailResponse(
       await clients.assign(actor(req), id(req), assignmentSchema.parse(req.body).agentId, req.id),
+    ),
+  );
+
+  // Who has looked after a client: admins, and the agent who looks after them now.
+  app.get('/api/v1/staff/clients/:profileId/assignments', { config: staffOnly }, async (req) =>
+    assignmentsResponse(await clients.assignments(actor(req), id(req))),
+  );
+
+  const staffParams = z.object({ accountId: z.uuid() });
+  // Turn a staff account off or on. Not yourself, and never the last admin.
+  app.put('/api/v1/admin/staff/:accountId/status', { config: adminOnly }, async (req) =>
+    staffMemberResponse(
+      await clients.setStaffStatus(
+        actor(req),
+        staffParams.parse(req.params).accountId,
+        staffStatusSchema.parse(req.body).status,
+        req.id,
+      ),
+    ),
+  );
+
+  // Hand every client of one agent to another, or to nobody.
+  app.post('/api/v1/admin/staff/:accountId/hand-over', { config: adminOnly }, async (req) =>
+    clients.handOver(
+      actor(req),
+      staffParams.parse(req.params).accountId,
+      handOverSchema.parse(req.body).toAgentId,
+      req.id,
     ),
   );
 

@@ -38,13 +38,56 @@ export const clientQueries = {
  LEFT JOIN matrimony.accounts o ON o.agency_id = p.agency_id AND o.id = p.owner_account_id
  WHERE p.agency_id = $1 AND p.id = $2`,
 
-  staff: `SELECT id, display_name, email, role, status FROM matrimony.accounts
- WHERE agency_id = $1 AND role IN ('admin', 'agent') ORDER BY role, display_name`,
-  staffMember: `SELECT id, display_name, email, role, status FROM matrimony.accounts
- WHERE agency_id = $1 AND id = $2 AND role IN ('admin', 'agent')`,
+  staff: `SELECT id, display_name, email, role, status,
+       (SELECT count(*)::int FROM matrimony.member_profiles p
+         WHERE p.agency_id = a.agency_id AND p.assigned_agent_id = a.id) AS client_count
+  FROM matrimony.accounts a
+ WHERE a.agency_id = $1 AND a.role IN ('admin', 'agent') ORDER BY a.role, a.display_name`,
+  staffMember: `SELECT id, display_name, email, role, status,
+       (SELECT count(*)::int FROM matrimony.member_profiles p
+         WHERE p.agency_id = a.agency_id AND p.assigned_agent_id = a.id) AS client_count
+  FROM matrimony.accounts a
+ WHERE a.agency_id = $1 AND a.id = $2 AND a.role IN ('admin', 'agent')`,
+
+  // $1 agency, $2 account, $3 the new status. Only staff, and only between active and disabled.
+  setStatus: `UPDATE matrimony.accounts SET status = $3
+ WHERE agency_id = $1 AND id = $2 AND role IN ('admin', 'agent')
+   AND status IN ('active', 'disabled') AND status <> $3 RETURNING id`,
+  activeAdmins: `SELECT count(*)::int AS n FROM matrimony.accounts
+ WHERE agency_id = $1 AND role = 'admin' AND status = 'active'`,
+
+  // Everything one agent looks after goes to another (or to nobody), and each move is recorded.
+  // $1 agency, $2 from, $3 to or null, $4 who.
+  handOver: `WITH moved AS (
+    UPDATE matrimony.member_profiles SET assigned_agent_id = $3::uuid
+     WHERE agency_id = $1 AND assigned_agent_id = $2 RETURNING id
+  )
+  INSERT INTO matrimony.client_assignments (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)
+  SELECT $1, id, $2, $3::uuid, $4, 'handed_over' FROM moved RETURNING profile_id`,
+
+  // $1 agency, $2 profile, $3 from, $4 to, $5 who.
+  recordAssignment: `INSERT INTO matrimony.client_assignments
+ (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)
+ VALUES ($1, $2, $3, $4, $5, 'assigned')`,
+
+  // $1 agency, $2 profile. Newest first.
+  assignments: `SELECT x.id, x.created_at, x.reason,
+       f.id AS from_id, f.display_name AS from_name,
+       t.id AS to_id, t.display_name AS to_name,
+       b.id AS by_id, b.display_name AS by_name
+  FROM matrimony.client_assignments x
+  LEFT JOIN matrimony.accounts f ON f.agency_id = x.agency_id AND f.id = x.from_agent_id
+  LEFT JOIN matrimony.accounts t ON t.agency_id = x.agency_id AND t.id = x.to_agent_id
+  LEFT JOIN matrimony.accounts b ON b.agency_id = x.agency_id AND b.id = x.changed_by_account_id
+ WHERE x.agency_id = $1 AND x.profile_id = $2
+ ORDER BY x.created_at DESC, x.id DESC`,
 
   // Changes who looks after a profile, nothing else (the database does not raise the profile's
   // version for this, so requests waiting for review stay valid).
+  // Locks the profile and says who looked after it, so the change that follows is recorded against
+  // the right "from" even when two admins act at once.
+  assignee: `SELECT assigned_agent_id FROM matrimony.member_profiles
+ WHERE agency_id = $1 AND id = $2 FOR UPDATE`,
   assign: `UPDATE matrimony.member_profiles SET assigned_agent_id = $3
  WHERE agency_id = $1 AND id = $2 RETURNING id`,
 };

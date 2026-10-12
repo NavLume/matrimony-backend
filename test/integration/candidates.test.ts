@@ -338,7 +338,7 @@ await test('candidate lists on real PostgreSQL', async (t) => {
       const saved = await candidates.saveSettings(
         abir.actor,
         client,
-        { cap: 2, visibleFields: ['fullName', 'age', 'photo'] },
+        { cap: 2, visibleFields: ['fullName', 'age', 'photo'], allowCodeSearch: false },
         'c',
       );
       assert.equal(saved.isDefault, false);
@@ -371,7 +371,12 @@ await test('candidate lists on real PostgreSQL', async (t) => {
         (e) => code(409, 'CAP_REACHED')(e) && (e as AppError).details?.room === 0,
       );
       await assert.rejects(
-        candidates.saveSettings(abir.actor, client, { cap: 1, visibleFields: ['fullName'] }, 'c'),
+        candidates.saveSettings(
+          abir.actor,
+          client,
+          { cap: 1, visibleFields: ['fullName'], allowCodeSearch: false },
+          'c',
+        ),
         (e) => code(409, 'CAP_BELOW_RELEASED')(e) && (e as AppError).details?.released === 2,
       );
 
@@ -416,7 +421,7 @@ await test('candidate lists on real PostgreSQL', async (t) => {
       await candidates.saveSettings(
         boss.actor,
         client,
-        { cap: 10, visibleFields: ['fullName'] },
+        { cap: 10, visibleFields: ['fullName'], allowCodeSearch: false },
         'c',
       );
       const results = await Promise.all([
@@ -452,7 +457,7 @@ await test('candidate lists on real PostgreSQL', async (t) => {
   await t.test(
     'an agent reaches only their own client for settings, release and removal',
     async () => {
-      const settings = { cap: 5, visibleFields: ['fullName' as const] };
+      const settings = { cap: 5, visibleFields: ['fullName' as const], allowCodeSearch: false };
       for (const act of [
         () => candidates.settings(rival.actor, client),
         () => candidates.saveSettings(rival.actor, client, settings, 'c'),

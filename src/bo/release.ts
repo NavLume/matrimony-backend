@@ -54,6 +54,8 @@ export const settingsInputSchema = z
       .max(VISIBLE_FIELDS.length, fail('invalid'))
       // Unique, and in the list's own order, so equal choices always compare equal.
       .transform((list): VisibleField[] => VISIBLE_FIELDS.filter((field) => list.includes(field))),
+    /** Whether the client's filter box has a member code field. Off until staff turn it on. */
+    allowCodeSearch: z.boolean(fail('invalid')).default(false),
   })
   .strict();
 export type SettingsInput = z.output<typeof settingsInputSchema>;
@@ -73,6 +75,8 @@ export type CandidateIdsInput = z.output<typeof candidateIdsSchema>;
 export interface ReleaseSettings {
   cap: number;
   visibleFields: VisibleField[];
+  /** The client's filter box has a member code field. */
+  allowCodeSearch: boolean;
   /** How many profiles are in the client's window now. */
   releasedCount: number;
   /** True when staff have not set anything yet and the defaults apply. */

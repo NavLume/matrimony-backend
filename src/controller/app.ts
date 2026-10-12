@@ -19,6 +19,11 @@ import { accountResponse } from '../factory/account-response.js';
 import { AppError } from '../exception/app-error.js';
 import { registerAuthController } from './auth-controller.js';
 import { registerProfileController } from './profile-controller.js';
+import { registerCvController } from './cv-controller.js';
+import {
+  registerNotificationStream,
+  type NotificationLive,
+} from './notification-stream-controller.js';
 import { registerPhotoController } from './photo-controller.js';
 import { registerReviewController } from './review-controller.js';
 import { registerClientController } from './client-controller.js';
@@ -32,6 +37,7 @@ import { registerStaffController } from './staff-controller.js';
 import type { ReviewProcess } from '../process/review-process.js';
 import type { ClientService } from '../service/client-service.js';
 import type { PhotoProcess } from '../process/photo-process.js';
+import type { CvProcess } from '../process/cv-process.js';
 import { fieldProblems } from '../io/http/validation.js';
 import type { ProfileService } from '../service/profile-service.js';
 import './context.js';
@@ -48,6 +54,9 @@ export interface AppDependencies {
     | 'cancelPending'
     | 'changeStatus'
     | 'assign'
+    | 'setStaffStatus'
+    | 'handOver'
+    | 'assignments'
     | 'listStaff'
   >;
   matches: Pick<MatchProcess, 'page' | 'detail' | 'photo'>;
@@ -100,10 +109,16 @@ export interface AppDependencies {
   >;
   invitations: Pick<
     StaffInvitationProcess,
-    'invite' | 'resend' | 'list' | 'revoke' | 'preview' | 'accept'
+    'invite' | 'resend' | 'list' | 'revoke' | 'preview' | 'accept' | 'create'
   >;
   identities: Pick<IdentityService, 'tenant'>;
   photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image'>;
+  /** Live notifications: who to hear about and the unread count to send. */
+  live: NotificationLive;
+  cvs: Pick<
+    CvProcess,
+    'state' | 'upload' | 'remove' | 'review' | 'file' | 'fileOfConnection' | 'infoOfConnection'
+  >;
   profiles: Pick<ProfileService, 'get' | 'save' | 'submit' | 'requestEdit' | 'cancelPending'>;
   ready: () => Promise<void>;
 }
@@ -231,11 +246,13 @@ export async function buildApp(deps: AppDependencies) {
   );
   registerProfileController(app, deps.profiles);
   registerPhotoController(app, deps.photos);
+  registerCvController(app, deps.cvs);
   registerReviewController(app, deps.reviews);
   registerClientController(app, deps.clients);
   registerCandidateController(app, deps.candidates);
   registerMatchController(app, deps.matches);
   registerConnectionController(app, deps.connections);
+  registerNotificationStream(app, deps.live);
   registerStaffController(app, deps.invitations);
   return app;
 }

@@ -25,6 +25,7 @@ tags:
   - name: Account
   - name: My profile
   - name: My photos
+  - name: CV
   - name: Review queue
   - name: Clients
   - name: Matches
@@ -1941,6 +1942,31 @@ paths:
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
         '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/notifications/stream:
+    get:
+      tags: [Connections]
+      summary: Live notifications (server-sent events)
+      description: |
+        A stream for the signed-in account. It sends `event: unread` with `{ "unread": n }` at once and
+        again each time a line is added to the inbox (or the connection to the database came back after
+        a gap); the page then reads the list in the usual way. Only the count travels. A comment goes out
+        every 20 seconds, `event: end` is sent after ten minutes (the page reconnects with a fresh
+        token), and an account may keep five streams open (429 TOO_MANY_STREAMS). The request needs
+        the bearer token, so use `fetch` and read the body rather than `EventSource`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Error401' }
+        '429':
+          {
+            description: 'TOO_MANY_STREAMS.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
   /api/v1/me/notifications/unread-count:
     get:
       tags: [Connections]
@@ -1988,6 +2014,325 @@ paths:
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
         '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/profile/cv:
+    get:
+      tags: [CV]
+      summary: My CV
+      description: |
+        The CV others may see (`current`) and a replacement waiting for review or turned down
+        (`replacement`). One PDF per profile.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+    put:
+      tags: [CV]
+      summary: Upload or replace my CV
+      description: |
+        The request body is the PDF itself (`Content-Type: application/pdf`, at most 5 MB). The name
+        comes from `X-File-Name`, percent-encoded. It waits for review; the old CV stays published until
+        the new one is approved. Only PDF: other types, files that are not a PDF and PDFs with scripts,
+        launch actions, embedded files or submit forms are refused.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: X-File-Name, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409':
+          {
+            description: 'PROFILE_STATE_INVALID: a closed profile.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '413':
+          {
+            description: 'CV_TOO_LARGE.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '415':
+          {
+            description: 'UNSUPPORTED_MEDIA_TYPE or CV_NOT_A_PDF.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '422':
+          {
+            description: 'CV_ACTIVE_CONTENT.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+    delete:
+      tags: [CV]
+      summary: Remove my CV
+      description: Removes the CV others see and any replacement, and deletes their files.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/me/profile/cv/file:
+    get:
+      tags: [CV]
+      summary: My CV file
+      description: The PDF. `which=replacement` is the one waiting or turned down. Not cached.
+      security:
+        - bearerAuth: []
+      parameters:
+        - {
+            name: which,
+            in: query,
+            schema: { type: string, enum: [current, replacement], default: current },
+          }
+      responses:
+        '200':
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'CV_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/me/matches/{candidateId}/cv:
+    get:
+      tags: [CV]
+      summary: A connected person's CV
+      description: |
+        Whether the other person has a CV for me and how big it is. It is `null` unless a connection
+        with them is accepted and they have a published CV: nothing says which of the two it is.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: candidateId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The CV, or null.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [cv]
+                properties:
+                  cv:
+                    oneOf:
+                      - { $ref: '#/components/schemas/CvInfo' }
+                      - { type: 'null' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/matches/{candidateId}/cv/file:
+    get:
+      tags: [CV]
+      summary: A connected person's CV file
+      description: The PDF, only through an accepted connection. Not cached.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: candidateId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'CV_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/cv:
+    get:
+      tags: [CV]
+      summary: A client's CV
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+    put:
+      tags: [CV]
+      summary: Upload a CV for an assisted client
+      description: |
+        Same body as the member's upload. Published at once. Only for a client the agency runs and
+        only by the agent who looks after them or an admin: staff do not change what a member who
+        runs their own profile says (403 PROFILE_SELF_SERVICE).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-File-Name, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '413':
+          {
+            description: 'CV_TOO_LARGE.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '415':
+          {
+            description: 'UNSUPPORTED_MEDIA_TYPE or CV_NOT_A_PDF.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '422':
+          {
+            description: 'CV_ACTIVE_CONTENT.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+    delete:
+      tags: [CV]
+      summary: Remove a client's CV
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/cv/file:
+    get:
+      tags: [CV]
+      summary: A client's CV file
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: which,
+            in: query,
+            schema: { type: string, enum: [current, replacement], default: current },
+          }
+      responses:
+        '200':
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND or CV_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/cv/review:
+    post:
+      tags: [CV]
+      summary: Approve or turn down a waiting CV
+      description: |
+        Approving publishes the replacement and retires the CV that was published. Turning it down
+        keeps the published CV and shows the member the note.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                notes: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CvState' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409':
+          {
+            description: 'CV_NOT_WAITING.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
   /api/v1/staff/connection-reviews:
     get:
       tags: [Connections]
@@ -2363,6 +2708,159 @@ paths:
               schema: { $ref: '#/components/schemas/StaffList' }
         '401': { $ref: '#/components/responses/Error401' }
         '403': { $ref: '#/components/responses/Error403' }
+    post:
+      tags: [Clients]
+      summary: Create a staff account directly
+      description: |
+        Admins only. Creates an active account at once with the first password the admin chose, for an
+        agency that sets people up in person. The admin tells the person the password; they can change it
+        with "Forgot your password". Prefer an invitation, which lets the person choose their own. An
+        address that already has an account is refused (409 EMAIL_IN_USE), and a member is never made staff.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, displayName, role, locale, password]
+              properties:
+                email: { type: string, format: email }
+                displayName: { type: string, minLength: 1, maxLength: 100 }
+                role: { type: string, enum: [admin, agent] }
+                locale: { type: string, enum: [bn, en] }
+                password: { type: string, minLength: 10, maxLength: 128 }
+      responses:
+        '201':
+          description: The new account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffMember' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409':
+          {
+            description: 'EMAIL_IN_USE.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/admin/staff/{accountId}/status:
+    put:
+      tags: [Clients]
+      summary: Turn a staff account off or on
+      description: |
+        Admins only. A disabled person can no longer sign in, and a session they had stops working on
+        its next request. Not your own account (409 CANNOT_DISABLE_SELF), and never the last active admin
+        (409 LAST_ADMIN). An invitation that was not accepted is not an account (409 STAFF_NOT_ACCEPTED).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: accountId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, disabled] }
+      responses:
+        '200':
+          description: The account as it is now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffMember' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'STAFF_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409':
+          {
+            description: 'CANNOT_DISABLE_SELF, LAST_ADMIN or STAFF_NOT_ACCEPTED.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/admin/staff/{accountId}/hand-over:
+    post:
+      tags: [Clients]
+      summary: Hand every client of one agent to another
+      description: |
+        Admins only. For an agent who is leaving. Every client they look after goes to `toAgentId`, or
+        to nobody when it is null. Their waiting requests and reminders follow the client. Each move is
+        kept in the client's history.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: accountId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [toAgentId]
+              properties:
+                toAgentId: { type: [string, 'null'], format: uuid }
+      responses:
+        '200':
+          description: How many clients moved.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [moved]
+                properties:
+                  moved: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'STAFF_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '422':
+          {
+            description: 'AGENT_NOT_AVAILABLE: the target is not an active staff member, or is the same person.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/assignments:
+    get:
+      tags: [Clients]
+      summary: Who has looked after a client
+      description: Newest first. Admins, and the agent who looks after the client now.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The history.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [assignments]
+                properties:
+                  assignments:
+                    type: array
+                    items: { $ref: '#/components/schemas/AssignmentRecord' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
   /api/v1/admin/staff/invitations:
     get:
       tags: [Staff]
@@ -3430,12 +3928,17 @@ components:
     ReleaseSettings:
       type: object
       additionalProperties: false
-      required: [cap, visibleFields, releasedCount, isDefault]
+      required: [cap, visibleFields, allowCodeSearch, releasedCount, isDefault]
       properties:
         cap: { type: integer, minimum: 1, maximum: 200 }
         visibleFields:
           type: array
           items: { $ref: '#/components/schemas/VisibleField' }
+        allowCodeSearch:
+          {
+            type: boolean,
+            description: The client's filter box has a member code field. Off until staff turn it on.,
+          }
         releasedCount:
           { type: integer, description: How many profiles are in the client's window now. }
         isDefault: { type: boolean, description: True when staff have not set anything yet. }
@@ -3449,6 +3952,12 @@ components:
           type: array
           minItems: 1
           items: { $ref: '#/components/schemas/VisibleField' }
+        allowCodeSearch:
+          {
+            type: boolean,
+            default: false,
+            description: Turns on the member code field of the client's filter box.,
+          }
     CandidateIdsInput:
       type: object
       additionalProperties: false
@@ -3604,6 +4113,41 @@ components:
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ConnectionRow' } }
         next: { type: [string, 'null'] }
+    CvInfo:
+      type: object
+      additionalProperties: false
+      required: [id, fileName, byteSize, uploadedAt, uploadedByStaff]
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        byteSize: { type: integer, minimum: 1 }
+        uploadedAt: { type: string, format: date-time }
+        uploadedByStaff: { type: boolean }
+    CvReplacement:
+      type: object
+      additionalProperties: false
+      required: [id, fileName, byteSize, uploadedAt, uploadedByStaff, state, reviewerNotes]
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        byteSize: { type: integer, minimum: 1 }
+        uploadedAt: { type: string, format: date-time }
+        uploadedByStaff: { type: boolean }
+        state: { type: string, enum: [waiting, rejected] }
+        reviewerNotes: { type: [string, 'null'] }
+    CvState:
+      type: object
+      additionalProperties: false
+      required: [current, replacement]
+      properties:
+        current:
+          oneOf:
+            - { $ref: '#/components/schemas/CvInfo' }
+            - { type: 'null' }
+        replacement:
+          oneOf:
+            - { $ref: '#/components/schemas/CvReplacement' }
+            - { type: 'null' }
     ReviewParty:
       type: object
       additionalProperties: false
@@ -3638,7 +4182,7 @@ components:
     NotificationItem:
       type: object
       additionalProperties: false
-      required: [id, kind, createdAt, read, connectionId, forProfileId, about]
+      required: [id, kind, createdAt, read, connectionId, what, count, forProfileId, about]
       properties:
         id: { type: string, format: uuid }
         kind:
@@ -3653,11 +4197,25 @@ components:
                 connection_review_reminder,
                 connection_matched,
                 connection_unavailable,
+                review_requested,
+                candidates_released,
+                client_assigned,
               ],
           }
         createdAt: { type: string, format: date-time }
         read: { type: boolean, description: The recipient has read this line. }
-        connectionId: { type: string, format: uuid }
+        connectionId:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: 'The connection this is about, if it is about one.',
+          }
+        what:
+          {
+            type: [string, 'null'],
+            description: 'For a review request: profile, edit, photo or cv.',
+          }
+        count: { type: [integer, 'null'], description: 'For a release: how many profiles.' }
         forProfileId:
           {
             type: string,
@@ -3724,8 +4282,13 @@ components:
     MatchPage:
       type: object
       additionalProperties: false
-      required: [items, next, profileStatus, releasedTotal, visibleFields]
+      required: [items, next, profileStatus, releasedTotal, visibleFields, canSearchByCode]
       properties:
+        canSearchByCode:
+          {
+            type: boolean,
+            description: Staff turned on the member code field of this member's filter box.,
+          }
         visibleFields:
           type: array
           description: 'The fields staff let this member see: what a card may show and what can be searched.'
@@ -3835,13 +4398,40 @@ components:
           }
     StaffMember:
       type: object
-      required: [id, displayName, email, role, status]
+      required: [id, displayName, email, role, status, clientCount]
       properties:
         id: { type: string, format: uuid }
         displayName: { type: string }
         email: { type: [string, 'null'] }
         role: { type: string, enum: [admin, agent] }
         status: { type: string, enum: [invited, active, disabled] }
+        clientCount:
+          {
+            type: integer,
+            minimum: 0,
+            description: How many clients are assigned to this person now.,
+          }
+    AssignmentRecord:
+      type: object
+      additionalProperties: false
+      required: [id, at, from, to, by, reason]
+      properties:
+        id: { type: string, format: uuid }
+        at: { type: string, format: date-time }
+        from:
+          oneOf:
+            - { $ref: '#/components/schemas/StaffRef' }
+            - { type: 'null' }
+        to:
+          oneOf:
+            - { $ref: '#/components/schemas/StaffRef' }
+            - { type: 'null' }
+        by:
+          description: Who made the change. Null for the history kept from before it was recorded.
+          oneOf:
+            - { $ref: '#/components/schemas/StaffRef' }
+            - { type: 'null' }
+        reason: { type: string, enum: [assigned, handed_over, earlier, automatic] }
     StaffList:
       type: object
       required: [staff]

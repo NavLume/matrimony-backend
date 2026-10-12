@@ -430,13 +430,21 @@ await test('email and password accounts on real PostgreSQL', async (t) => {
           denied(`UPDATE matrimony.accounts SET role='admin' WHERE id=$1`, [created.account.id]),
         /permission denied/,
       );
-      // Only the phone and email columns may be written (migrations 009 and 010); the rest of the
-      // account row, such as who it is and whether it is active, cannot be changed by the application.
-      for (const column of ["status='disabled'", "display_name='Someone else'", "locale='en'"])
+      // Only the phone and email columns may be written (migrations 009 and 010), and the status of a
+      // staff account (019); the rest of the account row, such as who it is, cannot be changed.
+      for (const column of ["display_name='Someone else'", "locale='en'"])
         await assert.rejects(
           () => denied(`UPDATE matrimony.accounts SET ${column} WHERE id=$1`, [created.account.id]),
           /permission denied/,
         );
+      // The status column may be written, but the database refuses it for anyone who is not staff.
+      await assert.rejects(
+        () =>
+          denied(`UPDATE matrimony.accounts SET status='disabled' WHERE id=$1`, [
+            created.account.id,
+          ]),
+        /only a staff account can be turned off or on/,
+      );
       // Asked for with the wrong agency context, the row is simply not there.
       const other = await db.transaction(otherAgency, (tx) =>
         tx.query(

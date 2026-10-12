@@ -11,6 +11,8 @@ import {
   agency,
   config,
   unusedPhotos,
+  unusedCvs,
+  unusedLive,
   unusedProfiles,
   unusedMatches,
   unusedConnections,
@@ -75,6 +77,8 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'agent') {
     ready: async () => {},
     profiles: unusedProfiles,
     photos: unusedPhotos,
+    cvs: unusedCvs,
+    live: unusedLive,
     reviews: {
       list: record('reviews.list', { items: [], next: null }),
       pendingCount: record('reviews.count', 4),
@@ -96,6 +100,16 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'agent') {
       cancelPending: record('clients.cancel', clientDetail),
       changeStatus: record('clients.status', clientDetail),
       assign: record('clients.assign', clientDetail),
+      setStaffStatus: record('clients.staffStatus', {
+        id: ID,
+        displayName: 'Abir',
+        email: null,
+        role: 'agent' as const,
+        status: 'disabled' as const,
+        clientCount: 2,
+      }),
+      handOver: record('clients.handOver', { moved: 2 }),
+      assignments: record('clients.assignments', []),
       listStaff: record('clients.staff', []),
     },
     candidates: {
@@ -104,12 +118,14 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'agent') {
       settings: record('candidates.settings', {
         cap: 50,
         visibleFields: ['fullName'],
+        allowCodeSearch: false,
         releasedCount: 0,
         isDefault: true,
       }),
       saveSettings: record('candidates.saveSettings', {
         cap: 40,
         visibleFields: ['fullName'],
+        allowCodeSearch: false,
         releasedCount: 0,
         isDefault: false,
       }),
@@ -184,6 +200,9 @@ const ROUTES: [string, string, unknown, ('admin' | 'agent')[]][] = [
   ],
   ['PUT', `/api/v1/staff/clients/${ID}/assignment`, { agentId: null }, ['admin']],
   ['GET', '/api/v1/admin/staff', undefined, ['admin']],
+  ['PUT', `/api/v1/admin/staff/${ID}/status`, { status: 'disabled' }, ['admin']],
+  ['POST', `/api/v1/admin/staff/${ID}/hand-over`, { toAgentId: null }, ['admin']],
+  ['GET', `/api/v1/staff/clients/${ID}/assignments`, undefined, ['admin', 'agent']],
   ['POST', `/api/v1/staff/clients/${ID}/candidates/generate`, undefined, ['admin', 'agent']],
   ['GET', `/api/v1/staff/clients/${ID}/candidates`, undefined, ['admin', 'agent']],
   ['GET', `/api/v1/staff/clients/${ID}/release-settings`, undefined, ['admin', 'agent']],
@@ -258,7 +277,11 @@ await test('settings and release bodies are checked, and what the client sends i
     cap: 30,
     visibleFields: ['photo', 'fullName', 'photo'],
   });
-  assert.deepEqual(calls[0]?.args[1], { cap: 30, visibleFields: ['fullName', 'photo'] });
+  assert.deepEqual(calls[0]?.args[1], {
+    cap: 30,
+    visibleFields: ['fullName', 'photo'],
+    allowCodeSearch: false,
+  });
   for (const bad of [
     { cap: 0, visibleFields: ['fullName'] },
     { cap: 201, visibleFields: ['fullName'] },

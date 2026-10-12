@@ -64,16 +64,28 @@ export const candidateQueries = {
   LIMIT $4`,
 
   // $1 agency, $2 client.
-  settings: `SELECT cap, visible_fields FROM matrimony.client_release_settings
+  settings: `SELECT cap, visible_fields, allow_code_search FROM matrimony.client_release_settings
  WHERE agency_id = $1 AND client_profile_id = $2`,
 
-  // $1 agency, $2 client, $3 cap, $4 fields, $5 who.
+  // $1 agency, $2 client, $3 cap, $4 fields, $5 who, $6 whether the filter box has a member code field.
   saveSettings: `INSERT INTO matrimony.client_release_settings
-   (agency_id, client_profile_id, cap, visible_fields, updated_by)
- VALUES ($1, $2, $3, $4::text[], $5)
+   (agency_id, client_profile_id, cap, visible_fields, updated_by, allow_code_search)
+ VALUES ($1, $2, $3, $4::text[], $5, $6::boolean)
  ON CONFLICT (agency_id, client_profile_id) DO UPDATE
    SET cap = EXCLUDED.cap, visible_fields = EXCLUDED.visible_fields,
-       updated_by = EXCLUDED.updated_by, updated_at = now()`,
+       updated_by = EXCLUDED.updated_by, allow_code_search = EXCLUDED.allow_code_search,
+       updated_at = now()`,
+
+  // $1 agency. Published clients that have a gender, which is what a list needs. For the nightly refresh.
+  activeClients: `SELECT id FROM matrimony.member_profiles
+ WHERE agency_id = $1 AND status = 'active' AND gender IS NOT NULL ORDER BY id`,
+
+  // $1 agency, $2 job name, $3 now, $4 the start of today. Claims today's run: true for the one
+  // process that gets it, false for everyone after, so a restart or a second process never repeats it.
+  claimJob: `INSERT INTO matrimony.job_runs (agency_id, name, last_run_at) VALUES ($1, $2, $3::timestamptz)
+ ON CONFLICT (agency_id, name) DO UPDATE SET last_run_at = EXCLUDED.last_run_at
+   WHERE matrimony.job_runs.last_run_at < $4::timestamptz
+ RETURNING 1`,
 
   // $1 agency, $2 client.
   releasedCount: `SELECT count(*)::int AS n FROM matrimony.client_candidates

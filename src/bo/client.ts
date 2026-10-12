@@ -86,7 +86,26 @@ export interface StaffMember extends StaffRef {
   email: string | null;
   role: 'admin' | 'agent';
   status: 'invited' | 'active' | 'disabled';
+  /** How many clients are assigned to this person now. */
+  clientCount: number;
 }
+
+/** One change of who looks after a client. */
+export interface AssignmentRecord {
+  id: string;
+  at: string;
+  from: StaffRef | null;
+  to: StaffRef | null;
+  /** Who made the change. Null for the history kept from before it was recorded. */
+  by: StaffRef | null;
+  reason: 'assigned' | 'handed_over' | 'earlier' | 'automatic';
+}
+
+export const staffStatusSchema = z
+  .object({ status: z.enum(['active', 'disabled'], fail('invalidOption')) })
+  .strict();
+
+export const handOverSchema = z.object({ toAgentId: z.uuid(fail('invalid')).nullable() }).strict();
 
 /** Who a profile belongs to, for the page that shows it. */
 export interface ClientMeta {

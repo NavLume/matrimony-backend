@@ -23,7 +23,7 @@ export interface ConnectionUnit {
   settings(
     agencyId: string,
     clientId: string,
-  ): Promise<{ cap: number; visibleFields: VisibleField[] } | null>;
+  ): Promise<{ cap: number; visibleFields: VisibleField[]; allowCodeSearch: boolean } | null>;
   lockProfiles(agencyId: string, ids: readonly string[]): Promise<ProfileLite[]>;
   readProfiles(agencyId: string, ids: readonly string[]): Promise<ProfileLite[]>;
   released(agencyId: string, clientId: string, candidateId: string): Promise<boolean>;

@@ -15,6 +15,8 @@ import {
   unusedCandidates,
   unusedMatches,
   unusedConnections,
+  unusedCvs,
+  unusedLive,
   unusedInvitations,
   unusedProfiles,
   unusedReviews,
@@ -58,6 +60,8 @@ async function setup(role: 'member' | 'agent' = 'member') {
     matches: unusedMatches,
     connections: unusedConnections,
     invitations: unusedInvitations,
+    cvs: unusedCvs,
+    live: unusedLive,
     photos: {
       list: record('list'),
       upload: record('upload'),

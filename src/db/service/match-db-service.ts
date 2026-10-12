@@ -11,7 +11,7 @@ export interface MatchUnit {
   settings(
     agencyId: string,
     clientId: string,
-  ): Promise<{ cap: number; visibleFields: VisibleField[] } | null>;
+  ): Promise<{ cap: number; visibleFields: VisibleField[]; allowCodeSearch: boolean } | null>;
   releasedTotal(agencyId: string, clientId: string): Promise<number>;
   page(
     agencyId: string,

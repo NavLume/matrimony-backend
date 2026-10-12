@@ -65,6 +65,9 @@ export const unusedClients = {
   cancelPending: unused,
   changeStatus: unused,
   assign: unused,
+  setStaffStatus: unused,
+  handOver: unused,
+  assignments: unused,
   listStaff: unused,
 };
 
@@ -103,6 +106,23 @@ export const unusedConnections = {
   staffShareContact: unused,
 };
 
+/** Live notifications for tests about other routes: nobody is listening. */
+export const unusedLive = {
+  subscribe: () => () => undefined,
+  unread: async () => 0,
+};
+
+/** The CV process for tests about other routes. */
+export const unusedCvs = {
+  state: unused,
+  upload: unused,
+  remove: unused,
+  review: unused,
+  file: unused,
+  fileOfConnection: unused,
+  infoOfConnection: unused,
+};
+
 /** The staff invitation process for tests about other routes. */
 export const unusedInvitations = {
   invite: unused,
@@ -111,6 +131,7 @@ export const unusedInvitations = {
   revoke: unused,
   preview: unused,
   accept: unused,
+  create: unused,
 };
 
 /** The auth and access processes for tests about other routes: only the given bearer token works. */

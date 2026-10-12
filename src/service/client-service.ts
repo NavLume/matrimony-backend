@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isStaff } from '../bo/access.js';
 import type {
+  AssignmentRecord,
   ClientInput,
   ClientListQuery,
   ClientMeta,
@@ -160,12 +161,109 @@ export class ClientService {
     if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
     await this.db.inTransaction(actor.agencyId, async (unit) => {
       if (agentId) await this.requireAssignableIn(unit, actor, agentId);
-      if (!(await unit.assign(actor.agencyId, profileId, agentId))) {
-        throw new AppError(404, 'PROFILE_NOT_FOUND');
+      const changed = await unit.assign(actor.agencyId, profileId, agentId);
+      if (!changed) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      // Choosing the same person again is not a change, and is not recorded as one.
+      if (changed.previous !== agentId) {
+        await unit.recordAssignment(actor.agencyId, {
+          profileId,
+          from: changed.previous,
+          to: agentId,
+          by: actor.accountId,
+        });
       }
       await unit.appendEvent(this.event(actor, profileId, correlationId));
     });
     return this.detail(actor, profileId);
+  }
+
+  /**
+   * Turns a staff account off or on. A disabled person can no longer sign in, and a session they
+   * had stops working on its next request, because the account is read as active on every request.
+   * Not your own account, and never the last admin: the agency must always have someone who can
+   * change it back.
+   */
+  async setStaffStatus(
+    actor: ProfileActor,
+    accountId: string,
+    status: 'active' | 'disabled',
+    correlationId: string,
+  ): Promise<StaffMember> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const member = await unit.staffMember(actor.agencyId, accountId);
+      if (!member) throw new AppError(404, 'STAFF_NOT_FOUND');
+      // An invitation that was never accepted is not an account to turn on or off.
+      if (member.status === 'invited') throw new AppError(409, 'STAFF_NOT_ACCEPTED');
+      if (status === 'disabled') {
+        if (member.id === actor.accountId) throw new AppError(409, 'CANNOT_DISABLE_SELF');
+        if (member.role === 'admin' && member.status === 'active') {
+          if ((await unit.activeAdmins(actor.agencyId)) <= 1) {
+            throw new AppError(409, 'LAST_ADMIN');
+          }
+        }
+      }
+      if (member.status !== status) {
+        if (!(await unit.setStatus(actor.agencyId, accountId, status))) {
+          throw new AppError(409, 'STAFF_NOT_ACCEPTED');
+        }
+        await unit.appendEvent({
+          id: randomUUID(),
+          agencyId: actor.agencyId,
+          actorId: actor.accountId,
+          type: status === 'disabled' ? 'staff.disabled' : 'staff.enabled',
+          version: 1,
+          occurredAt: this.now().toISOString(),
+          correlationId,
+          subjectId: accountId,
+        });
+      }
+      return (await unit.staffMember(actor.agencyId, accountId))!;
+    });
+  }
+
+  /**
+   * Hands every client of one agent to another, or to nobody. For an agent who is leaving: their
+   * clients, their waiting requests and their reminders all move with them, because all of those
+   * follow who looks after the client. Each move is kept in the client's history.
+   */
+  async handOver(
+    actor: ProfileActor,
+    fromAgentId: string,
+    toAgentId: string | null,
+    correlationId: string,
+  ): Promise<{ moved: number }> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    if (fromAgentId === toAgentId) throw new AppError(422, 'AGENT_NOT_AVAILABLE');
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const from = await unit.staffMember(actor.agencyId, fromAgentId);
+      if (!from) throw new AppError(404, 'STAFF_NOT_FOUND');
+      if (toAgentId) await this.requireAssignableIn(unit, actor, toAgentId);
+      const moved = await unit.handOver(actor.agencyId, fromAgentId, toAgentId, actor.accountId);
+      await unit.appendEvent({
+        id: randomUUID(),
+        agencyId: actor.agencyId,
+        actorId: actor.accountId,
+        type: 'staff.handed_over',
+        version: 1,
+        occurredAt: this.now().toISOString(),
+        correlationId,
+        subjectId: fromAgentId,
+      });
+      return { moved: moved.length };
+    });
+  }
+
+  /** Who has looked after a client, newest first. Admins, and the agent who looks after them now. */
+  async assignments(actor: ProfileActor, profileId: string): Promise<AssignmentRecord[]> {
+    this.requireStaff(actor);
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const meta = await unit.meta(actor.agencyId, profileId);
+      if (!meta) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      const mine = meta.assignedAgent?.id === actor.accountId;
+      if (actor.role !== 'admin' && !mine) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      return unit.assignments(actor.agencyId, profileId);
+    });
   }
 
   /** The staff an admin may hand clients to. */

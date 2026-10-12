@@ -146,20 +146,19 @@ export const connectionQueries = {
   FROM matrimony.notifications n
   JOIN matrimony.member_profiles m ON m.agency_id = n.agency_id AND m.id = (n.payload->>'aboutProfileId')::uuid
  WHERE n.agency_id = $1 AND n.recipient_account_id = $2
-   AND n.template_key LIKE 'interest.%'
    AND ($3::timestamptz IS NULL OR (n.created_at, n.id) < ($3::timestamptz, $4::uuid))
  ORDER BY n.created_at DESC, n.id DESC
  LIMIT $5`,
 
   // $1 agency, $2 recipient. The same lines the inbox lists, so the count matches what is shown.
   unreadCount: `SELECT count(*)::int AS unread FROM matrimony.notifications
- WHERE agency_id = $1 AND recipient_account_id = $2 AND read_at IS NULL AND template_key LIKE 'interest.%'`,
+ WHERE agency_id = $1 AND recipient_account_id = $2 AND read_at IS NULL`,
 
   // $1 agency, $2 recipient, $3 the lines to mark, or null for every unread line. Only the
   // recipient's own, and only the ones not read yet, so a repeat changes nothing.
   markRead: `UPDATE matrimony.notifications SET read_at = now()
  WHERE agency_id = $1 AND recipient_account_id = $2 AND read_at IS NULL
-   AND template_key LIKE 'interest.%' AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
+   AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
  RETURNING id`,
 
   /**

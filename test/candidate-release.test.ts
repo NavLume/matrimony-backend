@@ -40,7 +40,7 @@ type Start = {
   /** Candidate states, and whether each candidate is still published. */
   states?: Record<string, string>;
   unpublished?: string[];
-  settings?: { cap: number; visibleFields: string[] };
+  settings?: { cap: number; visibleFields: string[]; allowCodeSearch?: boolean };
 };
 
 /** An in-memory unit that keeps candidate states, settings and events, so a test sees what happened. */
@@ -56,9 +56,13 @@ function fake(start: Start = {}) {
     saveSettings: async (
       _a: string,
       _c: string,
-      input: { cap: number; visibleFields: readonly string[] },
+      input: { cap: number; visibleFields: readonly string[]; allowCodeSearch: boolean },
     ) => {
-      settings = { cap: input.cap, visibleFields: [...input.visibleFields] };
+      settings = {
+        cap: input.cap,
+        visibleFields: [...input.visibleFields],
+        allowCodeSearch: input.allowCodeSearch,
+      };
     },
     releasedCount: async () => [...states.values()].filter((v) => v === 'released').length,
     releasable: async (_a: string, _c: string, wanted: readonly string[]) =>
@@ -165,25 +169,34 @@ await test('the cap cannot go below what is released; saved settings record an e
   const [a, b] = ids(2) as [string, string];
   const t = fake({ states: { [a]: 'released', [b]: 'released' } });
   await assert.rejects(
-    t.service.saveSettings(agent, client.id, { cap: 1, visibleFields: ['fullName'] }, 'c'),
+    t.service.saveSettings(
+      agent,
+      client.id,
+      { cap: 1, visibleFields: ['fullName'], allowCodeSearch: false },
+      'c',
+    ),
     (e) => refused(409, 'CAP_BELOW_RELEASED')(e) && (e as AppError).details?.released === 2,
   );
   const saved = await t.service.saveSettings(
     agent,
     client.id,
-    { cap: 80, visibleFields: ['fullName', 'photo'] },
+    { cap: 80, visibleFields: ['fullName', 'photo'], allowCodeSearch: false },
     'c',
   );
   assert.equal(saved.cap, 80);
   assert.equal(saved.isDefault, false);
-  assert.deepEqual(t.settings(), { cap: 80, visibleFields: ['fullName', 'photo'] });
+  assert.deepEqual(t.settings(), {
+    cap: 80,
+    visibleFields: ['fullName', 'photo'],
+    allowCodeSearch: false,
+  });
   assert.deepEqual(t.events, ['candidates.settings_changed']);
 });
 
 await test('only staff who manage the client change what it sees', async () => {
   const { service } = fake();
   const one = { candidateIds: ids(1) };
-  const settings = { cap: 5, visibleFields: ['fullName' as const] };
+  const settings = { cap: 5, visibleFields: ['fullName' as const], allowCodeSearch: false };
   for (const act of [
     () => service.settings(member, client.id),
     () => service.saveSettings(member, client.id, settings, 'c'),

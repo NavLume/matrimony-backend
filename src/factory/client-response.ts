@@ -1,4 +1,10 @@
-import type { ClientListItem, ClientMeta, ClientPage, StaffMember } from '../bo/client.js';
+import type {
+  AssignmentRecord,
+  ClientListItem,
+  ClientMeta,
+  ClientPage,
+  StaffMember,
+} from '../bo/client.js';
 import type { ClientDetail } from '../service/client-service.js';
 import { profileResponse } from './profile-response.js';
 
@@ -36,12 +42,26 @@ export const clientDetailResponse = (detail: ClientDetail) => ({
   client: meta(detail.meta),
 });
 
+export const staffMemberResponse = (s: StaffMember) => ({
+  id: s.id,
+  displayName: s.displayName,
+  email: s.email,
+  role: s.role,
+  status: s.status,
+  clientCount: s.clientCount,
+});
+
 export const staffListResponse = (staff: StaffMember[]) => ({
-  staff: staff.map((s) => ({
-    id: s.id,
-    displayName: s.displayName,
-    email: s.email,
-    role: s.role,
-    status: s.status,
+  staff: staff.map(staffMemberResponse),
+});
+
+export const assignmentsResponse = (records: AssignmentRecord[]) => ({
+  assignments: records.map((r) => ({
+    id: r.id,
+    at: r.at,
+    from: r.from,
+    to: r.to,
+    by: r.by,
+    reason: r.reason,
   })),
 });

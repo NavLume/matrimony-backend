@@ -1,5 +1,5 @@
 import type { WorkflowEvent } from '../../bo/event.js';
-import type { ClientListItem, ClientMeta, StaffMember } from '../../bo/client.js';
+import type { AssignmentRecord, ClientListItem, ClientMeta, StaffMember } from '../../bo/client.js';
 import type { Cursor } from '../../bo/review.js';
 import type { Database, Transaction } from '../config/database.js';
 import type { ClientFilter, ClientRepository } from '../raw/repository/client-repository.js';
@@ -16,7 +16,24 @@ export interface ClientUnit {
   meta(agencyId: string, profileId: string): Promise<ClientMeta | null>;
   staff(agencyId: string): Promise<StaffMember[]>;
   staffMember(agencyId: string, accountId: string): Promise<StaffMember | null>;
-  assign(agencyId: string, profileId: string, agentId: string | null): Promise<boolean>;
+  assign(
+    agencyId: string,
+    profileId: string,
+    agentId: string | null,
+  ): Promise<{ previous: string | null } | undefined>;
+  recordAssignment(
+    agencyId: string,
+    input: { profileId: string; from: string | null; to: string | null; by: string },
+  ): Promise<void>;
+  setStatus(agencyId: string, accountId: string, status: 'active' | 'disabled'): Promise<boolean>;
+  activeAdmins(agencyId: string): Promise<number>;
+  handOver(
+    agencyId: string,
+    fromAgentId: string,
+    toAgentId: string | null,
+    by: string,
+  ): Promise<string[]>;
+  assignments(agencyId: string, profileId: string): Promise<AssignmentRecord[]>;
   appendEvent(event: WorkflowEvent): Promise<void>;
 }
 
@@ -40,6 +57,11 @@ export class ClientDbService {
       staff: (agencyId) => repo.staff(tx, agencyId),
       staffMember: (agencyId, accountId) => repo.staffMember(tx, agencyId, accountId),
       assign: (agencyId, profileId, agentId) => repo.assign(tx, agencyId, profileId, agentId),
+      recordAssignment: (agencyId, input) => repo.recordAssignment(tx, agencyId, input),
+      setStatus: (agencyId, accountId, status) => repo.setStatus(tx, agencyId, accountId, status),
+      activeAdmins: (agencyId) => repo.activeAdmins(tx, agencyId),
+      handOver: (agencyId, from, to, by) => repo.handOver(tx, agencyId, from, to, by),
+      assignments: (agencyId, profileId) => repo.assignments(tx, agencyId, profileId),
       appendEvent: (event) => this.events.append(tx, event),
     };
   }

@@ -29,4 +29,5 @@ export const staffRow = z.object({
   email: z.string().nullable(),
   role: z.enum(['admin', 'agent']),
   status: z.enum(['invited', 'active', 'disabled']),
+  client_count: z.number().int().nonnegative(),
 });

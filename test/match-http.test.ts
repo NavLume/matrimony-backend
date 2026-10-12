@@ -16,6 +16,8 @@ import {
   unusedClients,
   unusedInvitations,
   unusedPhotos,
+  unusedCvs,
+  unusedLive,
   unusedProfiles,
   unusedReviews,
 } from './fixtures.js';
@@ -44,6 +46,7 @@ const page: MatchPage = {
   profileStatus: 'active',
   releasedTotal: 1,
   visibleFields: ['fullName', 'age', 'photo'],
+  canSearchByCode: false,
 };
 
 async function setup(role: 'admin' | 'agent' | 'member' = 'member') {
@@ -55,6 +58,8 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'member') {
     ready: async () => {},
     profiles: unusedProfiles,
     photos: unusedPhotos,
+    cvs: unusedCvs,
+    live: unusedLive,
     reviews: unusedReviews,
     clients: unusedClients,
     candidates: unusedCandidates,
@@ -114,6 +119,7 @@ await test('the response has the allowed fields and never the internal cursor po
   t.after(() => app.close());
   const body = (await call('/api/v1/me/matches')).json();
   assert.deepEqual(Object.keys(body).sort(), [
+    'canSearchByCode',
     'items',
     'next',
     'profileStatus',

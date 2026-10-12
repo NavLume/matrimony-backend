@@ -37,6 +37,8 @@ import {
   unusedMatches,
   unusedConnections,
   unusedPhotos,
+  unusedCvs,
+  unusedLive,
   unusedProfiles,
   unusedReviews,
 } from '../fixtures.js';
@@ -118,6 +120,8 @@ await test('inviting staff, over HTTP, on real PostgreSQL and Redis', async (t) 
     ready: async () => {},
     profiles: unusedProfiles,
     photos: unusedPhotos,
+    cvs: unusedCvs,
+    live: unusedLive,
     reviews: unusedReviews,
     clients: unusedClients,
     candidates: unusedCandidates,

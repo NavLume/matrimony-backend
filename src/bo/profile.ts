@@ -284,9 +284,25 @@ const valueAt = (data: ProfileData, path: string): unknown => {
   return (data[section] as Record<string, unknown>)[key];
 };
 
+/**
+ * Asked in addition when the profile is for someone else (a child, a sibling, a relative or another
+ * person): the account is then used by a family member, and the agency needs to know who they are.
+ */
+export const REQUIRED_WHEN_FOR_SOMEONE_ELSE = [
+  'contact.contactName',
+  'contact.contactRelationship',
+] as const;
+
+/** The paths this profile needs before it can be submitted. */
+export function requiredPaths(data: ProfileData): readonly string[] {
+  return data.profile.managedFor && data.profile.managedFor !== 'self'
+    ? [...REQUIRED_FOR_SUBMISSION, ...REQUIRED_WHEN_FOR_SOMEONE_ELSE]
+    : REQUIRED_FOR_SUBMISSION;
+}
+
 /** The required paths that are still empty. */
 export function missingRequired(data: ProfileData): string[] {
-  return REQUIRED_FOR_SUBMISSION.filter((path) => {
+  return requiredPaths(data).filter((path) => {
     const value = valueAt(data, path);
     return (
       value === null || value === undefined || (typeof value === 'string' && value.trim() === '')

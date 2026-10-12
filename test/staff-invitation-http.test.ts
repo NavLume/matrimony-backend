@@ -16,6 +16,8 @@ import {
   unusedMatches,
   unusedConnections,
   unusedPhotos,
+  unusedCvs,
+  unusedLive,
   unusedProfiles,
   unusedReviews,
 } from './fixtures.js';
@@ -63,6 +65,8 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'admin', fail?: AppErr
     ready: async () => {},
     profiles: unusedProfiles,
     photos: unusedPhotos,
+    cvs: unusedCvs,
+    live: unusedLive,
     reviews: unusedReviews,
     clients: unusedClients,
     candidates: unusedCandidates,
@@ -90,6 +94,11 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'admin', fail?: AppErr
         displayName: invitation.displayName,
         role: 'agent',
       }) as never,
+      create: track('create', {
+        account: { id: ID, agencyId: agency, role: 'agent' as const, displayName: 'Rina' },
+        email: 'rina@example.com',
+        locale: 'en' as const,
+      }) as never,
       accept: track('accept', {
         sessionId: 'S'.repeat(43),
         accessToken: 'access.jwt.token',
@@ -116,6 +125,17 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'admin', fail?: AppErr
 const ADMIN_ROUTES: [string, string, unknown][] = [
   ['GET', '/api/v1/admin/staff/invitations', undefined],
   ['POST', '/api/v1/admin/staff/invitations', valid],
+  [
+    'POST',
+    '/api/v1/admin/staff',
+    {
+      email: 'rina@example.com',
+      displayName: 'Rina',
+      role: 'agent',
+      locale: 'en',
+      password: 'Rina-Strong-Pass-1',
+    },
+  ],
   ['POST', `/api/v1/admin/staff/invitations/${ID}/resend`, undefined],
   ['DELETE', `/api/v1/admin/staff/invitations/${ID}`, undefined],
 ];
@@ -271,4 +291,44 @@ await test('the invited person previews and accepts without signing in, from thi
   assert.equal(res.statusCode, 400);
   assert.equal(res.json().error.code, 'LINK_INVALID_OR_EXPIRED');
   void call;
+});
+
+await test('creating an account directly takes a name, an email, a role, a language and a good password', async (t) => {
+  const { app, call, calls } = await setup();
+  t.after(() => app.close());
+  const good = {
+    email: ' Rina@Example.com ',
+    displayName: ' Rina ',
+    role: 'agent',
+    locale: 'en',
+    password: 'Rina-Strong-Pass-1',
+  };
+  const res = await call('POST', '/api/v1/admin/staff', good);
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(res.json(), {
+    id: ID,
+    displayName: 'Rina',
+    email: 'rina@example.com',
+    role: 'agent',
+    status: 'active',
+    clientCount: 0,
+  });
+  const sent = calls.find((c) => c.name === 'create')!;
+  assert.deepEqual(sent.args[2], {
+    email: 'rina@example.com',
+    displayName: 'Rina',
+    role: 'agent',
+    locale: 'en',
+    password: 'Rina-Strong-Pass-1',
+  });
+  for (const bad of [
+    { ...good, role: 'member' },
+    { ...good, role: 'owner' },
+    { ...good, password: 'short' },
+    { ...good, email: 'not-an-email' },
+    { ...good, displayName: '   ' },
+    { ...good, extra: 1 },
+  ]) {
+    assert.equal((await call('POST', '/api/v1/admin/staff', bad)).statusCode, 400);
+  }
 });
