@@ -20,6 +20,9 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   connection_request: 'interest.received',
   connection_accepted: 'interest.accepted',
   connection_declined: 'interest.declined',
+  connection_forwarded: 'interest.forwarded',
+  contact_shared: 'interest.contact_shared',
+  staff_joined: 'staff.joined',
   connection_review: 'interest.review',
   connection_review_reminder: 'interest.review_reminder',
   connection_matched: 'interest.matched',
@@ -32,6 +35,10 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
 const KIND_OF = Object.fromEntries(
   Object.entries(TEMPLATE_OF).map(([kind, template]) => [template, kind]),
 ) as Record<string, NotificationKind>;
+
+/** Only a line about a staff account that joined has these. */
+const staffOf = (payload: { name?: string; role?: string }) =>
+  payload.name && payload.role ? { name: payload.name, role: payload.role } : null;
 
 const record = (row: Row): ConnectionRecord => ({
   id: row.id as string,
@@ -348,12 +355,15 @@ export class ConnectionRepository {
       what: (row.payload as { what?: string }).what ?? null,
       decision: (row.payload as { decision?: 'approved' | 'rejected' }).decision ?? null,
       count: (row.payload as { count?: number }).count ?? null,
-      forProfileId: (row.payload as { forProfileId: string }).forProfileId,
-      about: {
-        profileId: row.about_profile_id as string,
-        memberCode: row.member_code as string,
-        fullName: (row.full_name as string | null) ?? null,
-      },
+      staff: staffOf(row.payload as { name?: string; role?: string }),
+      forProfileId: (row.payload as { forProfileId?: string }).forProfileId ?? null,
+      about: row.about_profile_id
+        ? {
+            profileId: row.about_profile_id as string,
+            memberCode: row.member_code as string,
+            fullName: (row.full_name as string | null) ?? null,
+          }
+        : null,
     }));
   }
 

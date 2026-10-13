@@ -149,6 +149,12 @@ export type NotificationKind =
   | 'connection_request'
   | 'connection_accepted'
   | 'connection_declined'
+  /** The asker: the agent of the person asked approved the request; it now waits for their answer. */
+  | 'connection_forwarded'
+  /** The other side of an accepted connection shared their contact details. */
+  | 'contact_shared'
+  /** An admin: a person accepted their staff invitation. */
+  | 'staff_joined'
   /** Staff: a request for a client of theirs waits for their review. */
   | 'connection_review'
   /** Staff: a request has waited for review for a while. */
@@ -179,16 +185,18 @@ export interface NotificationItem {
   what: string | null;
   /** For a decision: whether it was approved or rejected. */
   decision: 'approved' | 'rejected' | null;
+  /** For a staff account that joined: who, and as what. */
+  staff: { name: string; role: string } | null;
   /** For a release: how many profiles. */
   count: number | null;
   /** The profile this is about for the recipient: their own, or the client they look after. */
-  forProfileId: string;
+  forProfileId: string | null;
   about: {
     profileId: string;
     memberCode: string;
     /** Null when the recipient may not see names. */
     fullName: string | null;
-  };
+  } | null;
 }
 
 export interface NotificationPage {

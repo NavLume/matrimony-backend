@@ -38,12 +38,15 @@ export const notificationPageResponse = (page: NotificationPage) => ({
     what: n.what,
     decision: n.decision,
     count: n.count,
+    staff: n.staff,
     forProfileId: n.forProfileId,
-    about: {
-      profileId: n.about.profileId,
-      memberCode: n.about.memberCode,
-      fullName: n.about.fullName,
-    },
+    about: n.about
+      ? {
+          profileId: n.about.profileId,
+          memberCode: n.about.memberCode,
+          fullName: n.about.fullName,
+        }
+      : null,
   })),
   next: page.next,
 });

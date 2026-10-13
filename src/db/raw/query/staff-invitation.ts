@@ -33,6 +33,24 @@ export const staffInvitationQueries = {
   markAccepted: `UPDATE matrimony.staff_invitations SET accepted_at = now(), accepted_account_id = $3::uuid
  WHERE agency_id = $1 AND id = $2::uuid AND accepted_at IS NULL AND revoked_at IS NULL`,
 
+  // Tells the admin who invited that the person joined; every active admin when the inviter is no
+  // longer an active admin. Never the new account itself. $1 agency, $2 invitation, $3 new account.
+  notifyJoined: `INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+ SELECT $1::uuid, r.id, 'staff-joined:' || $3::text, 'staff.joined',
+        jsonb_build_object('staffAccountId', $3::uuid, 'name', s.display_name, 'role', s.role)
+   FROM matrimony.accounts s
+   JOIN matrimony.accounts r ON r.agency_id = s.agency_id AND r.status = 'active' AND r.role = 'admin'
+  WHERE s.agency_id = $1::uuid AND s.id = $3::uuid AND r.id <> s.id
+    AND (
+      r.id = (SELECT i.invited_by FROM matrimony.staff_invitations i WHERE i.agency_id = $1::uuid AND i.id = $2::uuid)
+      OR NOT EXISTS (
+        SELECT 1 FROM matrimony.staff_invitations i
+          JOIN matrimony.accounts inviter ON inviter.agency_id = i.agency_id AND inviter.id = i.invited_by
+         WHERE i.agency_id = $1::uuid AND i.id = $2::uuid AND inviter.status = 'active' AND inviter.role = 'admin'
+      )
+    )
+ ON CONFLICT (agency_id, recipient_account_id, event_key) DO NOTHING`,
+
   revoke: `UPDATE matrimony.staff_invitations SET revoked_at = now()
  WHERE agency_id = $1 AND id = $2::uuid AND accepted_at IS NULL AND revoked_at IS NULL`,
 

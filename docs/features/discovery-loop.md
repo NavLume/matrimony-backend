@@ -282,3 +282,22 @@ Decided by the owner on 13 October 2026, after the list of what the meeting deci
   and counted in the waiting number. It is still decided on the client's page (CV tab), not through the
   `/reviews/{id}` endpoints; the queue row links there. A CV that is shown counts as approved; replaced or
   removed CVs are not listed.
+
+- **The asker is told when a request is approved** (13 October 2026, from the owner's browser test).
+  When the agent of the person asked approves a request, the asker gets an inbox line
+  (`connection_forwarded`: "the agent of X approved your request; it now waits for their answer") beside the
+  line the person asked receives. Rejecting still tells the asker it was declined.
+- **"Allow asking again" closes a declined request** (status `withdrawn`) so either side can send a new one.
+  It does not put the old request back in the review queue, and tells nobody. The staff list words it as
+  "Closed. The person who asked can ask again."
+- Approve, reject, accept/decline for a client, allow asking again and share-a-client's-contact each ask for
+  confirmation in the frontend.
+- **Sharing contact details tells the other side** (13 October 2026): an inbox line `contact_shared` goes to the
+  other side of the accepted connection (the member, or the agent of a client with no login), in the same
+  transaction. Staff and members both trigger it. The line leads a member to the person's page, where the
+  details are.
+- **The admin is told when staff they invited join** (13 October 2026): accepting an invitation writes a
+  `staff_joined` inbox line (name and role) for the admin who invited, or for every active admin when that
+  admin is no longer an active admin, in the same transaction as the account. Never for the person who
+  joined. This is the first inbox line that is not about a profile, so `about` and `forProfileId` of a
+  notification can now be null, and `staff` carries `{ name, role }` for these lines.

@@ -74,6 +74,7 @@ async function setup(role: 'admin' | 'agent' | 'member') {
             connectionId: ID,
             what: null,
             decision: null,
+            staff: null,
             count: null,
             forProfileId: ID,
             about: { profileId: OTHER, memberCode: 'M1', fullName: 'Ayesha' },
@@ -174,6 +175,7 @@ await test('the inbox is open to every signed-in role', async (t) => {
       'id',
       'kind',
       'read',
+      'staff',
       'what',
     ]);
     // The internal cursor position is never sent.

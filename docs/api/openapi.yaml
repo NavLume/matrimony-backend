@@ -4183,7 +4183,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [id, kind, createdAt, read, connectionId, what, decision, count, forProfileId, about]
+        [id, kind, createdAt, read, connectionId, what, decision, staff, count, forProfileId, about]
       properties:
         id: { type: string, format: uuid }
         kind:
@@ -4194,6 +4194,9 @@ components:
                 connection_request,
                 connection_accepted,
                 connection_declined,
+                connection_forwarded,
+                contact_shared,
+                staff_joined,
                 connection_review,
                 connection_review_reminder,
                 connection_matched,
@@ -4224,14 +4227,22 @@ components:
             description: 'For a decision on something sent for review: approved or rejected.',
           }
         count: { type: [integer, 'null'], description: 'For a release: how many profiles.' }
+        staff:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [name, role]
+          description: For a staff account that joined, who and as what.
+          properties:
+            name: { type: string }
+            role: { type: string }
         forProfileId:
           {
-            type: string,
+            type: [string, 'null'],
             format: uuid,
-            description: 'The profile this is about for the recipient: their own, or the client they look after.',
+            description: 'The profile this is about for the recipient: their own, or the client they look after. Null for a line that is not about a profile.',
           }
         about:
-          type: object
+          type: [object, 'null']
           additionalProperties: false
           required: [profileId, memberCode, fullName]
           properties:

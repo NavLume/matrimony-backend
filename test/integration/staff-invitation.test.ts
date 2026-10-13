@@ -282,6 +282,16 @@ await test('inviting staff, over HTTP, on real PostgreSQL and Redis', async (t) 
       );
       assert.deepEqual(stored.rows[0], { status: 'active', verified: true });
       assert.equal((await openRows('agent1')).length, 0);
+      // The admin who invited is told that the person joined, and nobody else is.
+      const joined = await owner.query(
+        `SELECT recipient_account_id, payload FROM matrimony.notifications
+          WHERE agency_id=$1 AND template_key='staff.joined' AND payload->>'staffAccountId'=$2`,
+        [agency, me.json().id],
+      );
+      assert.equal(joined.rows.length, 1);
+      assert.equal(joined.rows[0].recipient_account_id, boss);
+      assert.equal(joined.rows[0].payload.role, 'agent');
+
       await signIn('agent1');
       // Staff pages are open to the new agent.
       assert.equal(

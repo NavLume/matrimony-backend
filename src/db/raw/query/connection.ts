@@ -144,7 +144,7 @@ export const connectionQueries = {
        (n.read_at IS NOT NULL) AS is_read,
        m.id AS about_profile_id, m.member_code, CASE WHEN $6::boolean THEN m.full_name END AS full_name
   FROM matrimony.notifications n
-  JOIN matrimony.member_profiles m ON m.agency_id = n.agency_id AND m.id = (n.payload->>'aboutProfileId')::uuid
+  LEFT JOIN matrimony.member_profiles m ON m.agency_id = n.agency_id AND m.id = (n.payload->>'aboutProfileId')::uuid
  WHERE n.agency_id = $1 AND n.recipient_account_id = $2
    AND ($3::timestamptz IS NULL OR (n.created_at, n.id) < ($3::timestamptz, $4::uuid))
  ORDER BY n.created_at DESC, n.id DESC

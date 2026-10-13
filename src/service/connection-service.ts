@@ -348,6 +348,15 @@ export class ConnectionService {
       if (asker && asked) {
         if (approve) {
           await this.tell(unit, actor.agencyId, 'connection_request', connection.id, asked, asker);
+          // The asker is told it went through, so a request does not seem to have vanished.
+          await this.tell(
+            unit,
+            actor.agencyId,
+            'connection_forwarded',
+            connection.id,
+            asker,
+            asked,
+          );
         } else {
           await this.tell(unit, actor.agencyId, 'connection_declined', connection.id, asker, asked);
         }
@@ -500,10 +509,21 @@ export class ConnectionService {
     connectionId: string,
     correlationId: string,
   ) {
-    const { connection } = await this.lockedParty(unit, actor.agencyId, profileId, connectionId);
+    const { connection, profiles } = await this.lockedParty(
+      unit,
+      actor.agencyId,
+      profileId,
+      connectionId,
+    );
     const side = connection.fromProfileId === profileId ? 'from' : 'to';
     if (!(await unit.share(actor.agencyId, connection.id, profileId, side))) {
       throw new AppError(409, 'CONNECTION_NOT_ACCEPTED');
+    }
+    // The other side is told, so they know there is something new to look at.
+    const sharer = profiles.find((p) => p.id === profileId);
+    const other = profiles.find((p) => p.id !== profileId);
+    if (sharer && other) {
+      await this.tell(unit, actor.agencyId, 'contact_shared', connection.id, other, sharer);
     }
     await unit.appendEvent(
       this.event('interest.contact_shared', actor, connection.id, correlationId),

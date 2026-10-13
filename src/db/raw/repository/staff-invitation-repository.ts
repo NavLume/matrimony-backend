@@ -127,7 +127,10 @@ export class StaffInvitationRepository {
       invitationId,
       accountId,
     ]);
-    return result.rowCount === 1;
+    if (result.rowCount !== 1) return false;
+    // In the same transaction, so the line exists only if the account does.
+    await tx.query(staffInvitationQueries.notifyJoined, [agencyId, invitationId, accountId]);
+    return true;
   }
 
   /** False when the invitation is not open (unknown, accepted or already cancelled). */

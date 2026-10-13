@@ -440,6 +440,13 @@ await test('contact is shared only inside an accepted connection, and only by on
   await t.service.shareContact(me, connectionId, 'c');
   const stored = t.connections.get(connectionId)!;
   assert.deepEqual([stored.fromShared, stored.toShared], [true, false]);
+  // The other side is told that there is something new to look at.
+  assert.deepEqual(t.notices.at(-1), {
+    to: ACCOUNT.them,
+    kind: 'contact_shared',
+    forProfile: PROFILE.them,
+    about: PROFILE.me,
+  });
   await assert.rejects(
     t.service.shareContact(actorOf(id(900), 'member'), connectionId, 'c'),
     refused(404),
@@ -512,15 +519,23 @@ await test('a request to a member with a login waits for review: the agent is to
       about: PROFILE.me,
     },
   ]);
-  // Approving tells the member; the asker is told nothing yet.
+  // Approving tells the member, and tells the asker that it went through and now waits for them.
   await t.service.review(agent, connectionId, true, 'c');
   assert.equal(t.connections.get(connectionId)?.status, 'pending');
-  assert.deepEqual(t.notices.at(-1), {
-    to: ACCOUNT.managedOwner,
-    kind: 'connection_request',
-    forProfile: PROFILE.managed,
-    about: PROFILE.me,
-  });
+  assert.deepEqual(t.notices.slice(-2), [
+    {
+      to: ACCOUNT.managedOwner,
+      kind: 'connection_request',
+      forProfile: PROFILE.managed,
+      about: PROFILE.me,
+    },
+    {
+      to: ACCOUNT.me,
+      kind: 'connection_forwarded',
+      forProfile: PROFILE.me,
+      about: PROFILE.managed,
+    },
+  ]);
   await assert.rejects(
     t.service.review(agent, connectionId, true, 'c'),
     refused(409, 'CONNECTION_NOT_IN_REVIEW'),

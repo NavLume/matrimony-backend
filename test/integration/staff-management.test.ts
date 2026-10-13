@@ -595,12 +595,12 @@ await test('staff management, the nightly refresh and code search on real Postgr
       const sent = await connections.send(a.actor, b.profileId, 'c');
       await new Promise((resolve) => setTimeout(resolve, 200));
       assert.deepEqual(heard, []);
-      // Approving tells B, and only B.
+      // Approving tells B (the request) and A (it went through), and nobody else.
       await connections.review(boss.actor, sent.connectionId, true, 'c');
-      for (let i = 0; i < 40 && heard.length === 0; i += 1) {
+      for (let i = 0; i < 40 && heard.length < 2; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      assert.deepEqual(heard, ['b']);
+      assert.deepEqual([...heard].sort(), ['a', 'b']);
       stopA();
       stopB();
     },

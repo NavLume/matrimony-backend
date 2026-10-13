@@ -191,7 +191,13 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
   // tests are about connections, so they look at those lines only.
   const interestLines = async (actor: ProfileActor, query: ReturnType<typeof inbox>) => {
     const page = await connections.notifications(actor, query);
-    return { ...page, items: page.items.filter((n) => n.kind.startsWith('connection_')) };
+    // (The asker's "your request went through" line is checked on its own, in the review test.)
+    return {
+      ...page,
+      items: page.items.filter(
+        (n) => n.kind.startsWith('connection_') && n.kind !== 'connection_forwarded',
+      ),
+    };
   };
   const m1 = await member('Mahir One', 'male');
   const m2 = await member('Nila Two', 'female');
@@ -213,6 +219,10 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
   // M2's window does not hold M1: a request will be what lets M2 look at M1.
 
   await t.test('a request is stored once and tells the person asked, by name', async () => {
+    // Both were told their profile was approved when they were set up: read those first, so that
+    // only this request counts below.
+    await connections.markRead(m1.actor, null);
+    await connections.markRead(m2.actor, null);
     const sent = await ask(m1.actor, m2.profileId);
     assert.equal(sent.outcome, 'requested');
     const again = await ask(m1.actor, m2.profileId);
@@ -222,7 +232,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     const told = await interestLines(m2.actor, inbox());
     assert.equal(told.items.length, 1);
     assert.equal(told.items[0]!.kind, 'connection_request');
-    assert.equal(told.items[0]!.about.fullName, 'Mahir One');
+    assert.equal(told.items[0]!.about?.fullName, 'Mahir One');
     assert.equal(told.items[0]!.forProfileId, m2.profileId);
     // The one who asked is not told about their own request.
     assert.deepEqual((await interestLines(m1.actor, inbox())).items, []);
@@ -310,6 +320,28 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     assert.equal((await connections.list(m2.actor, box('connected'))).items.length, 1);
   });
 
+  await t.test(
+    'a line about a staff account that joined shows, though it is not about a profile',
+    async () => {
+      await admin.query(
+        `INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+       VALUES ($1, $2, $3, 'staff.joined', $4::jsonb)`,
+        [
+          agencyId,
+          boss.actor.accountId,
+          `staff-joined:${randomUUID()}`,
+          JSON.stringify({ staffAccountId: randomUUID(), name: 'New Agent', role: 'agent' }),
+        ],
+      );
+      const page = await connections.notifications(boss.actor, inbox());
+      const line = page.items.find((n) => n.kind === 'staff_joined');
+      assert.deepEqual(
+        [line?.staff, line?.about, line?.forProfileId],
+        [{ name: 'New Agent', role: 'agent' }, null, null],
+      );
+    },
+  );
+
   await t.test('the inbox pages without gaps or repeats, newest first', async () => {
     const first = await interestLines(m2.actor, inbox(1));
     assert.equal(first.items.length, 1);
@@ -319,7 +351,15 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       [first.items[0]!.kind, second.items[0]!.kind],
       ['connection_accepted', 'connection_request'],
     );
-    assert.equal(second.next, null);
+    // Older lines (such as "your profile was approved") follow; walking to the end repeats none.
+    const seen: string[] = [];
+    let after: string | undefined;
+    do {
+      const page = await connections.notifications(m2.actor, inbox(1, after));
+      seen.push(...page.items.map((n) => n.id));
+      after = page.next ?? undefined;
+    } while (after);
+    assert.equal(new Set(seen).size, seen.length);
   });
 
   await t.test(
@@ -647,7 +687,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       for (const x of [a, c]) {
         assert.equal((await connectionRows(x.profileId, b.profileId))[0].status, 'withdrawn');
         const told = (await interestLines(x.actor, inbox(50))).items.filter(
-          (n) => n.about.profileId === b.profileId && n.kind === 'connection_matched',
+          (n) => n.about?.profileId === b.profileId && n.kind === 'connection_matched',
         );
         assert.equal(told.length, 1);
         assert.equal(told[0]!.forProfileId, x.profileId);
@@ -693,7 +733,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
         'c',
       );
       const paused = (await interestLines(d.actor, inbox(50))).items.filter(
-        (n) => n.about.profileId === e.profileId,
+        (n) => n.about?.profileId === e.profileId,
       );
       assert.deepEqual(
         paused.map((n) => n.kind),
@@ -753,7 +793,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       );
       assert.equal(told.length, 1);
       assert.equal(told[0]!.kind, 'connection_request');
-      assert.equal(told[0]!.about.fullName, 'Mahir One');
+      assert.equal(told[0]!.about?.fullName, 'Mahir One');
       // Not the rival, not a member; and not the other agency.
       assert.deepEqual(
         (await interestLines(rival.actor, inbox(50))).items.filter((n) => n.forProfileId === z),
@@ -782,7 +822,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       assert.equal((await connectionRows(m1.profileId, z))[0].status, 'accepted');
       assert.ok(
         (await interestLines(m1.actor, inbox())).items.some(
-          (n) => n.kind === 'connection_accepted' && n.about.profileId === z,
+          (n) => n.kind === 'connection_accepted' && n.about?.profileId === z,
         ),
       );
 
@@ -811,7 +851,7 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
     const b = await member('Hidden Hana', 'female');
     await release(a.profileId, b.profileId);
     await ask(a.actor, b.profileId);
-    assert.equal((await interestLines(b.actor, inbox())).items[0]!.about.fullName, 'Hidden Hal');
+    assert.equal((await interestLines(b.actor, inbox())).items[0]!.about?.fullName, 'Hidden Hal');
     await candidates.saveSettings(
       boss.actor,
       b.profileId,
@@ -819,8 +859,8 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
       'c',
     );
     const item = (await interestLines(b.actor, inbox())).items[0]!;
-    assert.equal(item.about.fullName, null);
-    assert.ok(item.about.memberCode);
+    assert.equal(item.about?.fullName, null);
+    assert.ok(item.about?.memberCode);
     // And the profile they may open shows no name either.
     assert.equal((await matches.detail(b.actor, a.profileId)).profile.fullName, undefined);
   });
