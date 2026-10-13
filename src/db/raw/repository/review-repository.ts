@@ -1,5 +1,6 @@
 import type { Cursor, QueueItem, QueueKind, ReviewStatus } from '../../../bo/review.js';
 import type { Transaction } from '../../config/database.js';
+import { notifyDecided, type ReviewWhat } from './notice.js';
 import { countRow, photoFileRow } from '../../entity/review.js';
 import { mapQueueItem, mapReviewDetail, type ReviewRecordDetail } from '../mapper/review.js';
 import { listQuery, reviewQueries } from '../query/review.js';
@@ -102,6 +103,24 @@ export class ReviewRepository {
       reviewerId,
       note,
     ]);
-    return result.rows.length > 0;
+    const row = result.rows[0] as
+      { profile_id: string; submitted_by_account_id: string; kind: string } | undefined;
+    if (!row) return false;
+    const what: ReviewWhat =
+      row.kind === 'initial_submission'
+        ? 'profile'
+        : row.kind === 'field_update'
+          ? 'edit'
+          : 'photo';
+    await notifyDecided(
+      tx,
+      agencyId,
+      row.profile_id,
+      row.submitted_by_account_id,
+      reviewerId,
+      what,
+      outcome,
+    );
+    return true;
   }
 }

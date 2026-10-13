@@ -270,3 +270,15 @@ Decided by the owner on 13 October 2026, after the list of what the meeting deci
 - **Family (answer 27):** the family member who uses the account is named in My profile (contact person and
   relationship, required when the profile is for someone else). Anything more about them is a field to add
   to that section.
+
+## Fixes found in the owner's browser test of the review step (13 October 2026)
+
+- **A decision is told to the person it is about.** When a profile, a change, a photo or a CV is approved
+  or rejected, the owner of the profile who signs in, and whoever sent the request when that is someone
+  else, get an inbox line (`review_decided`, with `what` and `decision`). Never the person who decided.
+  Written in the same transaction as the decision (`notifyDecided`), so the unread count and the live
+  stream pick it up. A client with no login is not told: their agent decided.
+- **CVs are in the review queue.** A CV waiting for a decision is listed in the queue as kind `cv_upload`
+  and counted in the waiting number. It is still decided on the client's page (CV tab), not through the
+  `/reviews/{id}` endpoints; the queue row links there. A CV that is shown counts as approved; replaced or
+  removed CVs are not listed.

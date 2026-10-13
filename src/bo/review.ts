@@ -6,7 +6,12 @@ import type { FieldChange } from './profile.js';
  * profile, a new photo), and the reviewer's decision on each. Validation messages are stable keys,
  * as for the profile.
  */
-export const QUEUE_KINDS = ['initial_submission', 'field_update', 'photo_add'] as const;
+export const QUEUE_KINDS = [
+  'initial_submission',
+  'field_update',
+  'photo_add',
+  'cv_upload',
+] as const;
 export type QueueKind = (typeof QUEUE_KINDS)[number];
 
 export const REVIEW_STATUSES = ['pending', 'approved', 'rejected', 'cancelled'] as const;

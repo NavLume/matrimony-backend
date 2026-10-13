@@ -1,6 +1,6 @@
 # Project handoff: read this first
 
-Last updated: 13 October 2026 (3.O live notifications, more inbox lines, automatic agent assignment and direct staff accounts; 3.J CV upload and 3.K to 3.N built and in review; decisions from the friend meeting of 12 October recorded; inbox read state 3.G.1, the agent's review of requests 3.H and withdrawn requests for a matched or paused profile 3.I built and in review). If you are a coding agent that has just been opened on this project, read this file completely, then the files listed in [Where to read next](#where-to-read-next). Then tell the user, in about ten lines, what you understood, and wait.
+Last updated: 13 October 2026 (decisions on reviews are told to the person they are about, and CVs waiting for a decision are listed in the review queue; 3.O live notifications, more inbox lines, automatic agent assignment and direct staff accounts; 3.J CV upload and 3.K to 3.N built and in review; decisions from the friend meeting of 12 October recorded; inbox read state 3.G.1, the agent's review of requests 3.H and withdrawn requests for a matched or paused profile 3.I built and in review). If you are a coding agent that has just been opened on this project, read this file completely, then the files listed in [Where to read next](#where-to-read-next). Then tell the user, in about ten lines, what you understood, and wait.
 
 This file lives in the **backend** repo. The **frontend** repo has a shorter `PROJECT.md` that points here.
 

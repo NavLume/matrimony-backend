@@ -40,6 +40,37 @@ export async function notifyReviewers(
 }
 
 /**
+ * Tells the people a decision is about: the owner of the profile who signs in, and whoever sent the
+ * request when that is someone else (an agent who sent a client's profile). Never the person who
+ * decided it. Nobody is told twice.
+ */
+export async function notifyDecided(
+  tx: Transaction,
+  agencyId: string,
+  profileId: string,
+  submitterId: string,
+  deciderId: string,
+  what: ReviewWhat,
+  decision: 'approved' | 'rejected',
+): Promise<void> {
+  await tx.query(
+    `INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+     SELECT $1, r.id, 'review-decided:' || $2::text || ':' || gen_random_uuid()::text,
+            'profile.review_decided',
+            jsonb_build_object('forProfileId', $2::uuid, 'aboutProfileId', $2::uuid,
+                               'what', $5::text, 'decision', $6::text)
+       FROM (
+         SELECT p.owner_account_id FROM matrimony.member_profiles p
+          WHERE p.agency_id = $1 AND p.id = $2 AND p.owner_account_id IS NOT NULL
+         UNION
+         SELECT $3::uuid
+       ) r(id)
+      WHERE r.id <> $4::uuid`,
+    [agencyId, profileId, submitterId, deciderId, what, decision],
+  );
+}
+
+/**
  * Tells a client who signs in that new profiles were released to them. A client with no login is not
  * told: their agent released the profiles and is the one who looks after them.
  */

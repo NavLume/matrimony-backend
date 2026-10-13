@@ -21,14 +21,34 @@ const VISIBLE = `($4::uuid IS NULL OR p.assigned_agent_id = $4 OR p.assigned_age
  * decided ones are newest first. $1 agency, $2 status, $3 kind or null, $4 viewer, $5 and $6 the
  * position after which to continue (both null for the first page), $7 how many to fetch.
  */
+// A CV waiting for a decision is listed beside the requests, with its own kind. Its states map
+// onto the queue's: a CV that is shown is approved, one that was turned down is rejected. A CV that
+// was replaced or removed is no longer a request.
+const CV_STATUS = `(CASE c.status WHEN 'pending' THEN 'pending' WHEN 'published' THEN 'approved' WHEN 'rejected' THEN 'rejected' END)`;
+const CV_COLUMNS = `c.id, 'cv_upload'::text AS kind, ${CV_STATUS}::text AS status, c.created_at,
+ to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS position, NULL::uuid AS photo_id,
+ c.uploaded_by_account_id AS submitted_by_account_id, s.display_name AS submitter_name,
+ p.id AS profile_id, p.member_code, p.full_name, p.service_mode, p.assigned_agent_id`;
+const CV_FROM = `FROM matrimony.profile_cvs c
+ JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
+ JOIN matrimony.accounts s ON s.agency_id = c.agency_id AND s.id = c.uploaded_by_account_id`;
+
 export const listQuery = (direction: 'ASC' | 'DESC') => {
   const compare = direction === 'ASC' ? '>' : '<';
-  return `SELECT ${ITEM_COLUMNS} ${ITEM_FROM}
+  return `SELECT * FROM (
+ SELECT ${ITEM_COLUMNS} ${ITEM_FROM}
  WHERE r.agency_id = $1 AND r.status = $2 AND ${QUEUE_KINDS}
    AND ($3::text IS NULL OR r.kind = $3)
    AND ${VISIBLE}
    AND ($5::timestamptz IS NULL OR (r.created_at, r.id) ${compare} ($5::timestamptz, $6::uuid))
- ORDER BY r.created_at ${direction}, r.id ${direction}
+ UNION ALL
+ SELECT ${CV_COLUMNS} ${CV_FROM}
+ WHERE c.agency_id = $1 AND ${CV_STATUS} = $2
+   AND ($3::text IS NULL OR $3::text = 'cv_upload')
+   AND ($4::uuid IS NULL OR p.assigned_agent_id = $4 OR p.assigned_agent_id IS NULL)
+   AND ($5::timestamptz IS NULL OR (c.created_at, c.id) ${compare} ($5::timestamptz, $6::uuid))
+ ) q
+ ORDER BY q.created_at ${direction}, q.id ${direction}
  LIMIT $7`;
 };
 
@@ -45,10 +65,17 @@ export const reviewQueries = {
   detailForUpdate: `${DETAIL} FOR UPDATE OF r`,
 
   // $1 agency, $2 viewer (null for an admin).
-  pendingCount: `SELECT count(*)::int AS n FROM matrimony.profile_reviews r
- JOIN matrimony.member_profiles p ON p.agency_id = r.agency_id AND p.id = r.profile_id
- WHERE r.agency_id = $1 AND r.status = 'pending' AND ${QUEUE_KINDS}
-   AND ($2::uuid IS NULL OR p.assigned_agent_id = $2 OR p.assigned_agent_id IS NULL)`,
+  pendingCount: `SELECT (
+   (SELECT count(*) FROM matrimony.profile_reviews r
+     JOIN matrimony.member_profiles p ON p.agency_id = r.agency_id AND p.id = r.profile_id
+    WHERE r.agency_id = $1 AND r.status = 'pending' AND ${QUEUE_KINDS}
+      AND ($2::uuid IS NULL OR p.assigned_agent_id = $2 OR p.assigned_agent_id IS NULL))
+   +
+   (SELECT count(*) FROM matrimony.profile_cvs c
+     JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
+    WHERE c.agency_id = $1 AND c.status = 'pending'
+      AND ($2::uuid IS NULL OR p.assigned_agent_id = $2 OR p.assigned_agent_id IS NULL))
+ )::int AS n`,
 
   photo: `SELECT id, profile_id, storage_key, status FROM matrimony.profile_photos
  WHERE agency_id = $1 AND id = $2`,
@@ -65,5 +92,6 @@ export const reviewQueries = {
   // Only a request that is still waiting can be decided: a second decision changes nothing.
   decide: `UPDATE matrimony.profile_reviews
  SET status = $3, reviewer_account_id = $4, reviewer_notes = $5, reviewed_at = now()
- WHERE agency_id = $1 AND id = $2 AND status = 'pending' RETURNING id`,
+ WHERE agency_id = $1 AND id = $2 AND status = 'pending'
+ RETURNING id, profile_id, submitted_by_account_id, kind`,
 };

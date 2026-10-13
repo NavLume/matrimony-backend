@@ -25,6 +25,7 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   connection_matched: 'interest.matched',
   connection_unavailable: 'interest.unavailable',
   review_requested: 'profile.review_requested',
+  review_decided: 'profile.review_decided',
   candidates_released: 'candidates.released',
   client_assigned: 'client.assigned',
 };
@@ -345,6 +346,7 @@ export class ConnectionRepository {
       read: row.is_read === true,
       connectionId: (row.payload as { interestId?: string }).interestId ?? null,
       what: (row.payload as { what?: string }).what ?? null,
+      decision: (row.payload as { decision?: 'approved' | 'rejected' }).decision ?? null,
       count: (row.payload as { count?: number }).count ?? null,
       forProfileId: (row.payload as { forProfileId: string }).forProfileId,
       about: {

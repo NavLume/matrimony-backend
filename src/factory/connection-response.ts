@@ -36,6 +36,7 @@ export const notificationPageResponse = (page: NotificationPage) => ({
     read: n.read,
     connectionId: n.connectionId,
     what: n.what,
+    decision: n.decision,
     count: n.count,
     forProfileId: n.forProfileId,
     about: {

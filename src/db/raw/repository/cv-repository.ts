@@ -1,7 +1,7 @@
 import type { CvRecord, CvStatus } from '../../../bo/cv.js';
 import type { Transaction } from '../../config/database.js';
 import { cvQueries } from '../query/cv.js';
-import { notifyReviewers } from './notice.js';
+import { notifyDecided, notifyReviewers } from './notice.js';
 
 type Row = Record<string, unknown>;
 
@@ -111,7 +111,19 @@ export class CvRepository {
     notes: string | null,
   ): Promise<boolean> {
     const result = await tx.query(cvQueries.decide, [agencyId, id, approve, reviewerId, notes]);
-    return result.rows.length > 0;
+    const row = result.rows[0] as
+      { profile_id: string; uploaded_by_account_id: string } | undefined;
+    if (!row) return false;
+    await notifyDecided(
+      tx,
+      agencyId,
+      row.profile_id,
+      row.uploaded_by_account_id,
+      reviewerId,
+      'cv',
+      approve ? 'approved' : 'rejected',
+    );
+    return true;
   }
 
   async accepted(tx: Transaction, agencyId: string, a: string, b: string): Promise<boolean> {

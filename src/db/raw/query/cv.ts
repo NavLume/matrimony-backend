@@ -36,7 +36,8 @@ export const cvQueries = {
   decide: `UPDATE matrimony.profile_cvs
    SET status = CASE WHEN $3::boolean THEN 'published' ELSE 'rejected' END::text,
        reviewed_by_account_id = $4::uuid, reviewed_at = now(), reviewer_notes = $5::text
- WHERE agency_id = $1 AND id = $2 AND status = 'pending' RETURNING id`,
+ WHERE agency_id = $1 AND id = $2 AND status = 'pending'
+ RETURNING id, profile_id, uploaded_by_account_id`,
 
   // $1 agency, $2 and $3 the two profiles. Whether an accepted connection joins them.
   accepted: `SELECT 1 FROM matrimony.interests

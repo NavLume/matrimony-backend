@@ -159,6 +159,8 @@ export type NotificationKind =
   | 'connection_unavailable'
   /** Staff: something was sent for review (a profile, a change, a photo or a CV). */
   | 'review_requested'
+  /** A request that was sent for review (profile, change, photo or CV) was approved or rejected. */
+  | 'review_decided'
   /** A client who signs in: new profiles were released to them. */
   | 'candidates_released'
   /** An agent: a new client was given to them. */
@@ -173,8 +175,10 @@ export interface NotificationItem {
   read: boolean;
   /** The connection this is about. Null for lines that are not about a connection. */
   connectionId: string | null;
-  /** For a review request: what was sent (profile, edit, photo or cv). */
+  /** For a review request or its decision: what was sent (profile, edit, photo or cv). */
   what: string | null;
+  /** For a decision: whether it was approved or rejected. */
+  decision: 'approved' | 'rejected' | null;
   /** For a release: how many profiles. */
   count: number | null;
   /** The profile this is about for the recipient: their own, or the client they look after. */

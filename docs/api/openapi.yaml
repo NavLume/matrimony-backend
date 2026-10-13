@@ -3700,8 +3700,8 @@ components:
         displayName: { type: string }
     QueueKind:
       type: string
-      enum: [initial_submission, field_update, photo_add]
-      description: A new profile, a change to a published profile, or a new photo.
+      enum: [initial_submission, field_update, photo_add, cv_upload]
+      description: A new profile, a change to a published profile, a new photo, or a CV waiting for a decision (decided on the client's page, not through the review endpoints).
     QueueStatus:
       type: string
       enum: [pending, approved, rejected, cancelled]
@@ -4182,7 +4182,8 @@ components:
     NotificationItem:
       type: object
       additionalProperties: false
-      required: [id, kind, createdAt, read, connectionId, what, count, forProfileId, about]
+      required:
+        [id, kind, createdAt, read, connectionId, what, decision, count, forProfileId, about]
       properties:
         id: { type: string, format: uuid }
         kind:
@@ -4198,6 +4199,7 @@ components:
                 connection_matched,
                 connection_unavailable,
                 review_requested,
+                review_decided,
                 candidates_released,
                 client_assigned,
               ],
@@ -4214,6 +4216,12 @@ components:
           {
             type: [string, 'null'],
             description: 'For a review request: profile, edit, photo or cv.',
+          }
+        decision:
+          {
+            type: [string, 'null'],
+            enum: [approved, rejected, null],
+            description: 'For a decision on something sent for review: approved or rejected.',
           }
         count: { type: [integer, 'null'], description: 'For a release: how many profiles.' }
         forProfileId:
