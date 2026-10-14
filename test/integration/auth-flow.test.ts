@@ -344,9 +344,13 @@ await test('the whole email and password journey over HTTP', async (t) => {
         ])
       ).rows[0].n;
       const fresh = await register(as(), 'brandnew');
+      assert.equal(fresh.statusCode, 202);
+      // An address that has an account is told so plainly, and nothing is sent.
+      const mailsTo = () => mails.filter((m) => m.to === email('twice')).length;
+      const mailsBefore = mailsTo();
       const again = await register(as(), 'twice', 'someone elses password');
-      assert.equal(again.statusCode, fresh.statusCode);
-      assert.equal(again.body, fresh.body);
+      assert.equal(again.statusCode, 409);
+      assert.equal(again.json().error.code, 'EMAIL_ALREADY_REGISTERED');
       assert.equal(
         (
           await admin.query(`SELECT count(*)::int AS n FROM matrimony.accounts WHERE email=$1`, [
@@ -355,9 +359,8 @@ await test('the whole email and password journey over HTTP', async (t) => {
         ).rows[0].n,
         before,
       );
-      // The owner is told, and no link is sent.
-      assert.match(lastMail(email('twice')).text, /already has an account/);
-      assert.equal(tokenIn(lastMail(email('twice'))), '');
+      await settle();
+      assert.equal(mailsTo(), mailsBefore);
       // The first password still works and the second does not.
       assert.equal((await logIn(as(), 'twice')).statusCode, 200);
       assert.equal((await logIn(as(), 'twice', 'someone elses password')).statusCode, 401);

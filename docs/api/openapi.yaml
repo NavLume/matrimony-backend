@@ -94,11 +94,12 @@ paths:
       summary: Start registering as a member
       description: |
         Public, 10 per 10 minutes per client address, same-origin only. Nothing is created yet: a
-        link is emailed, and the account exists once it is opened (`/auth/verify-email`). The
-        answer is always 202, whether or not the email already has an account, because that
-        itself is private; an address that has an account is emailed a notice instead of a link.
-        One address can be sent 3 such emails an hour (429 `EMAIL_RATE_LIMITED`, with
-        `details.retryAfter` and a `Retry-After` header). Asking again cancels the earlier link.
+        link is emailed, and the account exists once it is opened (`/auth/verify-email`). An
+        address that already has an account is refused plainly, 409 `EMAIL_ALREADY_REGISTERED`,
+        and nothing is emailed (a decision of the owner, 14 October 2026; the sign-in and
+        forgot-password answers stay the same for every outcome). One address can be sent 3 such
+        emails an hour (429 `EMAIL_RATE_LIMITED`, with `details.retryAfter` and a `Retry-After`
+        header). Asking again cancels the earlier link.
       requestBody:
         required: true
         content:
@@ -106,12 +107,13 @@ paths:
             schema: { $ref: '#/components/schemas/RegisterInput' }
       responses:
         '202':
-          description: The link was sent, or the address already has an account.
+          description: The link was sent.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Status' }
         '400': { $ref: '#/components/responses/Error400' }
         '403': { $ref: '#/components/responses/Error403' }
+        '409': { description: The email already has an account (`EMAIL_ALREADY_REGISTERED`). }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /api/v1/auth/verify-email:

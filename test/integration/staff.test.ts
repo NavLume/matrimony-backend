@@ -314,7 +314,9 @@ await test('the approval queue and client management on real PostgreSQL', async 
   );
 
   await t.test("an unassigned profile's request is open to every agent", async () => {
-    const { review } = await submittedMember('Open Niha');
+    const { profileId, review } = await submittedMember('Open Niha');
+    // A new profile is given to an agent at once; take it back to nobody, as an admin may.
+    await clients.assign(boss.actor, profileId, null, 'c');
     for (const agent of [abir, rival]) {
       assert.ok((await waiting(agent.actor)).some((i) => i.id === review.id));
     }
@@ -677,6 +679,8 @@ await test('the approval queue and client management on real PostgreSQL', async 
       clientInput(undefined, { fullName: `${tag} Gamma` }),
       'c',
     );
+    // The admin's client was given to the agent with the fewest clients; leave it with nobody.
+    await clients.assign(boss.actor, c.id, null, 'c');
     const find = async (q: Partial<ClientListQuery>) =>
       (await clients.list(boss.actor, clientQuery({ q: tag, limit: 50, ...q }))).items.map(
         (i) => i.id,

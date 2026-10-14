@@ -290,28 +290,31 @@ await test('registering again cancels the earlier link, so only the newest works
   assert.equal(f.created[0]!.verified.registration.displayName, 'Rahim Uddin');
 });
 
-await test('an email that already has an account looks the same to the caller, gets a different email, and no link', async () => {
+await test('an email that already has an account is refused plainly, with no email and no link', async () => {
   const f = setup({ registered: ['rahim@example.com'] });
-  await f.settle(f.process.startRegistration(context, input));
+  await assert.rejects(
+    () => f.process.startRegistration(context, input),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.status === 409 &&
+      error.code === 'EMAIL_ALREADY_REGISTERED',
+  );
+  await f.settle(Promise.resolve());
   assert.equal(f.stored.size, 0);
-  assert.equal(f.mails.length, 1);
-  assert.match(f.mails[0]!.text, /আগে থেকেই একটি অ্যাকাউন্ট আছে/);
-  assert.match(f.mails[0]!.text, /https:\/\/marriage\.example\/bn\/login/);
-  assert.match(f.mails[0]!.text, /https:\/\/marriage\.example\/bn\/forgot-password/);
-  assert.equal(tokenIn(f.mails[0]!), '');
+  assert.equal(f.mails.length, 0);
 });
 
-await test('the password is hashed whether or not the email is registered, so timing does not tell', async () => {
+await test('the password is hashed before the address is looked up, so the work done is the same', async () => {
   const fresh = setup();
   await fresh.settle(fresh.process.startRegistration(context, input));
   const known = setup({ registered: ['rahim@example.com'] });
-  await known.settle(known.process.startRegistration(context, input));
+  await assert.rejects(() => known.process.startRegistration(context, input));
   assert.equal(fresh.hashCalls(), 1);
   assert.equal(known.hashCalls(), 1);
 });
 
-await test('one address can be sent three registration emails an hour, then is paused, known or not', async () => {
-  for (const registered of [[], ['rahim@example.com']]) {
+await test('one address can be sent three registration emails an hour, then is paused', async () => {
+  for (const registered of [[]]) {
     const f = setup({ registered });
     for (let i = 0; i < 3; i++) await f.settle(f.process.startRegistration(context, input));
     await assert.rejects(

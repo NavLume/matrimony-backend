@@ -177,3 +177,12 @@ These are my defaults, not requirements from the client.
 - Redis holds sessions, pending registrations and counters, so Redis being down means nobody can sign in (as before). Registration emails are not retried: a failed send is logged as `MAIL_SEND_FAILED` and the person asks again.
 - Watch for: `MAIL_SEND_FAILED`, many `TOO_MANY_ATTEMPTS` or `EMAIL_RATE_LIMITED` responses (guessing or email bombing), and sign-in failures after a deploy.
 - New dependencies: `openid-client` (Google) and `nodemailer` (the standard Node SMTP client, for the SMTP adapter) and, for tests only, `smtp-server`. Password hashing uses Node's built-in Argon2 and needs no package.
+
+## Change, 14 October 2026: registration names an address that already has an account
+
+Registering with an email that already has an account is now answered plainly, `409 EMAIL_ALREADY_REGISTERED`,
+and no email is sent (before: the same 202 for every address, and a notice by email to the owner). The owner
+of the product chose this because a person who is told "check your email" and receives nothing is confused.
+The cost is that anyone can ask whether an address has an account; the route keeps its rate limits (10 per
+10 minutes per client address, 3 emails an hour per address). Sign-in (`INVALID_CREDENTIALS` for every
+failure), forgot password and adding an email to a phone account still answer the same whatever the address.

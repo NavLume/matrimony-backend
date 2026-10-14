@@ -44,42 +44,6 @@ export function verificationEmail(context: Context & { name: string; link: strin
       };
 }
 
-/** Sent instead of a verification link when the address already has an account. */
-export function alreadyRegisteredEmail(
-  context: Context & { signInLink: string; resetLink: string },
-): MailMessage {
-  const { to, locale, agencyName, signInLink, resetLink } = context;
-  return locale === 'bn'
-    ? {
-        to,
-        subject: `${agencyName}: আপনার অ্যাকাউন্ট আগে থেকেই আছে`,
-        text: [
-          'প্রিয় ব্যবহারকারী,',
-          '',
-          `কেউ এই ইমেইল দিয়ে ${agencyName}-এ রেজিস্ট্রেশন করার চেষ্টা করেছে, কিন্তু এই ইমেইলে আগে থেকেই একটি অ্যাকাউন্ট আছে।`,
-          '',
-          `আপনি নিজে করে থাকলে সাইন ইন করুন: ${signInLink}`,
-          `পাসওয়ার্ড ভুলে গেলে: ${resetLink}`,
-          '',
-          'আপনি না করে থাকলে কিছু করতে হবে না।',
-        ].join('\n'),
-      }
-    : {
-        to,
-        subject: `${agencyName}: you already have an account`,
-        text: [
-          'Hello,',
-          '',
-          `Someone tried to register at ${agencyName} with this email, but it already has an account.`,
-          '',
-          `If it was you, sign in: ${signInLink}`,
-          `If you forgot your password: ${resetLink}`,
-          '',
-          'If it was not you, you do not need to do anything.',
-        ].join('\n'),
-      };
-}
-
 /** The link that adds this address to the account that asked, sent to the address itself. */
 export function addEmailEmail(context: Context & { link: string }): MailMessage {
   const { to, locale, agencyName, link } = context;

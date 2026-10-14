@@ -15,7 +15,6 @@ import type { ThrottleRepository } from '../cache/repository/throttle-repository
 import { AppError } from '../exception/app-error.js';
 import {
   addEmailEmail,
-  alreadyRegisteredEmail,
   emailInUseNotice,
   passwordChangedEmail,
   passwordResetEmail,
@@ -98,15 +97,12 @@ export class AccountAccessProcess {
     const passwordHash = await this.credentials.hash(input.password);
     const common = { to: input.email, locale: input.locale, agencyName: context.agencyName };
 
+    // The person is told plainly, so they do not wait for an email that will never come. This lets
+    // anyone ask whether an address has an account, which the owner accepted for registration; the
+    // rate limit on this route and the sign-in answers (which stay the same for every failure) are
+    // what keep it from being a tool for scanning.
     if (await this.registrations.emailRegistered(context.agencyId, input.email)) {
-      this.sendInBackground(
-        alreadyRegisteredEmail({
-          ...common,
-          signInLink: this.link(context, input.locale, 'login'),
-          resetLink: this.link(context, input.locale, 'forgot-password'),
-        }),
-      );
-      return;
+      throw new AppError(409, 'EMAIL_ALREADY_REGISTERED');
     }
 
     const token = newToken();
