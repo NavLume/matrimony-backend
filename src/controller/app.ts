@@ -27,6 +27,8 @@ import {
 import { registerPhotoController } from './photo-controller.js';
 import { registerReviewController } from './review-controller.js';
 import { registerClientController } from './client-controller.js';
+import { registerClientLoginController } from './client-login-controller.js';
+import type { ClientLoginProcess } from '../process/client-login-process.js';
 import { registerCandidateController } from './candidate-controller.js';
 import { registerMatchController } from './match-controller.js';
 import { registerConnectionController } from './connection-controller.js';
@@ -111,6 +113,8 @@ export interface AppDependencies {
     StaffInvitationProcess,
     'invite' | 'resend' | 'list' | 'revoke' | 'preview' | 'accept' | 'create'
   >;
+  /** Undefined in tests that do not need it. */
+  clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
   identities: Pick<IdentityService, 'tenant'>;
   photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image'>;
   /** Live notifications: who to hear about and the unread count to send. */
@@ -254,5 +258,6 @@ export async function buildApp(deps: AppDependencies) {
   registerConnectionController(app, deps.connections);
   registerNotificationStream(app, deps.live);
   registerStaffController(app, deps.invitations);
+  if (deps.clientLogins) registerClientLoginController(app, deps.clientLogins, config);
   return app;
 }

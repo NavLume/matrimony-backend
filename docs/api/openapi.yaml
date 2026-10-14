@@ -231,6 +231,60 @@ paths:
         '403': { $ref: '#/components/responses/Error403' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /api/v1/auth/client-login/preview:
+    post:
+      tags: [Clients]
+      summary: What a client's login link is for
+      description: |
+        Public, 10 per minute, same-origin only. Greets the client by name and says how the link
+        reached them; it does not use the link up. An unknown, used, cancelled or old link is 400
+        `LINK_INVALID_OR_EXPIRED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LinkToken' }
+      responses:
+        '200':
+          description: The link is good.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientLoginPreview' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/client-login/accept:
+    post:
+      tags: [Clients]
+      summary: Open a client's login link, choose a password and sign in
+      description: |
+        Public, 10 per minute, same-origin only. The link works once, for 7 days, and only at the
+        agency that sent it. The account is created now as a member, verified and active, with the
+        address the link reached, and attached to the client's existing profile, which stays an
+        assisted one with the same agent. The terms and the privacy policy must be accepted and are
+        recorded. A session starts exactly like a login. An address that another account uses is 409
+        `ADDRESS_IN_USE` and the link stays out; a profile that got an owner meanwhile is 409
+        `CLIENT_HAS_LOGIN`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptClientLoginInput' }
+      responses:
+        '200':
+          description: The account exists and the person is signed in.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tokens' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409': { description: ADDRESS_IN_USE or CLIENT_HAS_LOGIN. }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /api/v1/auth/login:
     post:
       tags: [Auth]
@@ -2834,6 +2888,71 @@ paths:
             description: 'AGENT_NOT_AVAILABLE: the target is not an active staff member, or is the same person.',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
+  /api/v1/staff/clients/{profileId}/login:
+    get:
+      tags: [Clients]
+      summary: Where a client's own login stands
+      description: |
+        For an admin and the agent who looks after the client. `state` is `none`, `invited` (a link
+        is out), `expired` (it was not used in time) or `active` (the client has an account).
+        `canGrant` is true for a client the agency runs who has no account.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientLoginStatus' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: CLIENT_NOT_FOUND. }
+    post:
+      tags: [Clients]
+      summary: Send a client a link to their own login
+      description: |
+        By text message or email, to the number or address the staff member types. Any link still
+        out stops working. 30 per 10 minutes, and 3 per address per hour (429 `EMAIL_RATE_LIMITED`).
+        The client chooses their own password when they open it; the staff member never sees it.
+        409 `CLIENT_HAS_LOGIN` when the client already has an account, `CLIENT_NOT_ASSISTED` when the
+        profile is not one the agency runs, `SMS_NOT_AVAILABLE` when no text gateway is set up.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrantClientLoginInput' }
+      responses:
+        '201':
+          description: The link was sent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientLoginStatus' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: CLIENT_NOT_FOUND. }
+        '409': { description: CLIENT_HAS_LOGIN, CLIENT_NOT_ASSISTED or SMS_NOT_AVAILABLE. }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [Clients]
+      summary: Cancel the link that is out
+      description: A login that already exists is not touched here. 404 when no link is out.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Cancelled. }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: CLIENT_NOT_FOUND or CLIENT_LOGIN_NOT_FOUND. }
+
   /api/v1/staff/clients/{profileId}/assignments:
     get:
       tags: [Clients]
@@ -4515,6 +4634,66 @@ components:
         password:
           type: string
           description: At least 10 characters, and not the email address.
+
+    GrantClientLoginInput:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [channel, phone, locale]
+          properties:
+            channel: { type: string, enum: [sms] }
+            phone:
+              type: string
+              description: A Bangladeshi mobile number (01712345678) or an international one with +.
+            locale: { type: string, enum: [bn, en] }
+        - type: object
+          additionalProperties: false
+          required: [channel, email, locale]
+          properties:
+            channel: { type: string, enum: [email] }
+            email: { type: string }
+            locale: { type: string, enum: [bn, en] }
+      discriminator:
+        propertyName: channel
+
+    ClientLoginStatus:
+      type: object
+      additionalProperties: false
+      required: [state, canGrant, channel, address, locale, expiresAt, invitedByName, accountName]
+      properties:
+        state: { type: string, enum: [none, invited, expired, active] }
+        canGrant: { type: boolean }
+        channel: { type: [string, 'null'], enum: [sms, email, null] }
+        address: { type: [string, 'null'], description: The number or address the link went to. }
+        locale: { type: [string, 'null'], enum: [bn, en, null] }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        invitedByName: { type: [string, 'null'] }
+        accountName:
+          { type: [string, 'null'], description: The client's account name, once it exists. }
+
+    ClientLoginPreview:
+      type: object
+      additionalProperties: false
+      required: [displayName, channel, locale]
+      properties:
+        displayName: { type: string }
+        channel: { type: string, enum: [sms, email] }
+        locale: { type: string, enum: [bn, en] }
+
+    AcceptClientLoginInput:
+      type: object
+      additionalProperties: false
+      required: [token, password, acceptTerms, acceptPrivacy]
+      properties:
+        token:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: The one-time secret in the link.
+        password:
+          type: string
+          description: At least 10 characters.
+        acceptTerms: { type: boolean, enum: [true] }
+        acceptPrivacy: { type: boolean, enum: [true] }
 
     Error:
       type: object

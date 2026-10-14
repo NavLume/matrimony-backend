@@ -19,6 +19,10 @@ import { CredentialDbService } from './db/service/credential-db-service.js';
 import { CredentialService } from './service/credential-service.js';
 import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
+import { ClientLoginProcess } from './process/client-login-process.js';
+import { ClientLoginService } from './service/client-login-service.js';
+import { ClientLoginDbService } from './db/service/client-login-db-service.js';
+import { ClientLoginRepository } from './db/raw/repository/client-login-repository.js';
 import { StaffInvitationService } from './service/staff-invitation-service.js';
 import { StaffInvitationDbService } from './db/service/staff-invitation-db-service.js';
 import { StaffInvitationRepository } from './db/raw/repository/staff-invitation-repository.js';
@@ -174,6 +178,28 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       mailer,
       logger,
     );
+    const clientLogins = new ClientLoginProcess(
+      new ClientLoginService(
+        new ClientLoginDbService(
+          db,
+          new ClientLoginRepository(),
+          new RegistrationRepository(),
+          new EventRepository(),
+        ),
+      ),
+      credentials,
+      auth,
+      throttle,
+      mailer,
+      // Texts go out only where a sender is set up, the same condition as phone sign-in.
+      config.SMS_DRIVER === 'console'
+        ? new ConsoleSmsSender((text) =>
+            process.stdout.write(`${text}
+`),
+          )
+        : undefined,
+      logger,
+    );
     const access = new AccountAccessProcess(
       registrations,
       credentials,
@@ -213,6 +239,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       auth,
       access,
       invitations,
+      clientLogins,
       google,
       phone,
       registrations,
@@ -264,6 +291,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         await hub.stop();
         await access.idle();
         await invitations.idle();
+        await clientLogins.idle();
         await phone?.idle();
         redis.disconnect();
         await db.close();

@@ -20,3 +20,20 @@ export function codeMessage(context: {
         : `${agencyName}: your code is ${code}. It works for 5 minutes. Do not share it.`,
   };
 }
+
+/** The text that carries a client's login link. Short on purpose. The days match CLIENT_LOGIN_DAYS. */
+export function clientLoginMessage(context: {
+  to: string;
+  locale: 'bn' | 'en';
+  agencyName: string;
+  link: string;
+}): SmsMessage {
+  const { to, locale, agencyName, link } = context;
+  return {
+    to,
+    text:
+      locale === 'bn'
+        ? `${agencyName}: আপনার লগইন চালু করতে পাসওয়ার্ড ঠিক করুন: ${link} (৭ দিন, একবার)`
+        : `${agencyName}: open this link to choose your password and log in: ${link} (7 days, once)`,
+  };
+}

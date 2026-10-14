@@ -22,6 +22,11 @@ import { StaffInvitationDbService } from '../../src/db/service/staff-invitation-
 import type { MailMessage } from '../../src/mail/mailer.js';
 import { AuthProcess } from '../../src/process/auth-process.js';
 import { StaffInvitationProcess } from '../../src/process/staff-invitation-process.js';
+import { ClientLoginProcess } from '../../src/process/client-login-process.js';
+import { ClientLoginService } from '../../src/service/client-login-service.js';
+import { ClientLoginDbService } from '../../src/db/service/client-login-db-service.js';
+import { ClientLoginRepository } from '../../src/db/raw/repository/client-login-repository.js';
+import type { SmsMessage } from '../../src/sms/sender.js';
 import { AccessTokens, parseSigningKey } from '../../src/security/access-token.js';
 import { PasswordHasher } from '../../src/security/password-hasher.js';
 import { CredentialService } from '../../src/service/credential-service.js';
@@ -113,6 +118,31 @@ await test('inviting staff, over HTTP, on real PostgreSQL and Redis', async (t) 
     },
     pino({ level: 'silent' }),
   );
+  const texts: SmsMessage[] = [];
+  const clientLogins = new ClientLoginProcess(
+    new ClientLoginService(
+      new ClientLoginDbService(
+        db,
+        new ClientLoginRepository(),
+        new RegistrationRepository(),
+        new EventRepository(),
+      ),
+    ),
+    credentials,
+    auth,
+    throttle,
+    {
+      send: async (message) => {
+        mails.push(message);
+      },
+    },
+    {
+      send: async (message) => {
+        texts.push(message);
+      },
+    },
+    pino({ level: 'silent' }),
+  );
   const app = await buildApp({
     config,
     logger: pino({ level: 'silent' }),
@@ -131,6 +161,7 @@ await test('inviting staff, over HTTP, on real PostgreSQL and Redis', async (t) 
     auth,
     access: unusedAccess,
     invitations,
+    clientLogins,
     registrations: { signInMethods: async () => null },
   });
   t.after(async () => {
@@ -599,6 +630,217 @@ await test('inviting staff, over HTTP, on real PostgreSQL and Redis', async (t) 
     );
     assert.ok(accepted.rows[0].n >= 1);
   });
+
+  /** A client the agency runs, with no account, looked after by the given agent. */
+  async function assistedClient(name: string, agentId: string | null) {
+    const id = randomUUID();
+    const creator = await account('admin', `creator-${name.toLowerCase().replace(/ /g, '-')}`);
+    await owner.query(
+      `INSERT INTO matrimony.member_profiles
+         (agency_id, id, member_code, created_by_account_id, assigned_agent_id, service_mode, status, full_name)
+       VALUES ($1, $2, $3, $4, $5, 'assisted', 'active', $6)`,
+      [agency, id, `M${Math.floor(Math.random() * 9_000_000) + 1_000_000}`, creator, agentId, name],
+    );
+    return id;
+  }
+  const asStaff = (token: string, method: 'GET' | 'POST' | 'DELETE', url: string, body?: unknown) =>
+    as()(method, url, { token, ...(body === undefined ? {} : { body }) });
+
+  await t.test(
+    'an agent gives a client with no login one, and the client opens the link',
+    async () => {
+      const agent = await account('agent', 'logins-agent');
+      await account('agent', 'logins-rival');
+      const agentToken = await signIn('logins-agent');
+      const rivalToken = await signIn('logins-rival');
+      const profileId = await assistedClient('Tania Client', agent);
+      const url = `/api/v1/staff/clients/${profileId}/login`;
+
+      // Before: no login and none out, and this client can be given one.
+      const before = await asStaff(agentToken, 'GET', url);
+      assert.equal(before.statusCode, 200);
+      assert.deepEqual([before.json().state, before.json().canGrant], ['none', true]);
+
+      // An agent who does not look after the client is told there is no such client.
+      assert.equal((await asStaff(rivalToken, 'GET', url)).statusCode, 404);
+      const rivalTry = await asStaff(rivalToken, 'POST', url, {
+        channel: 'email',
+        email: email('nope'),
+        locale: 'en',
+      });
+      assert.equal(rivalTry.statusCode, 404);
+
+      // The link goes by email, to the address the agent typed.
+      const address = email('client-one');
+      const sent = await asStaff(agentToken, 'POST', url, {
+        channel: 'email',
+        email: address,
+        locale: 'en',
+      });
+      assert.equal(sent.statusCode, 201);
+      assert.deepEqual(
+        [sent.json().state, sent.json().channel, sent.json().address],
+        ['invited', 'email', address],
+      );
+      await clientLogins.idle();
+      const message = lastMail(address);
+      assert.match(message.text, /accept-login\?token=/);
+      const token = tokenIn(message);
+      assert.equal(token.length, 43);
+
+      // The page greets the client by name, and previewing does not use the link up.
+      const preview = await as()('POST', '/api/v1/auth/client-login/preview', { body: { token } });
+      assert.deepEqual(preview.json(), {
+        displayName: 'Tania Client',
+        channel: 'email',
+        locale: 'en',
+      });
+
+      // The terms must be accepted, and the password must be a real one.
+      const accept = (over: Record<string, unknown> = {}) =>
+        as()('POST', '/api/v1/auth/client-login/accept', {
+          body: { token, password, acceptTerms: true, acceptPrivacy: true, ...over },
+        });
+      assert.equal((await accept({ acceptTerms: false })).statusCode, 400);
+      assert.equal((await accept({ password: '12345' })).statusCode, 400);
+
+      const accepted = await accept();
+      assert.equal(accepted.statusCode, 200);
+      assert.match(
+        [accepted.headers['set-cookie']].flat().join(';'),
+        /matrimony-session=[A-Za-z0-9_-]{43}/,
+      );
+      const me = await as()('GET', '/api/v1/me', { token: accepted.json().accessToken });
+      assert.equal(me.json().role, 'member');
+      assert.equal(me.json().displayName, 'Tania Client');
+
+      // The account is the profile's owner; the profile stays an assisted one with the same agent.
+      const stored = await owner.query(
+        `SELECT owner_account_id, service_mode, assigned_agent_id FROM matrimony.member_profiles WHERE agency_id=$1 AND id=$2`,
+        [agency, profileId],
+      );
+      assert.equal(stored.rows[0].owner_account_id, me.json().id);
+      assert.equal(stored.rows[0].service_mode, 'assisted');
+      assert.equal(stored.rows[0].assigned_agent_id, agent);
+      // What was agreed to is on record.
+      const consents = await owner.query(
+        `SELECT purpose FROM matrimony.consent_events WHERE agency_id=$1 AND account_id=$2 ORDER BY purpose`,
+        [agency, me.json().id],
+      );
+      assert.deepEqual(
+        consents.rows.map((r) => r.purpose),
+        ['privacy', 'terms'],
+      );
+      // The password works for signing in again.
+      const again = await as()('POST', '/api/v1/auth/login', {
+        body: { email: address, password },
+      });
+      assert.equal(again.statusCode, 200);
+
+      // The link works once, and the client now has a login.
+      assert.equal((await accept()).statusCode, 400);
+      const after = await asStaff(agentToken, 'GET', url);
+      assert.deepEqual(
+        [after.json().state, after.json().canGrant, after.json().accountName],
+        ['active', false, 'Tania Client'],
+      );
+      const second = await asStaff(agentToken, 'POST', url, {
+        channel: 'email',
+        email: email('again'),
+        locale: 'en',
+      });
+      assert.equal(second.statusCode, 409);
+    },
+  );
+
+  await t.test(
+    'a link by text message, sent again and cancelled, and an address in use',
+    async () => {
+      const agent = await account('agent', 'sms-agent');
+      const agentToken = await signIn('sms-agent');
+      const profileId = await assistedClient('Sms Client', agent);
+      const url = `/api/v1/staff/clients/${profileId}/login`;
+      const phone = '+8801711' + String(Math.floor(Math.random() * 900000) + 100000);
+      const tokenOf = (text: string) => /token=([A-Za-z0-9_-]{43})/.exec(text)?.[1] ?? '';
+
+      const first = await asStaff(agentToken, 'POST', url, { channel: 'sms', phone, locale: 'bn' });
+      assert.equal(first.statusCode, 201);
+      await clientLogins.idle();
+      const firstToken = tokenOf(texts.at(-1)!.text);
+      assert.equal(texts.at(-1)!.to, phone);
+      assert.ok(firstToken);
+
+      // Sending again replaces the link: the earlier one stops working.
+      await asStaff(agentToken, 'POST', url, { channel: 'sms', phone, locale: 'bn' });
+      await clientLogins.idle();
+      const secondToken = tokenOf(texts.at(-1)!.text);
+      assert.notEqual(secondToken, firstToken);
+      const old = await as()('POST', '/api/v1/auth/client-login/preview', {
+        body: { token: firstToken },
+      });
+      assert.equal(old.statusCode, 400);
+
+      // Cancelling takes the link away.
+      assert.equal((await asStaff(agentToken, 'DELETE', url)).statusCode, 204);
+      const gone = await as()('POST', '/api/v1/auth/client-login/preview', {
+        body: { token: secondToken },
+      });
+      assert.equal(gone.statusCode, 400);
+      assert.equal((await asStaff(agentToken, 'DELETE', url)).statusCode, 404);
+
+      // An address that another account already uses is refused when the link is opened.
+      await account('member', 'taken-address');
+      const taken = email('taken-address');
+      const second = await asStaff(agentToken, 'POST', url, {
+        channel: 'email',
+        email: taken,
+        locale: 'en',
+      });
+      assert.equal(second.statusCode, 201);
+      await clientLogins.idle();
+      const refused = await as()('POST', '/api/v1/auth/client-login/accept', {
+        body: { token: tokenIn(lastMail(taken)), password, acceptTerms: true, acceptPrivacy: true },
+      });
+      assert.equal(refused.statusCode, 409);
+      assert.equal(refused.json().error.code, 'ADDRESS_IN_USE');
+      // Nothing was attached: the client still has no login.
+      const still = await asStaff(agentToken, 'GET', url);
+      assert.equal(still.json().state, 'invited');
+    },
+  );
+
+  await t.test(
+    'only a client the agency runs, and with no account, can be given a login',
+    async () => {
+      await account('admin', 'logins-boss');
+      const bossToken = await signIn('logins-boss');
+      const member = await account('member', 'logins-member');
+      const ownProfile = randomUUID();
+      await owner.query(
+        `INSERT INTO matrimony.member_profiles
+         (agency_id, id, member_code, owner_account_id, created_by_account_id, service_mode, status, full_name)
+       VALUES ($1, $2, $3, $4, $4, 'self_service', 'active', 'Runs Own')`,
+        [agency, ownProfile, `M${Math.floor(Math.random() * 9_000_000) + 1_000_000}`, member],
+      );
+      const url = `/api/v1/staff/clients/${ownProfile}/login`;
+      const status = await asStaff(bossToken, 'GET', url);
+      assert.deepEqual([status.json().state, status.json().canGrant], ['active', false]);
+      const refused = await asStaff(bossToken, 'POST', url, {
+        channel: 'email',
+        email: email('own'),
+        locale: 'en',
+      });
+      assert.equal(refused.statusCode, 409);
+      // A member cannot give anyone a login.
+      const memberToken = await signIn('logins-member');
+      const byMember = await asStaff(memberToken, 'POST', url, {
+        channel: 'email',
+        email: email('x'),
+        locale: 'en',
+      });
+      assert.equal(byMember.statusCode, 403);
+    },
+  );
 
   await t.test(
     'the application role cannot delete invitations or change who they are for',

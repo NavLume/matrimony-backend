@@ -301,3 +301,34 @@ Decided by the owner on 13 October 2026, after the list of what the meeting deci
   admin is no longer an active admin, in the same transaction as the account. Never for the person who
   joined. This is the first inbox line that is not about a profile, so `about` and `forProfileId` of a
   notification can now be null, and `staff` carries `{ name, role }` for these lines.
+
+## A client's own login (built 14 October 2026, in review)
+
+Decided by the owner on 14 October 2026. A client the agency runs, who has no account, can be given a login.
+
+**How it works**
+
+- On the client's page an admin, or the agent who looks after the client, clicks **Give this client a login**,
+  chooses text message or email, and enters the number or address (the number on the profile is filled in).
+- The client gets a one-time link, valid for 7 days (`client_logins`, migration 025; only a hash of the secret is
+  stored; one open link per client, sending again replaces it, the agent can cancel it).
+- The client opens it (`/accept-login?token=`), sees their name, chooses **their own password** and accepts the
+  terms and the privacy policy. The agent never sees the password. The account is created then, as a member,
+  verified, with the address the link reached; the consents are recorded; the account becomes the **owner** of
+  the existing profile, which stays `assisted` with the same agent.
+- The client then signs in like any member: dashboard, My profile (every edit is reviewed, as for any member),
+  matches, connections, inbox.
+
+**Rules**
+
+- Only a client with no account can be given one; a profile that has an owner is refused (`CLIENT_HAS_LOGIN`).
+  An address that another account uses is refused when the link is opened (`ADDRESS_IN_USE`) and the link stays out.
+- Text messages work where a sender is set up (development: the console); otherwise only email is offered
+  (`SMS_NOT_AVAILABLE`).
+- Limits: 30 links per staff member per hour and 3 per address per hour.
+- Events: `client.login_invited`, `client.login_accepted`, `client.login_revoked`.
+
+**Deliberately not in this release** (kept in `suggested-features.md`): the "Client only" mode, the "Done for you"
+list and notices to the client, withdrawing an account that exists, and who answers requests for a client with a
+login (today a request to a client the agency runs still goes to the agent, as before; the client sees it in
+Connections and can answer it too).

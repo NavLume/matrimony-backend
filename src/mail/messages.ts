@@ -206,3 +206,35 @@ export function staffInvitationEmail(
         ].join('\n'),
       };
 }
+
+/** The link that opens a client's own login, sent to the address the agent entered. The days match CLIENT_LOGIN_DAYS. */
+export function clientLoginEmail(context: Context & { name: string; link: string }): MailMessage {
+  const { to, locale, agencyName, name, link } = context;
+  return locale === 'bn'
+    ? {
+        to,
+        subject: `${agencyName}: আপনার নিজের লগইন`,
+        text: [
+          `প্রিয় ${name},`,
+          '',
+          `${agencyName} আপনার জন্য একটি লগইন তৈরি করেছে, যাতে আপনি নিজে আপনার মিল ও অনুরোধ দেখতে পারেন। পাসওয়ার্ড ঠিক করতে নিচের লিংকটি খুলুন। লিংকটি ৭ দিন কাজ করবে এবং একবারই ব্যবহার করা যাবে।`,
+          '',
+          link,
+          '',
+          'আপনি এটি আশা না করে থাকলে এই ইমেইলটি উপেক্ষা করুন। কোনো অ্যাকাউন্ট তৈরি হবে না।',
+        ].join('\n'),
+      }
+    : {
+        to,
+        subject: `${agencyName}: your own login`,
+        text: [
+          `Dear ${name},`,
+          '',
+          `${agencyName} has set up a login for you, so you can see your matches and requests yourself. Open the link below to choose your password. It works for 7 days and only once.`,
+          '',
+          link,
+          '',
+          'If you did not expect this, ignore this email. No account will be created.',
+        ].join('\n'),
+      };
+}
