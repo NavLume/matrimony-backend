@@ -309,6 +309,6 @@ export async function buildApp(deps: AppDependencies) {
         return reply.code(202).send(result);
       },
     );
-  registerDeviceAuthController(app, deps.auth, deps.phone);
+  registerDeviceAuthController(app, deps.auth, deps.phone, deps.access);
   return app;
 }

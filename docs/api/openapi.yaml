@@ -211,7 +211,6 @@ paths:
                   expiresIn: { type: integer }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
-        '409': { description: Another renewal is running (`REFRESH_UNAVAILABLE`), or the number has no account (`REGISTRATION_REQUIRED`). }
 
   /api/v1/auth/device/logout:
     post:
@@ -253,8 +252,8 @@ paths:
       tags: [Mobile app]
       summary: Sign in from the mobile app with a phone code
       description: |
-        Same checks as `/auth/phone/verify`. A number with no account answers 409
-        `REGISTRATION_REQUIRED`: registering inside the app is a later step.
+        Same checks as `/auth/phone/verify`. A number with no account answers 202 with a
+        `signupToken` (valid 10 minutes) to finish with `/auth/device/phone/signup`.
       requestBody:
         required: true
         content:
@@ -272,6 +271,16 @@ paths:
                   accessToken: { type: string }
                   refreshToken: { type: string, description: Keep in the phone's secure storage. Changes on every renewal. }
                   expiresIn: { type: integer }
+        '202':
+          description: The number has no account yet; nothing is created until the signup step.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, signupToken]
+                properties:
+                  status: { type: string, const: signup_required }
+                  signupToken: { type: string }
         '400': { $ref: '#/components/responses/Error400' }
         '403': { $ref: '#/components/responses/Error403' }
         '409': { description: Another renewal is running (`REFRESH_UNAVAILABLE`), or the number has no account (`REGISTRATION_REQUIRED`). }
@@ -313,6 +322,78 @@ paths:
         '403': { $ref: '#/components/responses/Error403' }
         '409': { description: The account has no password (`PASSWORD_REQUIRED`) or cannot be deleted now (`DELETION_NOT_POSSIBLE`). }
         '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/device/register:
+    post:
+      tags: [Mobile app]
+      summary: Start registering by email, from the mobile app
+      description: |
+        Same as `/auth/register` (same body, limits and answers) without the Origin requirement.
+        The emailed link opens the website's confirm page, which finishes the step there; the person
+        then signs in to the app.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterInput' }
+      responses:
+        '202': { description: A link was emailed (or would have been). }
+        '400': { $ref: '#/components/responses/Error400' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/device/password/forgot:
+    post:
+      tags: [Mobile app]
+      summary: Ask for a password reset link, from the mobile app
+      description: Same as `/auth/password/forgot` without the Origin requirement. The link opens the website's reset page.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email: { type: string }
+      responses:
+        '202': { description: Always, whether or not the address has an account. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/device/phone/signup:
+    post:
+      tags: [Mobile app]
+      summary: Finish registering by phone, from the mobile app
+      description: |
+        Same as `/auth/phone/signup` with the `signupToken` from `/auth/device/phone/verify` in the
+        body in place of the cookie. Creates the member and signs in like `/auth/device/login`.
+        400 `LINK_INVALID_OR_EXPIRED` when the token is used or expired.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/PhoneSignupInput' }
+                - type: object
+                  required: [signupToken]
+                  properties:
+                    signupToken: { type: string }
+      responses:
+        '200':
+          description: Registered and signed in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, refreshToken, expiresIn]
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+                  expiresIn: { type: integer }
+        '400': { $ref: '#/components/responses/Error400' }
+        '409': { description: An account for the number appeared meanwhile (`PHONE_RETRY`). }
 
   /api/v1/auth/register:
     post:
