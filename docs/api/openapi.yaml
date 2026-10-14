@@ -395,6 +395,50 @@ paths:
         '400': { $ref: '#/components/responses/Error400' }
         '409': { description: An account for the number appeared meanwhile (`PHONE_RETRY`). }
 
+  /api/v1/me/push-devices:
+    post:
+      tags: [Mobile app]
+      summary: Register this phone for push notifications
+      description: |
+        Bearer token, any signed-in account, 30 per 10 minutes. Call after sign-in with the token from
+        the phone's push service. A token seen again moves to the account that registered it last. The
+        push text is generic and names only the kind of event; the app reads the real line from the
+        inbox. Nothing is sent unless the backend has a push sender configured (`PUSH_DRIVER`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, token]
+              additionalProperties: false
+              properties:
+                platform: { type: string, enum: [ios, android] }
+                token: { type: string, minLength: 20, maxLength: 4096 }
+                locale: { type: string, enum: [bn, en], default: bn }
+      responses:
+        '204': { description: Registered. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+    delete:
+      tags: [Mobile app]
+      summary: Stop push notifications to this phone
+      description: Bearer token. Call on sign-out or when the person turns notifications off. Always 204.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              additionalProperties: false
+              properties:
+                token: { type: string }
+      responses:
+        '204': { description: Removed (or was not registered). }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+
   /api/v1/auth/register:
     post:
       tags: [Registration]

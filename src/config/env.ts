@@ -61,6 +61,10 @@ const schema = z
     // backend's terminal, for development only. Left out, phone sign-in is not offered. A real gateway
     // plugs into the SmsSender boundary; production refuses `console`.
     SMS_DRIVER: z.enum(['console']).optional(),
+    // How push notifications to the mobile app are sent. `console` prints each push in the terminal of
+    // the backend, for development only. Left out, phones may register but nothing is sent. A real
+    // gateway (Firebase Cloud Messaging) plugs into the PushSender boundary; production refuses `console`.
+    PUSH_DRIVER: z.enum(['console']).optional(),
     // The countries whose numbers may be sent a code, as calling codes without the plus. Every text
     // costs money and an open "send" button is a way to run up the bill, so only Bangladesh (880) is
     // on by default. Add a code (for example `880,971`) to let members living abroad register.
@@ -160,6 +164,12 @@ const schema = z
         message: 'Configure TLS with DB_SSL, not URL flags',
       });
     if (c.NODE_ENV === 'production') {
+      if (c.PUSH_DRIVER === 'console')
+        ctx.addIssue({
+          code: 'custom',
+          path: ['PUSH_DRIVER'],
+          message: 'Production needs a real push gateway, not the development console',
+        });
       if (c.SMS_DRIVER === 'console')
         ctx.addIssue({
           code: 'custom',

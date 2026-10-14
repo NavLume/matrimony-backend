@@ -30,6 +30,7 @@ import { registerClientController } from './client-controller.js';
 import { registerClientLoginController } from './client-login-controller.js';
 import type { ClientLoginProcess } from '../process/client-login-process.js';
 import type { AccountDeletionProcess } from '../process/account-deletion-process.js';
+import type { PushProcess } from '../process/push-process.js';
 import { registerMobileController } from './mobile-controller.js';
 import { registerDeviceAuthController } from './device-auth-controller.js';
 import type { MobileService } from '../service/mobile-service.js';
@@ -131,6 +132,8 @@ export interface AppDependencies {
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
   /** Undefined in tests that do not need it. */
   deletions?: Pick<AccountDeletionProcess, 'request'>;
+  /** Undefined in tests that do not need it. */
+  push?: Pick<PushProcess, 'register' | 'unregister'>;
   /** Undefined in tests that do not need it. */
   mobile?: Pick<MobileService, 'agencyByCode' | 'versionStatus'>;
   identities: Pick<IdentityService, 'tenant'>;
@@ -278,6 +281,40 @@ export async function buildApp(deps: AppDependencies) {
   registerStaffController(app, deps.invitations);
   if (deps.clientLogins) registerClientLoginController(app, deps.clientLogins, config);
   if (deps.mobile) registerMobileController(app, deps.mobile);
+  const pushDevices = deps.push;
+  if (pushDevices) {
+    const registration = z
+      .object({
+        platform: z.enum(['ios', 'android']),
+        token: z.string().min(20).max(4096),
+        locale: z.enum(['bn', 'en']).default('bn'),
+      })
+      .strict();
+    // A phone registers after signing in. Any signed-in account may, staff included.
+    app.post(
+      '/api/v1/me/push-devices',
+      { config: { rateLimit: { max: 30, timeWindow: 600000 } } },
+      async (req, reply) => {
+        await pushDevices.register(
+          { agencyId: req.tenant!.id, accountId: req.principal!.id },
+          registration.parse(req.body),
+        );
+        return reply.code(204).send();
+      },
+    );
+    // And removes itself when the person signs out or turns notifications off.
+    app.delete('/api/v1/me/push-devices', async (req, reply) => {
+      const { token } = z
+        .object({ token: z.string().min(20).max(4096) })
+        .strict()
+        .parse(req.body);
+      await pushDevices.unregister(
+        { agencyId: req.tenant!.id, accountId: req.principal!.id },
+        token,
+      );
+      return reply.code(204).send();
+    });
+  }
   const deletions = deps.deletions;
   if (deletions)
     // Members only. The password is asked again, and attempts share the sign-in pause.

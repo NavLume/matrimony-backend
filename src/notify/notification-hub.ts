@@ -36,6 +36,7 @@ export const MAX_STREAMS_PER_ACCOUNT = 5;
 export class NotificationHub {
   private client: ListenClient | null = null;
   private readonly listeners = new Map<string, Set<Listener>>();
+  private readonly everyone = new Set<Listener>();
   private stopped = false;
   private retry: NodeJS.Timeout | undefined;
   private pause = FIRST_RETRY_MS;
@@ -57,6 +58,14 @@ export class NotificationHub {
     this.client = null;
     await client?.end().catch(() => undefined);
     this.listeners.clear();
+  }
+
+  /**
+   * Calls `listener` for every line added for any account, whether or not anyone has a live stream
+   * open (push notifications use this). Not called when the connection is made again.
+   */
+  onAny(listener: Listener): void {
+    this.everyone.add(listener);
   }
 
   /** How many listeners an account has now. */
@@ -130,6 +139,7 @@ export class NotificationHub {
     for (const listener of this.listeners.get(key(signal.agencyId, signal.accountId)) ?? []) {
       this.call(listener, signal);
     }
+    for (const listener of this.everyone) this.call(listener, signal);
   }
 
   private broadcast() {

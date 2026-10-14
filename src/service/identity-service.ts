@@ -35,6 +35,12 @@ export class IdentityService {
     if (!tenant) throw new AppError(404, 'AGENCY_CODE_NOT_FOUND');
     return tenant;
   }
+  /** An agency by its id, for what runs without a request (the name in a push). */
+  async tenantById(agencyId: string) {
+    const tenant = await this.db.tenant(agencyId);
+    if (!tenant) throw new AppError(404, 'TENANT_NOT_FOUND');
+    return tenant;
+  }
   /** The active account with this id, read fresh so a disabled account or a changed role applies at once. */
   async account(agencyId: string, accountId: string) {
     const account = await this.db.account(agencyId, accountId);

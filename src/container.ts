@@ -21,6 +21,10 @@ import { CredentialService } from './service/credential-service.js';
 import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
 import { ClientLoginProcess } from './process/client-login-process.js';
+import { PushProcess } from './process/push-process.js';
+import { PushDbService } from './db/service/push-db-service.js';
+import { PushRepository } from './db/raw/repository/push-repository.js';
+import { ConsolePushSender } from './push/push-sender.js';
 import { AccountDeletionProcess } from './process/account-deletion-process.js';
 import { AccountDeletionDbService } from './db/service/account-deletion-db-service.js';
 import { AccountDeletionRepository } from './db/raw/repository/account-deletion-repository.js';
@@ -244,6 +248,16 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       new EventDbService(db, new EventRepository()),
       logger,
     );
+    // Push: phones may always register; a push is sent only where a sender is set up.
+    const pushDb = new PushDbService(db, new PushRepository());
+    const push = new PushProcess(
+      pushDb,
+      new ConsolePushSender((text) => process.stdout.write(`${text}\n`)),
+      async (agencyId) => (await identities.tenantById(agencyId)).name,
+      logger,
+    );
+    if (config.PUSH_DRIVER === 'console')
+      hub.onAny((signal) => void push.dispatch(signal.agencyId, signal.accountId));
     // Signing in again within the waiting time cancels a deletion.
     auth.afterSignIn = (agencyId, accountId) =>
       deletions.cancelOnSignIn(agencyId, accountId).catch(() => undefined);
@@ -258,6 +272,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       clientLogins,
       mobile: new MobileService(identities, config),
       deletions,
+      push,
       google,
       phone,
       registrations,
