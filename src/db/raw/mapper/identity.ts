@@ -13,5 +13,6 @@ export function mapTenant(value: unknown): Tenant {
     name: row.name,
     locale: row.default_locale,
     publicConfig: parsePublicConfig(row.public_config),
+    appCode: row.app_code ?? null,
   };
 }

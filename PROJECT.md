@@ -136,6 +136,16 @@ These are the file's "Required cross-cutting acceptance" items, plus launch work
 
 The owner wants each agency's admin to configure fields, visible data and payment options. It is **skipped for now**. Before any work: the friend must say whether "tenant-facing UI" in the launch file excludes an agency-admin settings screen, and whether launch can start with the platform owner configuring each agency. Phase 3 uses fixed field lists kept in one place so they can later become per-agency definitions.
 
+### Mobile app groundwork (started 14 October 2026)
+
+One app for every agency; the person types an agency code. Built so far, all additions beside the website:
+
+- `GET /api/v1/public/agency-by-code?code=` finds an agency by `agencies.app_code` (migration 026, 4 to 12 upper-case letters or digits, filled from the slug for existing agencies). It answers with the agency's public look and its `hostname`, which the app then uses for every other call. It needs no tenant host and is limited to 20 a minute. `IdentityService.byCode` reads each configured agency once a minute into memory.
+- `GET /api/v1/public/app-version?platform=&version=` answers `supported`, `updateAvailable`, `minimumVersion`, `latestVersion` and `storeUrl` from the `APP_MIN_VERSION_*`, `APP_LATEST_VERSION_*` and `APP_STORE_URL_*` settings (all optional; nothing set means every version is supported).
+- **App sign-in (14 October 2026):** `POST /api/v1/auth/device/login`, `/device/refresh`, `/device/logout`, `/device/phone/start`, `/device/phone/verify`. Same checks as the website's sign-in, no cookie, no Origin/CSRF; the answer carries a refresh token that changes on every use, and an old one ends the session. The session lasts `DEVICE_SESSION_TTL_SECONDS` (30 days). Code: `AuthProcess.toDevice/refreshDevice/logoutDevice`, `controller/device-auth-controller.ts`. Phone registration, the client's login link and the email link inside the app are not wired to it yet.
+- **Delete my account (14 October 2026):** `POST /api/v1/me/delete-account` (members, password asked again). Hides the profile and ends every session at once; signing in within 14 days cancels it; after that an hourly job (`scheduler/account-erasure-scheduler.ts`) calls the `erase_due_members` database function, which blanks the profile and account, removes contacts, preferences, credentials and notifications, marks photos and CVs removed and returns their file keys for deletion. The agency keeps a bare history. Done by SECURITY DEFINER functions (migrations 027 and 028) because the runtime role can never delete. Not built: a delete button on the website's account page, and the same for staff (an admin disables staff instead).
+- Not built yet: push notifications, links and QR codes that open the app, native Google sign-in. Plan and statuses: the "Mobile app" section of the frontend tracker.
+
 ### Where the live tracker is
 
 Two interactive tracker pages hold every feature's description, endpoints and a status with a note:

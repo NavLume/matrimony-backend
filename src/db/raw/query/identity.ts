@@ -1,6 +1,6 @@
 export const identityQueries = {
   tenant:
-    "SELECT id, hostname, name, default_locale, public_config FROM matrimony.agencies WHERE id = $1 AND status = 'active'",
+    "SELECT id, hostname, name, default_locale, public_config, app_code FROM matrimony.agencies WHERE id = $1 AND status = 'active'",
   // Looked up by the account id the access token names. The role is always read here, from the
   // database, and never taken from the token.
   account:

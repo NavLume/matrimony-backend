@@ -469,3 +469,64 @@ await test('a disabled account is not signed in by phone either', async () => {
     (error) => error instanceof AppError && error.code === 'ACCOUNT_NOT_ACTIVE',
   );
 });
+
+await test('an app session lasts weeks, renews with a token that changes every time, and ends on reuse', async () => {
+  const f = fixture();
+  const started = await f.auth.login(agency, login, 'req-1');
+  const device = await f.auth.toDevice(agency, started);
+  assert.match(device.refreshToken, /^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/);
+  const session = f.store.get(digest(started.sessionId))!;
+  // Weeks, not the 1 hour of a browser session in this fixture.
+  assert.ok(session.expiresAt - Date.now() / 1000 > 7 * 24 * 3600);
+  assert.equal((await f.auth.authenticate(agency, device.accessToken)).id, accountId);
+
+  const renewed = await f.auth.refreshDevice(agency, device.refreshToken, 'req-2');
+  assert.notEqual(renewed.refreshToken, device.refreshToken);
+  assert.equal((await f.auth.authenticate(agency, renewed.accessToken)).id, accountId);
+  // The old access token stops working once the session moved on to the new one.
+  await assert.rejects(
+    f.auth.authenticate(agency, device.accessToken),
+    code(401, 'SESSION_INVALID'),
+  );
+
+  // Presenting the already used token ends the whole session, so even the new one is dead.
+  await assert.rejects(
+    f.auth.refreshDevice(agency, device.refreshToken, 'req-3'),
+    code(401, 'SESSION_INVALID'),
+  );
+  await assert.rejects(
+    f.auth.refreshDevice(agency, renewed.refreshToken, 'req-4'),
+    code(401, 'SESSION_INVALID'),
+  );
+});
+
+await test('an app token is refused for another agency, when malformed, and after logout', async () => {
+  const f = fixture();
+  const device = await f.auth.toDevice(agency, await f.auth.login(agency, login, 'req-1'));
+  await assert.rejects(
+    f.auth.refreshDevice(otherAgency, device.refreshToken, 'req-2'),
+    code(401, 'SESSION_INVALID'),
+  );
+  await assert.rejects(
+    f.auth.refreshDevice(agency, 'not-a-token', 'req-3'),
+    code(401, 'SESSION_INVALID'),
+  );
+  await f.auth.logoutDevice(otherAgency, device.refreshToken, 'req-4');
+  assert.equal(f.store.size, 1, 'another agency cannot end it');
+  await f.auth.logoutDevice(agency, device.refreshToken, 'req-5');
+  assert.equal(f.store.size, 0);
+  await assert.rejects(
+    f.auth.refreshDevice(agency, device.refreshToken, 'req-6'),
+    code(401, 'SESSION_INVALID'),
+  );
+});
+
+await test('a disabled account cannot renew an app session', async () => {
+  const f = fixture();
+  const device = await f.auth.toDevice(agency, await f.auth.login(agency, login, 'req-1'));
+  f.disableAccount();
+  await assert.rejects(
+    f.auth.refreshDevice(agency, device.refreshToken, 'req-2'),
+    code(403, 'ACCOUNT_NOT_ACTIVE'),
+  );
+});

@@ -12,4 +12,6 @@ export interface Tenant {
   name: string;
   locale: string;
   publicConfig: PublicConfig;
+  /** The short code a person types in the mobile app to reach this agency. */
+  appCode?: string | null;
 }

@@ -4,6 +4,7 @@ import { parseSigningKey } from '../security/access-token.js';
 const integer = (value: number, min = 1, max = 65535) =>
   z.coerce.number().int().min(min).max(max).default(value);
 const url = z.string().url();
+const appVersion = z.string().regex(/^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/);
 const tenantMap = z
   .string()
   .transform((value, ctx) => {
@@ -72,8 +73,19 @@ const schema = z
     // each agency's exact callback address (https://<host>/api/v1/auth/google/callback) with Google.
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    // The mobile app's version rules, per platform (`major.minor.patch`). An app older than the minimum
+    // is told to update; the latest is only a hint. The store addresses are where the update screen sends
+    // people. Left out, every version is allowed.
+    APP_MIN_VERSION_IOS: appVersion.default('0.0.0'),
+    APP_MIN_VERSION_ANDROID: appVersion.default('0.0.0'),
+    APP_LATEST_VERSION_IOS: appVersion.optional(),
+    APP_LATEST_VERSION_ANDROID: appVersion.optional(),
+    APP_STORE_URL_IOS: url.optional(),
+    APP_STORE_URL_ANDROID: url.optional(),
     SESSION_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
     SESSION_TTL_SECONDS: integer(28800, 300, 86400),
+    // How long a mobile app stays signed in without signing in again (default 30 days).
+    DEVICE_SESSION_TTL_SECONDS: integer(2592000, 3600, 7776000),
     WORKER_POLL_MS: integer(1000, 100),
     EVENT_MAX_ATTEMPTS: integer(12, 1, 100),
     // Where uploaded files (member photos) are kept. `local` is for development; `s3` works with

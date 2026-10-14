@@ -3,7 +3,7 @@ import Fastify, { type FastifyBaseLogger } from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { AppConfig } from '../config/env.js';
@@ -29,6 +29,10 @@ import { registerReviewController } from './review-controller.js';
 import { registerClientController } from './client-controller.js';
 import { registerClientLoginController } from './client-login-controller.js';
 import type { ClientLoginProcess } from '../process/client-login-process.js';
+import type { AccountDeletionProcess } from '../process/account-deletion-process.js';
+import { registerMobileController } from './mobile-controller.js';
+import { registerDeviceAuthController } from './device-auth-controller.js';
+import type { MobileService } from '../service/mobile-service.js';
 import { registerCandidateController } from './candidate-controller.js';
 import { registerMatchController } from './match-controller.js';
 import { registerConnectionController } from './connection-controller.js';
@@ -86,7 +90,17 @@ export interface AppDependencies {
   config: AppConfig;
   logger: Logger;
   redis: Redis;
-  auth: Pick<AuthProcess, 'login' | 'bootstrap' | 'authenticate' | 'refresh' | 'logout'>;
+  auth: Pick<
+    AuthProcess,
+    | 'login'
+    | 'bootstrap'
+    | 'authenticate'
+    | 'refresh'
+    | 'logout'
+    | 'toDevice'
+    | 'refreshDevice'
+    | 'logoutDevice'
+  >;
   /** Undefined when Google sign-in is not configured. */
   google?: Pick<
     GoogleAuthProcess,
@@ -115,6 +129,10 @@ export interface AppDependencies {
   >;
   /** Undefined in tests that do not need it. */
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
+  /** Undefined in tests that do not need it. */
+  deletions?: Pick<AccountDeletionProcess, 'request'>;
+  /** Undefined in tests that do not need it. */
+  mobile?: Pick<MobileService, 'agencyByCode' | 'versionStatus'>;
   identities: Pick<IdentityService, 'tenant'>;
   photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image'>;
   /** Live notifications: who to hear about and the unread count to send. */
@@ -259,5 +277,38 @@ export async function buildApp(deps: AppDependencies) {
   registerNotificationStream(app, deps.live);
   registerStaffController(app, deps.invitations);
   if (deps.clientLogins) registerClientLoginController(app, deps.clientLogins, config);
+  if (deps.mobile) registerMobileController(app, deps.mobile);
+  const deletions = deps.deletions;
+  if (deletions)
+    // Members only. The password is asked again, and attempts share the sign-in pause.
+    app.post(
+      '/api/v1/me/delete-account',
+      {
+        config: { roles: ['member'], rateLimit: { max: 5, timeWindow: 600000 } },
+        schema: {
+          response: {
+            202: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['scheduledFor'],
+              properties: { scheduledFor: { type: 'string' } },
+            },
+          },
+        },
+      },
+      async (req, reply) => {
+        const { password } = z
+          .object({ password: z.string().min(1).max(1024) })
+          .strict()
+          .parse(req.body);
+        const result = await deletions.request(
+          { agencyId: req.tenant!.id, accountId: req.principal!.id },
+          password,
+          req.id,
+        );
+        return reply.code(202).send(result);
+      },
+    );
+  registerDeviceAuthController(app, deps.auth, deps.phone);
   return app;
 }

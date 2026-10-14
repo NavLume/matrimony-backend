@@ -11,4 +11,5 @@ export const tenantRow = z.object({
   name: z.string(),
   default_locale: z.string(),
   public_config: z.record(z.string(), z.unknown()),
+  app_code: z.string().nullable().optional(),
 });

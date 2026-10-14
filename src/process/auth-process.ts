@@ -22,7 +22,13 @@ export interface SessionOptions {
   accessTtl: number;
   /** Sessions kept per account; the oldest are ended beyond this. */
   maxSessions: number;
+  /** How long a mobile app's session lasts in total. A phone stays signed in for weeks. */
+  deviceSessionTtl?: number;
 }
+
+const DEVICE_SESSION_DEFAULT_SECONDS = 30 * 24 * 3600;
+/** A mobile app's long-lived token: the session id and the secret that renews it. */
+export const deviceTokenPattern = /^([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})$/;
 
 const secret = () => randomBytes(32).toString('base64url');
 
@@ -47,6 +53,9 @@ export class AuthProcess {
     private readonly events: Pick<EventDbService, 'record'>,
     private readonly options: SessionOptions,
   ) {}
+
+  /** Set once at start-up: what else happens when someone signs in (cancelling a deletion). */
+  afterSignIn?: (agencyId: string, accountId: string) => Promise<void>;
 
   /**
    * Checks an email and password and starts a session. After five wrong passwords for the same
@@ -119,6 +128,8 @@ export class AuthProcess {
       expiresAt: Math.floor(Date.now() / 1000) + this.options.sessionTtl,
     };
     await this.audit('auth.login', session, correlationId);
+    // A person who asked to delete their account and signs in again has changed their mind.
+    await this.afterSignIn?.(agencyId, account.id);
     await this.sessions.put(key, session, this.remaining(token.expiresAt));
     await this.sessions.limit(account.id, this.options.maxSessions);
     return {
@@ -189,6 +200,80 @@ export class AuthProcess {
       throw new AppError(403, 'CSRF_INVALID');
     await this.sessions.remove(key);
     // Local logout stays effective even if auditing fails.
+    await this.audit('auth.logout', session, correlationId);
+  }
+
+  /**
+   * Turns a session that was just started (by a password, a phone code, anything) into a mobile
+   * app's. The app has no cookie, so the answer carries a refresh token instead (the session id and
+   * the secret that renews it), and the session lasts weeks, not hours. Nothing about how the
+   * person proved who they are changes.
+   */
+  async toDevice(
+    agencyId: string,
+    started: { sessionId: string; accessToken: string; expiresIn: number },
+  ) {
+    const key = digest(started.sessionId);
+    const session = await this.sessions.get(key);
+    if (!session || session.agencyId !== agencyId) throw new AppError(401, 'SESSION_INVALID');
+    const ttl = this.options.deviceSessionTtl ?? DEVICE_SESSION_DEFAULT_SECONDS;
+    session.expiresAt = Math.floor(Date.now() / 1000) + ttl;
+    await this.sessions.put(key, session, started.expiresIn);
+    return {
+      accessToken: started.accessToken,
+      refreshToken: `${started.sessionId}.${session.csrf}`,
+      expiresIn: started.expiresIn,
+    };
+  }
+
+  /**
+   * Renews an app's access token. The refresh token changes on every use. One that was already used
+   * ends the whole session, because only a copy of it can be presented twice.
+   */
+  async refreshDevice(agencyId: string, refreshToken: string, correlationId: string) {
+    const match = deviceTokenPattern.exec(refreshToken);
+    if (!match) throw new AppError(401, 'SESSION_INVALID');
+    const [, id, csrf] = match as unknown as [string, string, string];
+    const key = digest(id);
+    const claim = secret();
+    const session = await this.sessions.claim(key, csrf, agencyId, claim);
+    if (!session) {
+      const current = await this.sessions.get(key);
+      if (current && current.agencyId === agencyId && !current.claim) {
+        await this.sessions.remove(key);
+        throw new AppError(401, 'SESSION_INVALID');
+      }
+      if (current?.claim) throw new AppError(409, 'REFRESH_UNAVAILABLE');
+      throw new AppError(401, 'SESSION_INVALID');
+    }
+    try {
+      if (session.expiresAt <= Date.now() / 1000) throw new AppError(401, 'SESSION_EXPIRED');
+      await this.identities.account(agencyId, session.accountId);
+      const token = await this.accessTokens.issue(session.accountId, this.options.accessTtl);
+      const next: Session = { ...session, accessHash: digest(token.token), csrf: secret() };
+      delete next.claim;
+      await this.audit('auth.refresh', next, correlationId);
+      if (!(await this.sessions.finalize(key, claim, next, this.remaining(token.expiresAt))))
+        throw new AppError(401, 'SESSION_INVALID');
+      return {
+        accessToken: token.token,
+        refreshToken: `${id}.${next.csrf}`,
+        expiresIn: this.remaining(token.expiresAt),
+      };
+    } catch (error) {
+      await this.sessions.remove(key);
+      throw error;
+    }
+  }
+
+  /** Ends an app's session at once. A token that is out of date or wrong does nothing. */
+  async logoutDevice(agencyId: string, refreshToken: string, correlationId: string) {
+    const match = deviceTokenPattern.exec(refreshToken);
+    if (!match) return;
+    const key = digest(match[1]!);
+    const session = await this.sessions.get(key);
+    if (!session || session.agencyId !== agencyId || session.csrf !== match[2]) return;
+    await this.sessions.remove(key);
     await this.audit('auth.logout', session, correlationId);
   }
 

@@ -6,6 +6,7 @@ import { IdentityDbService } from './db/service/identity-db-service.js';
 import { EventRepository } from './db/raw/repository/event-repository.js';
 import { EventDbService } from './db/service/event-db-service.js';
 import { IdentityService } from './service/identity-service.js';
+import { MobileService } from './service/mobile-service.js';
 import { createRedis } from './cache/config/redis.js';
 import { SessionRepository } from './cache/repository/session-repository.js';
 import { AccessTokens, parseSigningKey } from './security/access-token.js';
@@ -20,6 +21,9 @@ import { CredentialService } from './service/credential-service.js';
 import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
 import { ClientLoginProcess } from './process/client-login-process.js';
+import { AccountDeletionProcess } from './process/account-deletion-process.js';
+import { AccountDeletionDbService } from './db/service/account-deletion-db-service.js';
+import { AccountDeletionRepository } from './db/raw/repository/account-deletion-repository.js';
 import { ClientLoginService } from './service/client-login-service.js';
 import { ClientLoginDbService } from './db/service/client-login-db-service.js';
 import { ClientLoginRepository } from './db/raw/repository/client-login-repository.js';
@@ -140,6 +144,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         sessionTtl: config.SESSION_TTL_SECONDS,
         accessTtl: config.ACCESS_TOKEN_TTL_SECONDS,
         maxSessions: config.MAX_SESSIONS_PER_ACCOUNT,
+        deviceSessionTtl: config.DEVICE_SESSION_TTL_SECONDS,
       },
     );
     const registrations = new RegistrationService(
@@ -231,6 +236,17 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
           )
         : undefined;
     await hub.start();
+    const deletions = new AccountDeletionProcess(
+      new AccountDeletionDbService(db, new AccountDeletionRepository()),
+      auth,
+      sessions,
+      storage,
+      new EventDbService(db, new EventRepository()),
+      logger,
+    );
+    // Signing in again within the waiting time cancels a deletion.
+    auth.afterSignIn = (agencyId, accountId) =>
+      deletions.cancelOnSignIn(agencyId, accountId).catch(() => undefined);
     return {
       config,
       logger,
@@ -240,6 +256,8 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       access,
       invitations,
       clientLogins,
+      mobile: new MobileService(identities, config),
+      deletions,
       google,
       phone,
       registrations,

@@ -147,6 +147,9 @@ export const unusedAccess = {
 };
 export const authFor = (authenticate: (agencyId: string, token: string) => Promise<Account>) => ({
   authenticate,
+  toDevice: unused,
+  refreshDevice: unused,
+  logoutDevice: unused,
   login: unused,
   bootstrap: unused,
   refresh: unused,

@@ -88,6 +88,232 @@ paths:
         '400': { $ref: '#/components/responses/Error400' }
         '404': { $ref: '#/components/responses/TenantNotFound' }
 
+  /api/v1/public/agency-by-code:
+    get:
+      tags: [Mobile app]
+      summary: Find an agency by the short code typed in the mobile app
+      description: |
+        Public, no agency hostname needed, 20 per minute per client address. The code is 4 to 12
+        letters or digits, in either case. The answer gives the agency's public look and the
+        `hostname` the app then uses for every other request (the agency is chosen by hostname,
+        as on the website). The internal agency id is never given out.
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string, pattern: '^[A-Za-z0-9]{4,12}$' } }
+      responses:
+        '200':
+          description: The agency that has this code.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, hostname, name, locale, content]
+                properties:
+                  code: { type: string, example: MSBD }
+                  hostname: { type: string, example: msbd.example.com }
+                  name: { type: string }
+                  locale: { type: string, enum: [bn, en] }
+                  content: { type: object, description: Same public content as /public/tenant. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '404':
+          description: No agency has this code (`AGENCY_CODE_NOT_FOUND`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/public/app-version:
+    get:
+      tags: [Mobile app]
+      summary: Whether this version of the mobile app may still be used
+      description: |
+        Public, no agency hostname needed. The minimum and latest versions and the store
+        addresses are set per platform in the backend's configuration. With nothing set every
+        version is supported.
+      parameters:
+        - { name: platform, in: query, required: true, schema: { type: string, enum: [ios, android] } }
+        - { name: version, in: query, required: true, schema: { type: string, pattern: '^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$' }, description: major.minor.patch }
+      responses:
+        '200':
+          description: The rule for this platform and version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [supported, updateAvailable, minimumVersion, latestVersion, storeUrl]
+                properties:
+                  supported: { type: boolean, description: false means the app must be updated before use. }
+                  updateAvailable: { type: boolean }
+                  minimumVersion: { type: string }
+                  latestVersion: { type: [string, 'null'] }
+                  storeUrl: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Error400' }
+
+  /api/v1/auth/device/login:
+    post:
+      tags: [Mobile app]
+      summary: Sign in from the mobile app with an email or phone number and a password
+      description: |
+        Public, 10 per minute per client address. The same checks, pause and answers as
+        `/auth/login`, but no cookie is set and no Origin or CSRF header is needed. The answer
+        carries a refresh token, and the session lasts `DEVICE_SESSION_TTL_SECONDS` (30 days by
+        default). Send the request to the agency's `hostname` (see `/public/agency-by-code`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, refreshToken, expiresIn]
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string, description: Keep in the phone's secure storage. Changes on every renewal. }
+                  expiresIn: { type: integer }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/device/refresh:
+    post:
+      tags: [Mobile app]
+      summary: Renew the app's access token
+      description: |
+        Public, 10 per minute. Returns a new access token and a new refresh token; the old refresh
+        token stops working. Presenting one that was already used ends the whole session (401
+        `SESSION_INVALID`), because only a copy of it can be presented twice. 409
+        `REFRESH_UNAVAILABLE` means another renewal is running; try again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              additionalProperties: false
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: Renewed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, refreshToken, expiresIn]
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string, description: Keep in the phone's secure storage. Changes on every renewal. }
+                  expiresIn: { type: integer }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '409': { description: Another renewal is running (`REFRESH_UNAVAILABLE`), or the number has no account (`REGISTRATION_REQUIRED`). }
+
+  /api/v1/auth/device/logout:
+    post:
+      tags: [Mobile app]
+      summary: Sign out of the mobile app
+      description: Public. Ends the session at once. A token that is wrong or already out of date does nothing and is not an error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              additionalProperties: false
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '204': { description: Signed out. }
+        '400': { $ref: '#/components/responses/Error400' }
+
+  /api/v1/auth/device/phone/start:
+    post:
+      tags: [Mobile app]
+      summary: Send a sign-in code to a phone number, from the mobile app
+      description: Same as `/auth/phone/start` (same limits and answers) without the Origin requirement.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhoneStartInput' }
+      responses:
+        '202': { description: A code was sent (or would have been). }
+        '400': { $ref: '#/components/responses/Error400' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/device/phone/verify:
+    post:
+      tags: [Mobile app]
+      summary: Sign in from the mobile app with a phone code
+      description: |
+        Same checks as `/auth/phone/verify`. A number with no account answers 409
+        `REGISTRATION_REQUIRED`: registering inside the app is a later step.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhoneVerifyInput' }
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, refreshToken, expiresIn]
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string, description: Keep in the phone's secure storage. Changes on every renewal. }
+                  expiresIn: { type: integer }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409': { description: Another renewal is running (`REFRESH_UNAVAILABLE`), or the number has no account (`REGISTRATION_REQUIRED`). }
+
+  /api/v1/me/delete-account:
+    post:
+      tags: [Account]
+      summary: Delete my account (members only)
+      description: |
+        Bearer token, members only, 5 per 10 minutes. The password is asked again (wrong ones count
+        toward the sign-in pause). The profile is hidden at once, open requests are withdrawn and
+        every session ends. The person has 14 days to change their mind: signing in again cancels
+        the deletion. After that everything personal is erased (name, details, contacts, photos,
+        CV, email, phone, password) and a bare history stays (member code, dates, status history,
+        who approved what, that connections happened). 409 `PASSWORD_REQUIRED` for an account that
+        has no password (a Google-only member sets one with the forgot-password link first).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              additionalProperties: false
+              properties:
+                password: { type: string }
+      responses:
+        '202':
+          description: Deletion scheduled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scheduledFor]
+                properties:
+                  scheduledFor: { type: string, format: date-time, description: When everything is erased unless the person signs in again. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409': { description: The account has no password (`PASSWORD_REQUIRED`) or cannot be deleted now (`DELETION_NOT_POSSIBLE`). }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /api/v1/auth/register:
     post:
       tags: [Registration]

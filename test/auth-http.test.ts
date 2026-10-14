@@ -109,6 +109,13 @@ async function build(
       authenticate: async () => {
         throw new Error('unused');
       },
+      toDevice: async () => {
+        throw new Error('unused');
+      },
+      refreshDevice: async () => {
+        throw new Error('unused');
+      },
+      logoutDevice: async () => {},
       login: track('login', { sessionId, ...tokens }) as AppDependencies['auth']['login'],
       bootstrap: track('bootstrap', tokens) as AppDependencies['auth']['bootstrap'],
       refresh: track('refresh', tokens) as AppDependencies['auth']['refresh'],
