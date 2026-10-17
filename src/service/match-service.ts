@@ -99,9 +99,9 @@ export class MatchService {
 
   /** The full view of one profile, with where the connection with them stands. */
   async detail(actor: ProfileActor, candidateId: string): Promise<ProfileDetail> {
-    this.requireMember(actor);
+    this.requireMemberOrGuardian(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await unit.ownProfile(actor.agencyId, actor.accountId);
+      const own = await this.viewedProfile(unit, actor);
       if (!own || own.status !== 'active') throw new AppError(404, 'PROFILE_NOT_FOUND');
       const visible = await this.visibleFields(unit, actor.agencyId, own.id);
       const found = await unit.person(actor.agencyId, own.id, candidateId, visible, this.now());
@@ -120,9 +120,9 @@ export class MatchService {
 
   /** The storage key of a profile's photo, if staff allow the member to see photos and may look at it. */
   async photoKey(actor: ProfileActor, candidateId: string): Promise<{ storageKey: string }> {
-    this.requireMember(actor);
+    this.requireMemberOrGuardian(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await unit.ownProfile(actor.agencyId, actor.accountId);
+      const own = await this.viewedProfile(unit, actor);
       if (!own || own.status !== 'active') throw new AppError(404, 'PHOTO_NOT_FOUND');
       const visible = await this.visibleFields(unit, actor.agencyId, own.id);
       if (!visible.includes('photo')) throw new AppError(404, 'PHOTO_NOT_FOUND');
@@ -130,6 +130,18 @@ export class MatchService {
       if (!key) throw new AppError(404, 'PHOTO_NOT_FOUND');
       return { storageKey: key };
     });
+  }
+
+  /** The profile whose matches are read: the member's own, or the one a guardian looks after. */
+  private viewedProfile(unit: MatchUnit, actor: ProfileActor) {
+    return actor.role === 'guardian'
+      ? unit.guardedProfile(actor.agencyId, actor.accountId)
+      : unit.ownProfile(actor.agencyId, actor.accountId);
+  }
+
+  private requireMemberOrGuardian(actor: ProfileActor) {
+    if (actor.role !== 'member' && actor.role !== 'guardian')
+      throw new AppError(403, 'ROLE_FORBIDDEN');
   }
 
   private async visibleFields(

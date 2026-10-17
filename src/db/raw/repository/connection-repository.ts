@@ -1,6 +1,7 @@
 import type {
   ConnectionRecord,
   ConnectionStatus,
+  NotificationFilter,
   NotificationItem,
   NotificationKind,
   ProfileLite,
@@ -31,6 +32,14 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   review_decided: 'profile.review_decided',
   candidates_released: 'candidates.released',
   client_assigned: 'client.assigned',
+  chat_requested: 'chat.requested',
+  chat_accepted: 'chat.accepted',
+  chat_message: 'chat.message',
+  chat_reported: 'chat.reported',
+  chat_invited: 'chat.invited',
+  meeting_update: 'meeting.update',
+  guardian_request: 'guardian.requested',
+  guardian_advice: 'guardian.advice',
 };
 const KIND_OF = Object.fromEntries(
   Object.entries(TEMPLATE_OF).map(([kind, template]) => [template, kind]),
@@ -172,6 +181,20 @@ export class ConnectionRepository {
   async reopen(tx: Transaction, agencyId: string, id: string): Promise<boolean> {
     const result = await tx.query(connectionQueries.reopen, [agencyId, id]);
     return result.rows.length > 0;
+  }
+
+  /** The account of the profile's active guardian, who is told about proposals too. */
+  async guardianAccount(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+  ): Promise<string | null> {
+    const result = await tx.query(
+      `SELECT account_id FROM matrimony.profile_guardians
+        WHERE agency_id = $1 AND profile_id = $2 AND status = 'active'`,
+      [agencyId, profileId],
+    );
+    return (result.rows[0]?.account_id as string | undefined) ?? null;
   }
 
   async admins(tx: Transaction, agencyId: string): Promise<string[]> {
@@ -329,6 +352,17 @@ export class ConnectionRepository {
     return result.rows.length;
   }
 
+  /** The two sides of an accepted connection become candidates of each other. */
+  async releaseBoth(
+    tx: Transaction,
+    agencyId: string,
+    a: string,
+    b: string,
+    actorId: string,
+  ): Promise<void> {
+    await tx.query(connectionQueries.releaseBoth, [agencyId, a, b, actorId]);
+  }
+
   /** One page of an account's inbox, newest first. Asks for one more than `limit`. */
   async notifications(
     tx: Transaction,
@@ -336,6 +370,7 @@ export class ConnectionRepository {
     accountId: string,
     showNames: boolean,
     page: { limit: number; after: Cursor | null },
+    filter: NotificationFilter,
   ): Promise<NotificationItem[]> {
     const result = await tx.query(connectionQueries.notifications, [
       agencyId,
@@ -344,6 +379,12 @@ export class ConnectionRepository {
       page.after?.id ?? null,
       page.limit + 1,
       showNames,
+      filter.kinds ? filter.kinds.map((kind) => TEMPLATE_OF[kind]) : null,
+      filter.read,
+      filter.from,
+      filter.to,
+      filter.text,
+      filter.client,
     ]);
     return result.rows.map((row) => ({
       id: row.id as string,
@@ -355,6 +396,7 @@ export class ConnectionRepository {
       what: (row.payload as { what?: string }).what ?? null,
       decision: (row.payload as { decision?: 'approved' | 'rejected' }).decision ?? null,
       count: (row.payload as { count?: number }).count ?? null,
+      chatId: (row.payload as { conversationId?: string }).conversationId ?? null,
       staff: staffOf(row.payload as { name?: string; role?: string }),
       forProfileId: (row.payload as { forProfileId?: string }).forProfileId ?? null,
       about: row.about_profile_id
@@ -386,6 +428,13 @@ export class ConnectionRepository {
         respondedAt: row.responded_at ? (row.responded_at as Date).toISOString() : null,
         clientShared: (sent ? row.from_shared_contact : row.to_shared_contact) === true,
         otherShared: (sent ? row.to_shared_contact : row.from_shared_contact) === true,
+        guardianAdvice: row.advice
+          ? {
+              advice: row.advice as 'supportive' | 'concerned',
+              note: (row.advice_note as string | null) ?? null,
+              at: (row.advice_at as Date).toISOString(),
+            }
+          : null,
         other: {
           profileId: row.id as string,
           memberCode: row.member_code as string,

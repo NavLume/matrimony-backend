@@ -29,6 +29,8 @@ export class AccountDeletionProcess {
     private readonly storage: Pick<FileStorage, 'delete'>,
     private readonly events: Pick<EventDbService, 'record'>,
     private readonly logger: Logger,
+    /** Conversations of an erased account end and their messages go with it. */
+    private readonly chats?: { eraseFor(agencyId: string, accountId: string): Promise<void> },
   ) {}
 
   async request(
@@ -87,8 +89,10 @@ export class AccountDeletionProcess {
       }
     }
     const accounts = [...new Set(rows.map((row) => row.account_id))];
-    for (const accountId of accounts)
+    for (const accountId of accounts) {
+      await this.chats?.eraseFor(agencyId, accountId);
       await this.record('account.erased', agencyId, accountId, `erase-${randomUUID()}`);
+    }
     return accounts.length;
   }
 

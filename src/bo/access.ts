@@ -2,7 +2,7 @@
  * Who may do what with a profile. These are the application's rules, applied before any change;
  * row-level security separately keeps every agency to its own rows.
  */
-export type Role = 'admin' | 'agent' | 'member';
+export type Role = 'admin' | 'agent' | 'member' | 'guardian';
 
 export interface Actor {
   accountId: string;

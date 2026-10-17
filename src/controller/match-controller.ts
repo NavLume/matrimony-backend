@@ -7,6 +7,7 @@ import type { ProfileActor } from '../service/profile-service.js';
 import './context.js';
 
 const memberOnly = { roles: ['member' as const] };
+const memberOrGuardian = { roles: ['member' as const, 'guardian' as const] };
 const params = z.object({ candidateId: z.uuid() });
 const imageQuery = z.object({ size: z.enum(['full', 'thumb']).default('thumb') });
 
@@ -27,11 +28,11 @@ export function registerMatchController(
     matchPageResponse(await matches.page(actor(req), matchQuerySchema.parse(req.query))),
   );
 
-  app.get('/api/v1/me/matches/:candidateId', { config: memberOnly }, async (req) =>
+  app.get('/api/v1/me/matches/:candidateId', { config: memberOrGuardian }, async (req) =>
     profileDetailResponse(await matches.detail(actor(req), params.parse(req.params).candidateId)),
   );
 
-  app.get('/api/v1/me/matches/:candidateId/photo', { config: memberOnly }, async (req, reply) => {
+  app.get('/api/v1/me/matches/:candidateId/photo', { config: memberOrGuardian }, async (req, reply) => {
     const { candidateId } = params.parse(req.params);
     const { size } = imageQuery.parse(req.query);
     const bytes = await matches.photo(actor(req), candidateId, size);

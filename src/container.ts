@@ -21,6 +21,24 @@ import { CredentialService } from './service/credential-service.js';
 import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
 import { ClientLoginProcess } from './process/client-login-process.js';
+import { PaymentService } from './service/payment-service.js';
+import { GuardianProcess } from './process/guardian-process.js';
+import { GuardianService } from './service/guardian-service.js';
+import { GuardianDbService } from './db/service/guardian-db-service.js';
+import { GuardianRepository } from './db/raw/repository/guardian-repository.js';
+import { MeetingService } from './service/meeting-service.js';
+import { MeetingDbService } from './db/service/meeting-db-service.js';
+import { MeetingRepository } from './db/raw/repository/meeting-repository.js';
+import { VerificationService } from './service/verification-service.js';
+import { VerificationDbService } from './db/service/verification-db-service.js';
+import { VerificationRepository } from './db/raw/repository/verification-repository.js';
+import { ReportService } from './service/report-service.js';
+import { ChatService } from './service/chat-service.js';
+import { ChatDbService } from './db/service/chat-db-service.js';
+import { ChatRepository } from './db/raw/repository/chat-repository.js';
+import { ReportRepository } from './db/raw/repository/report-repository.js';
+import { PaymentDbService } from './db/service/payment-db-service.js';
+import { PaymentRepository } from './db/raw/repository/payment-repository.js';
 import { PushProcess } from './process/push-process.js';
 import { PushDbService } from './db/service/push-db-service.js';
 import { PushRepository } from './db/raw/repository/push-repository.js';
@@ -209,6 +227,21 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         : undefined,
       logger,
     );
+    const guardians = new GuardianProcess(
+      new GuardianService(
+        new GuardianDbService(
+          db,
+          new GuardianRepository(),
+          new RegistrationRepository(),
+          new EventRepository(),
+        ),
+      ),
+      credentials,
+      auth,
+      throttle,
+      mailer,
+      logger,
+    );
     const access = new AccountAccessProcess(
       registrations,
       credentials,
@@ -240,6 +273,9 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
           )
         : undefined;
     await hub.start();
+    const chats = new ChatService(
+      new ChatDbService(db, new ChatRepository(), new EventRepository()),
+    );
     const deletions = new AccountDeletionProcess(
       new AccountDeletionDbService(db, new AccountDeletionRepository()),
       auth,
@@ -247,6 +283,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       storage,
       new EventDbService(db, new EventRepository()),
       logger,
+      chats,
     );
     // Push: phones may always register; a push is sent only where a sender is set up.
     const pushDb = new PushDbService(db, new PushRepository());
@@ -270,9 +307,25 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       access,
       invitations,
       clientLogins,
+      guardians,
       mobile: new MobileService(identities, config),
       deletions,
       push,
+      reports: new ReportService(db, new ReportRepository()),
+      chats,
+      payments: new PaymentService(
+        new PaymentDbService(db, new PaymentRepository(), new EventRepository()),
+        storage,
+        logger,
+      ),
+      meetings: new MeetingService(
+        new MeetingDbService(db, new MeetingRepository(), new EventRepository()),
+      ),
+      verification: new VerificationService(
+        new VerificationDbService(db, new VerificationRepository(), new EventRepository()),
+        storage,
+        logger,
+      ),
       google,
       phone,
       registrations,
@@ -325,6 +378,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         await access.idle();
         await invitations.idle();
         await clientLogins.idle();
+        await guardians.idle();
         await phone?.idle();
         redis.disconnect();
         await db.close();

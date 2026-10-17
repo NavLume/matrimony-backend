@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { canManage, isStaff } from '../bo/access.js';
 import {
+  NOTIFICATION_GROUP_KINDS,
   recipientOf,
   type ConnectionListQuery,
   type ConnectionPage,
@@ -126,6 +127,12 @@ export class ConnectionService {
       }
       // Pending from them: their request to me and mine to them meet, which is an accepted connection.
       await unit.respond(actor.agencyId, existing.id, 'accepted', actor.accountId);
+      await unit.releaseBoth(
+        actor.agencyId,
+        existing.fromProfileId,
+        existing.toProfileId,
+        actor.accountId,
+      );
       await this.tell(unit, actor.agencyId, 'connection_accepted', existing.id, them, me);
       await this.tell(unit, actor.agencyId, 'connection_accepted', existing.id, me, them);
       await unit.appendEvent(this.event('interest.accepted', actor, existing.id, correlationId));
@@ -176,11 +183,11 @@ export class ConnectionService {
 
   /** A member's connections in one box: waiting for them, waiting for the other person, or accepted. */
   async list(actor: ProfileActor, query: ConnectionListQuery): Promise<ConnectionPage> {
-    this.requireMember(actor);
+    this.requireMemberOrGuardian(actor);
     const after = query.after ? decodeCursor(query.after) : null;
     if (query.after && !after) throw new AppError(400, 'INVALID_REQUEST');
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await unit.ownProfile(actor.agencyId, actor.accountId);
+      const own = await this.viewedProfile(unit, actor);
       if (!own || own.status !== 'active') return { items: [], next: null };
       const visible = await this.visibleFields(unit, actor.agencyId, own.id);
       const rows = await unit.connections(
@@ -210,16 +217,28 @@ export class ConnectionService {
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       // Staff see names. A member sees a name only if staff let them see names at all.
       let showNames = isStaff(actor.role);
-      if (actor.role === 'member') {
-        const own = await unit.ownProfile(actor.agencyId, actor.accountId);
+      if (actor.role === 'member' || actor.role === 'guardian') {
+        const own = await this.viewedProfile(unit, actor);
         showNames = own
           ? (await this.visibleFields(unit, actor.agencyId, own.id)).includes('fullName')
           : false;
       }
-      const rows = await unit.notifications(actor.agencyId, actor.accountId, showNames, {
-        limit: query.limit,
-        after,
-      });
+      const rows = await unit.notifications(
+        actor.agencyId,
+        actor.accountId,
+        showNames,
+        { limit: query.limit, after },
+        {
+          kinds: query.group ? NOTIFICATION_GROUP_KINDS[query.group] : null,
+          read: query.read ? query.read === 'read' : null,
+          from: query.from ?? null,
+          to: query.to ?? null,
+          // The characters that mean something to LIKE are searched for as themselves.
+          text: query.q ? query.q.replace(/[\\%_]/g, (c) => `\\${c}`) : null,
+          // Only staff look after clients; for anyone else the line is already about themselves.
+          client: isStaff(actor.role) ? (query.client ?? null) : null,
+        },
+      );
       const items = rows.slice(0, query.limit);
       const last = items.at(-1);
       return {
@@ -487,8 +506,14 @@ export class ConnectionService {
         asker,
         asked,
       );
-      // An accepted pair is told on both sides.
+      // An accepted pair is told on both sides, and each is now a candidate of the other.
       if (accept) {
+        await unit.releaseBoth(
+          actor.agencyId,
+          connection.fromProfileId,
+          connection.toProfileId,
+          actor.accountId,
+        );
         await this.tell(unit, actor.agencyId, 'connection_accepted', connection.id, asked, asker);
       }
     }
@@ -570,6 +595,8 @@ export class ConnectionService {
     }
     const kind: NotificationKind =
       start === 'in_review' ? 'connection_review' : 'connection_request';
+    if (start === 'pending')
+      await this.tellGuardian(unit, agencyId, kind, connectionId, recipient, about);
     const accounts = recipient.assignedAgentId
       ? [recipient.assignedAgentId]
       : await unit.admins(agencyId);
@@ -586,6 +613,28 @@ export class ConnectionService {
     }
   }
 
+  /** The client's guardian sees proposals arrive and get answered, to give advice. */
+  private async tellGuardian(
+    unit: ConnectionUnit,
+    agencyId: string,
+    kind: NotificationKind,
+    connectionId: string,
+    recipient: ProfileLite,
+    about: ProfileLite,
+  ) {
+    const guardian = await unit.guardianAccount(agencyId, recipient.id);
+    if (!guardian) return;
+    await unit.notify(
+      agencyId,
+      guardian,
+      kind,
+      connectionId,
+      recipient.id,
+      about.id,
+      `${kind}:${connectionId}:${randomUUID()}`,
+    );
+  }
+
   /** Tells whoever looks after `recipient` that something happened with `about`. */
   private async tell(
     unit: ConnectionUnit,
@@ -596,6 +645,12 @@ export class ConnectionService {
     about: ProfileLite,
   ) {
     const account = recipientOf(recipient);
+    if (
+      kind === 'connection_request' ||
+      kind === 'connection_accepted' ||
+      kind === 'connection_declined'
+    )
+      await this.tellGuardian(unit, agencyId, kind, connectionId, recipient, about);
     // The key only has to be unique for the recipient; everything here happens in one transaction.
     if (account) {
       await unit.notify(
@@ -639,6 +694,18 @@ export class ConnectionService {
     clientId: string,
   ): Promise<readonly VisibleField[]> {
     return (await unit.settings(agencyId, clientId))?.visibleFields ?? DEFAULT_VISIBLE_FIELDS;
+  }
+
+  /** The profile whose proposals are read: the member's own, or the one a guardian looks after. */
+  private viewedProfile(unit: ConnectionUnit, actor: ProfileActor) {
+    return actor.role === 'guardian'
+      ? unit.guardedProfile(actor.agencyId, actor.accountId)
+      : unit.ownProfile(actor.agencyId, actor.accountId);
+  }
+
+  private requireMemberOrGuardian(actor: ProfileActor) {
+    if (actor.role !== 'member' && actor.role !== 'guardian')
+      throw new AppError(403, 'ROLE_FORBIDDEN');
   }
 
   private requireMember(actor: ProfileActor) {

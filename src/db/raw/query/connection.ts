@@ -19,6 +19,17 @@ const BETWEEN = `agency_id = $1
      OR (sender_profile_id = $3 AND recipient_profile_id = $2))`;
 
 export const connectionQueries = {
+  // $1 agency, $2 and $3 the two profiles of an accepted connection, $4 who accepted. Each becomes a
+  // released candidate of the other. A fit already measured is kept; one never measured has none.
+  releaseBoth: `INSERT INTO matrimony.client_candidates
+   (agency_id, client_profile_id, candidate_profile_id, state, met_count, unmet_count, unknown_count,
+    criteria, decided_by, decided_at)
+ SELECT $1::uuid, t.client, t.candidate, 'released', 0, 0, 0, '{"forward": [], "reverse": []}'::jsonb, $4::uuid, now()
+   FROM (VALUES ($2::uuid, $3::uuid), ($3::uuid, $2::uuid)) AS t(client, candidate)
+ ON CONFLICT (agency_id, client_profile_id, candidate_profile_id) DO UPDATE
+   SET state = 'released', decided_by = EXCLUDED.decided_by, decided_at = now(), updated_at = now()
+ WHERE matrimony.client_candidates.state <> 'released'`,
+
   // $1 agency, $2 the profiles. Locks them in a fixed order, so two people asking each other cannot deadlock.
   lockProfiles: `SELECT id, status, service_mode, owner_account_id, assigned_agent_id
    FROM matrimony.member_profiles
@@ -140,13 +151,26 @@ export const connectionQueries = {
  VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT (agency_id, recipient_account_id, event_key) DO NOTHING`,
 
   // $1 agency, $2 recipient, $3 cursor time, $4 cursor id, $5 limit, $6 whether the recipient may see names.
+  // Filters, each null when not used: $7 template keys, $8 read (true) or unread (false), $9 from day,
+  // $10 to day (both inclusive, in Bangladesh time), $11 search text (already escaped for LIKE), $12 the
+  // client the line is for. The search looks at member codes, and at names only when $6 allows names.
   notifications: `SELECT n.id, n.template_key, n.payload, n.created_at, ${POSITION('n.created_at')} AS position,
        (n.read_at IS NOT NULL) AS is_read,
        m.id AS about_profile_id, m.member_code, CASE WHEN $6::boolean THEN m.full_name END AS full_name
   FROM matrimony.notifications n
   LEFT JOIN matrimony.member_profiles m ON m.agency_id = n.agency_id AND m.id = (n.payload->>'aboutProfileId')::uuid
+  LEFT JOIN matrimony.member_profiles f ON f.agency_id = n.agency_id AND f.id = (n.payload->>'forProfileId')::uuid
  WHERE n.agency_id = $1 AND n.recipient_account_id = $2
    AND ($3::timestamptz IS NULL OR (n.created_at, n.id) < ($3::timestamptz, $4::uuid))
+   AND ($7::text[] IS NULL OR n.template_key = ANY($7::text[]))
+   AND ($8::boolean IS NULL OR (n.read_at IS NOT NULL) = $8::boolean)
+   AND ($9::date IS NULL OR n.created_at >= ($9::date)::timestamp AT TIME ZONE 'Asia/Dhaka')
+   AND ($10::date IS NULL OR n.created_at < (($10::date + 1))::timestamp AT TIME ZONE 'Asia/Dhaka')
+   AND ($12::uuid IS NULL OR n.payload->>'forProfileId' = $12::text)
+   AND ($11::text IS NULL
+        OR m.member_code ILIKE '%' || $11 || '%'
+        OR f.member_code ILIKE '%' || $11 || '%'
+        OR ($6::boolean AND (m.full_name ILIKE '%' || $11 || '%' OR f.full_name ILIKE '%' || $11 || '%')))
  ORDER BY n.created_at DESC, n.id DESC
  LIMIT $5`,
 
@@ -172,10 +196,14 @@ export const connectionQueries = {
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared,
        (x.recipient_contact_consent_at IS NOT NULL) AS to_shared, x.created_at, x.responded_at,
        CASE WHEN x.recipient_profile_id = $2 THEN x.note END AS note,
-       ${POSITION('x.updated_at')} AS position, m.id, m.member_code${selectionFor(visible)}
+       ${POSITION('x.updated_at')} AS position, m.id, m.member_code,
+       (m.verified_at IS NOT NULL) AS verified,
+       ga.advice, ga.note AS advice_note, ga.advised_at AS advice_at${selectionFor(visible)}
   FROM matrimony.interests x
   JOIN matrimony.member_profiles m ON m.agency_id = x.agency_id
    AND m.id = CASE WHEN x.sender_profile_id = $2 THEN x.recipient_profile_id ELSE x.sender_profile_id END
+  LEFT JOIN matrimony.guardian_advice ga ON ga.agency_id = x.agency_id AND ga.interest_id = x.id
+   AND ga.profile_id = $2
  WHERE x.agency_id = $1 AND (x.sender_profile_id = $2 OR x.recipient_profile_id = $2) AND m.status = 'active'
    AND (($3 = 'received' AND x.status = 'pending' AND x.recipient_profile_id = $2)
      OR ($3 = 'sent' AND x.status IN ('in_review', 'pending') AND x.sender_profile_id = $2)
@@ -190,10 +218,13 @@ export const connectionQueries = {
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared_contact,
        (x.recipient_contact_consent_at IS NOT NULL) AS to_shared_contact,
        m.id, m.member_code, m.full_name, to_char(m.date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
-       m.profession_code, m.current_district_code, m.service_mode
+       m.profession_code, m.current_district_code, m.service_mode,
+       ga.advice, ga.note AS advice_note, ga.advised_at AS advice_at
   FROM matrimony.interests x
   JOIN matrimony.member_profiles m ON m.agency_id = x.agency_id
    AND m.id = CASE WHEN x.sender_profile_id = $2 THEN x.recipient_profile_id ELSE x.sender_profile_id END
+  LEFT JOIN matrimony.guardian_advice ga ON ga.agency_id = x.agency_id AND ga.interest_id = x.id
+   AND ga.profile_id = $2
  WHERE x.agency_id = $1 AND (x.sender_profile_id = $2 OR x.recipient_profile_id = $2)
  ORDER BY x.updated_at DESC, x.id DESC
  LIMIT 100`,

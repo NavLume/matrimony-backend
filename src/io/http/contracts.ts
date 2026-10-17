@@ -12,7 +12,7 @@ export const selfResponseSchema = {
   properties: {
     id: { type: 'string' },
     agencyId: { type: 'string' },
-    role: { type: 'string', enum: ['admin', 'agent', 'member'] },
+    role: { type: 'string', enum: ['admin', 'agent', 'member', 'guardian'] },
     displayName: { type: 'string' },
   },
 } as const;

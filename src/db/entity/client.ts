@@ -13,6 +13,7 @@ export const clientListRow = z.object({
   agent_name: z.string().nullable(),
   current_district_code: z.string().nullable(),
   has_pending_review: z.boolean(),
+  verified: z.boolean(),
 });
 
 export const clientMetaRow = z.object({

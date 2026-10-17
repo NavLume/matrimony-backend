@@ -2,7 +2,7 @@ import type { PublicConfig } from './public-config.js';
 export interface Account {
   id: string;
   agencyId: string;
-  role: 'admin' | 'agent' | 'member';
+  role: 'admin' | 'agent' | 'member' | 'guardian';
   displayName: string;
 }
 export type Principal = Account;

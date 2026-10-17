@@ -238,3 +238,37 @@ export function clientLoginEmail(context: Context & { name: string; link: string
         ].join('\n'),
       };
 }
+
+/** The link that opens a guardian's login, sent to the address the agent entered. The days match GUARDIAN_INVITE_DAYS. */
+export function guardianInviteEmail(
+  context: Context & { name: string; clientName: string; link: string },
+): MailMessage {
+  const { to, locale, agencyName, name, clientName, link } = context;
+  return locale === 'bn'
+    ? {
+        to,
+        subject: `${agencyName}: অভিভাবক হিসেবে আপনার লগইন`,
+        text: [
+          `প্রিয় ${name},`,
+          '',
+          `${clientName} এবং ${agencyName} আপনাকে অভিভাবক হিসেবে যুক্ত করতে চেয়েছেন, যাতে আপনি তাঁর প্রস্তাবগুলো দেখে পরামর্শ দিতে পারেন। পাসওয়ার্ড ঠিক করতে নিচের লিংকটি খুলুন। লিংকটি ৭ দিন কাজ করবে এবং একবারই ব্যবহার করা যাবে।`,
+          '',
+          link,
+          '',
+          'আপনি এটি আশা না করে থাকলে এই ইমেইলটি উপেক্ষা করুন। কোনো অ্যাকাউন্ট তৈরি হবে না।',
+        ].join('\n'),
+      }
+    : {
+        to,
+        subject: `${agencyName}: your login as a guardian`,
+        text: [
+          `Dear ${name},`,
+          '',
+          `${clientName} and ${agencyName} would like you to be a guardian, so you can see their proposals and give advice. Open the link below to choose your password. It works for 7 days and only once.`,
+          '',
+          link,
+          '',
+          'If you did not expect this, ignore this email. No account will be created.',
+        ].join('\n'),
+      };
+}

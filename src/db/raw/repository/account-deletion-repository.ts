@@ -1,7 +1,7 @@
 import type { Transaction } from '../../config/database.js';
 
 export interface DeletionAccount {
-  role: 'admin' | 'agent' | 'member';
+  role: 'admin' | 'agent' | 'member' | 'guardian';
   email: string | null;
   phone: string | null;
   hasPassword: boolean;

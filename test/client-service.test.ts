@@ -170,6 +170,7 @@ const row = (n: number): ClientListItem => ({
   assignedAgent: null,
   districtCode: null,
   hasPendingReview: false,
+  verified: false,
 });
 
 await test('only staff manage clients', async () => {

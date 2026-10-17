@@ -27,10 +27,16 @@ import {
 import { registerPhotoController } from './photo-controller.js';
 import { registerReviewController } from './review-controller.js';
 import { registerClientController } from './client-controller.js';
+import { registerGuardianController } from './guardian-controller.js';
 import { registerClientLoginController } from './client-login-controller.js';
 import type { ClientLoginProcess } from '../process/client-login-process.js';
 import type { AccountDeletionProcess } from '../process/account-deletion-process.js';
 import type { PushProcess } from '../process/push-process.js';
+import { registerPaymentController } from './payment-controller.js';
+import { registerMeetingController } from './meeting-controller.js';
+import { registerVerificationController } from './verification-controller.js';
+import { registerReportController } from './report-controller.js';
+import { registerChatController } from './chat-controller.js';
 import { registerMobileController } from './mobile-controller.js';
 import { registerDeviceAuthController } from './device-auth-controller.js';
 import type { MobileService } from '../service/mobile-service.js';
@@ -129,11 +135,20 @@ export interface AppDependencies {
     'invite' | 'resend' | 'list' | 'revoke' | 'preview' | 'accept' | 'create'
   >;
   /** Undefined in tests that do not need it. */
+  guardians?: Parameters<typeof registerGuardianController>[1];
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
   /** Undefined in tests that do not need it. */
   deletions?: Pick<AccountDeletionProcess, 'request'>;
   /** Undefined in tests that do not need it. */
   push?: Pick<PushProcess, 'register' | 'unregister'>;
+  /** Undefined in tests that do not need it. */
+  payments?: Parameters<typeof registerPaymentController>[1];
+  verification?: Parameters<typeof registerVerificationController>[1];
+  meetings?: Parameters<typeof registerMeetingController>[1];
+  /** Undefined in tests that do not need it. */
+  reports?: Parameters<typeof registerReportController>[1];
+  /** Undefined in tests that do not need it. */
+  chats?: Parameters<typeof registerChatController>[1];
   /** Undefined in tests that do not need it. */
   mobile?: Pick<MobileService, 'agencyByCode' | 'versionStatus'>;
   identities: Pick<IdentityService, 'tenant'>;
@@ -280,7 +295,13 @@ export async function buildApp(deps: AppDependencies) {
   registerNotificationStream(app, deps.live);
   registerStaffController(app, deps.invitations);
   if (deps.clientLogins) registerClientLoginController(app, deps.clientLogins, config);
+  if (deps.guardians) registerGuardianController(app, deps.guardians, config);
   if (deps.mobile) registerMobileController(app, deps.mobile);
+  if (deps.payments) registerPaymentController(app, deps.payments);
+  if (deps.verification) registerVerificationController(app, deps.verification);
+  if (deps.meetings) registerMeetingController(app, deps.meetings);
+  if (deps.reports) registerReportController(app, deps.reports);
+  if (deps.chats) registerChatController(app, deps.chats);
   const pushDevices = deps.push;
   if (pushDevices) {
     const registration = z

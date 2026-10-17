@@ -25,4 +25,7 @@ export const candidateRow = z.object({
   religion_code: z.string().nullable(),
   marital_status: z.string().nullable(),
   profile_status: z.string(),
+  // The proposal between the two, when there is one (see the list query).
+  connection_status: z.enum(['in_review', 'pending', 'accepted', 'declined']).nullable().optional(),
+  connection_direction: z.enum(['sent', 'received']).nullable().optional(),
 });

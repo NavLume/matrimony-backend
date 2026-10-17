@@ -95,6 +95,7 @@ function fake(window: [string, string][] = [[PROFILE.me, PROFILE.them]]) {
   let counter = 0;
   const own = (accountId: string) => profiles.find((p) => p.ownerId === accountId);
   const unit = {
+    guardianAccount: async () => null,
     ownProfile: async (_a: string, accountId: string) => {
       const p = own(accountId);
       return p ? { id: p.id, status: p.status } : null;
@@ -260,6 +261,7 @@ function fake(window: [string, string][] = [[PROFILE.me, PROFILE.them]]) {
       notices.push({ to, kind, forProfile, about });
     },
     notifications: async () => [],
+    releaseBoth: async () => {},
     unreadCount: async (_a: string, account: string) => {
       unread.calls.push(['count', account]);
       return unread.value;

@@ -22,7 +22,10 @@ import './context.js';
 
 const memberOnly = { roles: ['member' as const] };
 const staffOnly = { roles: ['admin' as const, 'agent' as const] };
-const anyRole = { roles: ['member' as const, 'agent' as const, 'admin' as const] };
+const anyRole = {
+  roles: ['member' as const, 'agent' as const, 'admin' as const, 'guardian' as const],
+};
+const memberOrGuardian = { roles: ['member' as const, 'guardian' as const] };
 const connectionParams = z.object({ connectionId: z.uuid() });
 const clientParams = z.object({ profileId: z.uuid(), connectionId: z.uuid() });
 const profileParams = z.object({ profileId: z.uuid() });
@@ -70,7 +73,7 @@ export function registerConnectionController(
     ),
   );
 
-  app.get('/api/v1/me/connections', { config: memberOnly }, async (req) =>
+  app.get('/api/v1/me/connections', { config: memberOrGuardian }, async (req) =>
     connectionPageResponse(
       await connections.list(actor(req), connectionListQuerySchema.parse(req.query)),
     ),

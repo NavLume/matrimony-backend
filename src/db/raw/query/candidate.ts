@@ -56,9 +56,14 @@ export const candidateQueries = {
   list: `SELECT c.candidate_profile_id, c.state, c.met_count, c.unmet_count, c.unknown_count, c.criteria,
         c.proposed_at, m.member_code, m.full_name, to_char(m.date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
         m.profession_code, m.occupation_code, m.current_district_code, m.religion_code,
-        m.marital_status, m.status AS profile_status
+        m.marital_status, m.status AS profile_status,
+        x.status AS connection_status,
+        CASE WHEN x.sender_profile_id = c.client_profile_id THEN 'sent' ELSE 'received' END AS connection_direction
    FROM matrimony.client_candidates c
    JOIN matrimony.member_profiles m ON m.agency_id = c.agency_id AND m.id = c.candidate_profile_id
+   LEFT JOIN matrimony.interests x ON x.agency_id = c.agency_id AND x.status <> 'withdrawn'
+        AND ((x.sender_profile_id = c.client_profile_id AND x.recipient_profile_id = c.candidate_profile_id)
+          OR (x.recipient_profile_id = c.client_profile_id AND x.sender_profile_id = c.candidate_profile_id))
   WHERE c.agency_id = $1 AND c.client_profile_id = $2 AND c.state = $3
   ORDER BY c.unmet_count, c.met_count DESC, c.unknown_count, m.created_at DESC, c.candidate_profile_id
   LIMIT $4`,

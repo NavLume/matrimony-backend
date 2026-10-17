@@ -96,6 +96,7 @@ export const unusedConnections = {
   shareContact: unused,
   list: unused,
   notifications: unused,
+  releaseBoth: unused,
   unreadCount: unused,
   markRead: unused,
   reviewQueue: unused,

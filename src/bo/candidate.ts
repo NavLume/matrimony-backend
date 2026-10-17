@@ -52,6 +52,11 @@ export interface CandidateItem {
   forward: CriterionResult[];
   reverse: CriterionResult[];
   proposedAt: string;
+  /** The proposal (connection request) between the client and this candidate, if there is one. */
+  connection: {
+    status: 'in_review' | 'pending' | 'accepted' | 'declined';
+    direction: 'sent' | 'received';
+  } | null;
 }
 
 export interface CandidateList {

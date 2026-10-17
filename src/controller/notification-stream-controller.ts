@@ -9,7 +9,9 @@ export interface NotificationLive {
   unread(actor: ProfileActor): Promise<number>;
 }
 
-const anyRole = { roles: ['member' as const, 'agent' as const, 'admin' as const] };
+const anyRole = {
+  roles: ['member' as const, 'agent' as const, 'admin' as const, 'guardian' as const],
+};
 
 /** A stream ends after this long and the page opens a new one, so it never outlives its sign-in. */
 export const STREAM_MAX_MS = 10 * 60 * 1000;

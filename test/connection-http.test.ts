@@ -76,6 +76,7 @@ async function setup(role: 'admin' | 'agent' | 'member') {
             decision: null,
             staff: null,
             count: null,
+            chatId: null,
             forProfileId: ID,
             about: { profileId: OTHER, memberCode: 'M1', fullName: 'Ayesha' },
           },
@@ -167,6 +168,7 @@ await test('the inbox is open to every signed-in role', async (t) => {
     assert.equal(res.statusCode, 200, role);
     assert.deepEqual(Object.keys(res.json().items[0]).sort(), [
       'about',
+      'chatId',
       'connectionId',
       'count',
       'createdAt',

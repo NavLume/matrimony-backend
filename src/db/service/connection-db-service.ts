@@ -2,6 +2,7 @@ import type {
   ConnectionBox,
   ConnectionRecord,
   ConnectionRow,
+  NotificationFilter,
   NotificationItem,
   NotificationKind,
   ProfileLite,
@@ -20,6 +21,10 @@ import type { MatchRepository } from '../raw/repository/match-repository.js';
 /** What connection requests and the inbox may do, bound to one open transaction. */
 export interface ConnectionUnit {
   ownProfile(agencyId: string, accountId: string): Promise<{ id: string; status: string } | null>;
+  guardedProfile(
+    agencyId: string,
+    accountId: string,
+  ): Promise<{ id: string; status: string } | null>;
   settings(
     agencyId: string,
     clientId: string,
@@ -49,6 +54,7 @@ export interface ConnectionUnit {
   reviewDecide(agencyId: string, id: string, approve: boolean, accountId: string): Promise<boolean>;
   reopen(agencyId: string, id: string): Promise<boolean>;
   admins(agencyId: string): Promise<string[]>;
+  guardianAccount(agencyId: string, profileId: string): Promise<string | null>;
   reviewQueue(
     agencyId: string,
     reader: { accountId: string; isAdmin: boolean },
@@ -94,7 +100,9 @@ export interface ConnectionUnit {
     accountId: string,
     showNames: boolean,
     page: { limit: number; after: Cursor | null },
+    filter: NotificationFilter,
   ): Promise<NotificationItem[]>;
+  releaseBoth(agencyId: string, a: string, b: string, actorId: string): Promise<void>;
   unreadCount(agencyId: string, accountId: string): Promise<number>;
   markRead(agencyId: string, accountId: string, ids: readonly string[] | null): Promise<number>;
   connections(
@@ -127,6 +135,8 @@ export class ConnectionDbService {
     const c = this.connections;
     return {
       ownProfile: (agencyId, accountId) => this.matches.ownProfile(tx, agencyId, accountId),
+      guardedProfile: (agencyId, accountId) =>
+        this.matches.guardedProfile(tx, agencyId, accountId),
       settings: (agencyId, clientId) => this.candidates.settings(tx, agencyId, clientId),
       lockProfiles: (agencyId, ids) => c.lockProfiles(tx, agencyId, ids),
       readProfiles: (agencyId, ids) => c.readProfiles(tx, agencyId, ids),
@@ -142,6 +152,7 @@ export class ConnectionDbService {
         c.reviewDecide(tx, agencyId, id, approve, accountId),
       reopen: (agencyId, id) => c.reopen(tx, agencyId, id),
       admins: (agencyId) => c.admins(tx, agencyId),
+      guardianAccount: (agencyId, profileId) => c.guardianAccount(tx, agencyId, profileId),
       reviewQueue: (agencyId, reader, page, today) =>
         c.reviewQueue(tx, agencyId, reader, page, today),
       reviewCount: (agencyId, reader) => c.reviewCount(tx, agencyId, reader),
@@ -162,8 +173,9 @@ export class ConnectionDbService {
           aboutProfileId,
           eventKey,
         ),
-      notifications: (agencyId, accountId, showNames, page) =>
-        c.notifications(tx, agencyId, accountId, showNames, page),
+      notifications: (agencyId, accountId, showNames, page, filter) =>
+        c.notifications(tx, agencyId, accountId, showNames, page, filter),
+      releaseBoth: (agencyId, a, b, actorId) => c.releaseBoth(tx, agencyId, a, b, actorId),
       unreadCount: (agencyId, accountId) => c.unreadCount(tx, agencyId, accountId),
       markRead: (agencyId, accountId, ids) => c.markRead(tx, agencyId, accountId, ids),
       connections: (agencyId, clientId, box, visible, page, today) =>

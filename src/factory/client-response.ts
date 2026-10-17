@@ -22,6 +22,7 @@ const item = (c: ClientListItem) => ({
   assignedAgent: staffRef(c.assignedAgent),
   districtCode: c.districtCode,
   hasPendingReview: c.hasPendingReview,
+  verified: c.verified,
 });
 
 const meta = (m: ClientMeta) => ({

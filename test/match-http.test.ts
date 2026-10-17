@@ -36,6 +36,7 @@ const page: MatchPage = {
       candidateId: ID,
       memberCode: 'M0000001',
       position: '2026-10-10T08:00:00.000000Z',
+      verified: false,
       connection: null,
       fullName: 'Ayesha',
       age: 27,
@@ -129,6 +130,7 @@ await test('the response has the allowed fields and never the internal cursor po
   assert.deepEqual(body.items[0], {
     candidateId: ID,
     memberCode: 'M0000001',
+    verified: false,
     connection: null,
     fullName: 'Ayesha',
     age: 27,

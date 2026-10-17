@@ -184,6 +184,8 @@ export interface MatchItem {
   memberCode: string;
   /** Where it sits in the list, to the microsecond. Used only to build the next page's cursor. */
   position: string;
+  /** The profile carries the Verified mark. Always shown: it is trust information, not a personal detail. */
+  verified: boolean;
   connection: ConnectionSummary | null;
   fullName?: string;
   age?: number | null;

@@ -22,5 +22,8 @@ export function mapCandidate(value: unknown, today: Date): CandidateItem {
     forward: row.criteria.forward,
     reverse: row.criteria.reverse,
     proposedAt: row.proposed_at.toISOString(),
+    connection: row.connection_status
+      ? { status: row.connection_status, direction: row.connection_direction ?? 'sent' }
+      : null,
   };
 }

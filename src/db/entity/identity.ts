@@ -2,7 +2,7 @@ import { z } from 'zod';
 export const accountRow = z.object({
   id: z.uuid(),
   agency_id: z.uuid(),
-  role: z.enum(['admin', 'agent', 'member']),
+  role: z.enum(['admin', 'agent', 'member', 'guardian']),
   display_name: z.string(),
 });
 export const tenantRow = z.object({

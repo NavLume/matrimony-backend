@@ -5,6 +5,7 @@ import { buildApp } from './controller/app.js';
 import { startNightlyRefresh } from './scheduler/nightly-refresh-scheduler.js';
 import { startReviewReminders } from './scheduler/review-reminder-scheduler.js';
 import { startAccountErasure } from './scheduler/account-erasure-scheduler.js';
+import { startChatMaintenance } from './scheduler/chat-maintenance-scheduler.js';
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config);
@@ -25,6 +26,12 @@ async function main() {
       logger,
     );
     app.addHook('onClose', () => stopErasure());
+    const stopChats = startChatMaintenance(
+      container.chats,
+      [...new Set(Object.values(config.TENANT_HOSTS))],
+      logger,
+    );
+    app.addHook('onClose', () => stopChats());
     // Candidate lists are refreshed once a night, from 2 am Bangladesh time.
     const stopNightly = startNightlyRefresh(
       container.candidates,

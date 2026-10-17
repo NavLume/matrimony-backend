@@ -14,7 +14,7 @@ import { AppError } from '../exception/app-error.js';
 export interface InvitingAdmin {
   agencyId: string;
   accountId: string;
-  role: 'admin' | 'agent' | 'member';
+  role: 'admin' | 'agent' | 'member' | 'guardian';
 }
 
 /**

@@ -19,6 +19,7 @@ const item = (c: CandidateItem) => ({
   forward: c.forward.map((r) => ({ key: r.key, outcome: r.outcome })),
   reverse: c.reverse.map((r) => ({ key: r.key, outcome: r.outcome })),
   proposedAt: c.proposedAt,
+  connection: c.connection,
 });
 
 /** A candidate list for staff. Fields are listed so nothing, such as a contact detail, leaks by accident. */

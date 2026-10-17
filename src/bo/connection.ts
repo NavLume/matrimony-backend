@@ -50,10 +50,70 @@ export const connectionListQuerySchema = z
   .strict();
 export type ConnectionListQuery = z.output<typeof connectionListQuerySchema>;
 
+export const NOTIFICATION_GROUPS = [
+  'requests',
+  'answers',
+  'contact',
+  'reviews',
+  'updates',
+  'chats',
+] as const;
+const day = z.string(fail('invalid')).regex(/^\d{4}-\d{2}-\d{2}$/, fail('invalid'));
+
+/**
+ * The inbox page, narrowed by any of: a group of lines, read or unread, a first and last day, a
+ * search for a member code or name, and (staff) one client.
+ */
 export const notificationQuerySchema = z
-  .object({ limit: pageSize, after: z.string().max(300, fail('tooLong')).optional() })
+  .object({
+    limit: pageSize,
+    after: z.string().max(300, fail('tooLong')).optional(),
+    group: z.enum(NOTIFICATION_GROUPS, fail('invalidOption')).optional(),
+    read: z.enum(['read', 'unread'], fail('invalidOption')).optional(),
+    from: day.optional(),
+    to: day.optional(),
+    q: z.string().trim().min(1, fail('required')).max(60, fail('tooLong')).optional(),
+    client: z.uuid(fail('invalid')).optional(),
+  })
   .strict();
 export type NotificationQuery = z.output<typeof notificationQuerySchema>;
+
+/** What the inbox is narrowed by, ready for the query (null when not used). */
+export interface NotificationFilter {
+  kinds: NotificationKind[] | null;
+  read: boolean | null;
+  from: string | null;
+  to: string | null;
+  text: string | null;
+  client: string | null;
+}
+
+/** The kinds of line in each group the inbox can be narrowed to. */
+export const NOTIFICATION_GROUP_KINDS: Record<
+  (typeof NOTIFICATION_GROUPS)[number],
+  NotificationKind[]
+> = {
+  requests: [
+    'connection_request',
+    'connection_forwarded',
+    'connection_review',
+    'connection_review_reminder',
+    'connection_unavailable',
+    'connection_matched',
+  ],
+  answers: ['connection_accepted', 'connection_declined'],
+  contact: ['contact_shared'],
+  reviews: ['review_requested', 'review_decided'],
+  updates: [
+    'candidates_released',
+    'client_assigned',
+    'staff_joined',
+    'meeting_update',
+    'guardian_request',
+    'guardian_advice',
+  ],
+  chats: ['chat_requested', 'chat_accepted', 'chat_message', 'chat_reported', 'chat_invited'],
+};
 
 /** The lines to mark as read. No `ids` means every unread line. */
 export const markReadSchema = z
@@ -137,6 +197,8 @@ export interface ConnectionRow {
   /** The short note the asker added, when there is one and the viewer is the person asked. */
   note: string | null;
   position: string;
+  /** What the client's guardian advised about this proposal, if they did. */
+  guardianAdvice: { advice: 'supportive' | 'concerned'; note: string | null; at: string } | null;
   profile: MatchItem;
 }
 
@@ -170,7 +232,23 @@ export type NotificationKind =
   /** A client who signs in: new profiles were released to them. */
   | 'candidates_released'
   /** An agent: a new client was given to them. */
-  | 'client_assigned';
+  | 'client_assigned'
+  /** The other side of an accepted proposal asked to chat. */
+  | 'chat_requested'
+  /** They agreed to chat. */
+  | 'chat_accepted'
+  /** A new message waits (the first one not read yet). */
+  | 'chat_message'
+  /** Staff: a client reported a conversation. */
+  | 'chat_reported'
+  /** Staff: a client invited them into a conversation. */
+  | 'chat_invited'
+  /** A meeting of an accepted proposal was set, moved or cancelled. */
+  | 'meeting_update'
+  /** The agency asked for a guardian and the client has to agree. */
+  | 'guardian_request'
+  /** The guardian gave advice on a proposal. */
+  | 'guardian_advice';
 
 export interface NotificationItem {
   id: string;
@@ -189,6 +267,8 @@ export interface NotificationItem {
   staff: { name: string; role: string } | null;
   /** For a release: how many profiles. */
   count: number | null;
+  /** For a chat line: the conversation. */
+  chatId: string | null;
   /** The profile this is about for the recipient: their own, or the client they look after. */
   forProfileId: string | null;
   about: {
@@ -246,6 +326,8 @@ export interface StaffConnectionRow {
   clientShared: boolean;
   /** The other person has shared theirs. */
   otherShared: boolean;
+  /** What the client's guardian advised about this proposal, if they did. */
+  guardianAdvice: { advice: 'supportive' | 'concerned'; note: string | null; at: string } | null;
   other: {
     profileId: string;
     memberCode: string;

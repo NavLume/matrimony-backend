@@ -56,6 +56,11 @@ export const matchQueries = {
   // $1 agency, $2 owner account. The member's own profile.
   ownProfile: `SELECT id, status FROM matrimony.member_profiles WHERE agency_id = $1 AND owner_account_id = $2`,
 
+  // The profile a guardian account looks after, while the guardian link is active. $1 agency, $2 account.
+  guardedProfile: `SELECT p.id, p.status FROM matrimony.profile_guardians g
+  JOIN matrimony.member_profiles p ON p.agency_id = g.agency_id AND p.id = g.profile_id
+ WHERE g.agency_id = $1 AND g.account_id = $2 AND g.status = 'active'`,
+
   // $1 agency, $2 client profile.
   releasedTotal: `SELECT count(*)::int AS n FROM matrimony.client_candidates c
    JOIN matrimony.member_profiles m ON m.agency_id = c.agency_id AND m.id = c.candidate_profile_id
@@ -71,7 +76,8 @@ export const matchQueries = {
        to_char(c.decided_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS position,
        x.id AS connection_id, x.status AS connection_status,
        (x.sender_profile_id = c.client_profile_id) AS connection_sent,
-       (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared${selectionFor(visible)}
+       (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared,
+       (m.verified_at IS NOT NULL) AS verified${selectionFor(visible)}
   ${RELEASED}
     AND ($3::text IS NULL OR m.member_code = $3::text)
     AND ($4::int IS NULL OR m.date_of_birth <= (CURRENT_DATE - make_interval(years => $4::int)))
@@ -94,7 +100,8 @@ export const matchQueries = {
   person: (visible: readonly VisibleField[]) => `SELECT m.id, m.member_code,
        x.id AS connection_id, x.status AS connection_status,
        (x.sender_profile_id = $2) AS connection_sent,
-       (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared${selectionFor(visible)}
+       (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared,
+       (m.verified_at IS NOT NULL) AS verified${selectionFor(visible)}
   FROM matrimony.member_profiles m
   LEFT JOIN matrimony.interests x ON x.agency_id = m.agency_id
      AND ((x.sender_profile_id = $2 AND x.recipient_profile_id = m.id)

@@ -8,6 +8,10 @@ import type { MatchRepository } from '../raw/repository/match-repository.js';
 /** What a member's matches view may do, bound to one open transaction. */
 export interface MatchUnit {
   ownProfile(agencyId: string, accountId: string): Promise<{ id: string; status: string } | null>;
+  guardedProfile(
+    agencyId: string,
+    accountId: string,
+  ): Promise<{ id: string; status: string } | null>;
   settings(
     agencyId: string,
     clientId: string,
@@ -47,6 +51,8 @@ export class MatchDbService {
   private unit(tx: Transaction): MatchUnit {
     return {
       ownProfile: (agencyId, accountId) => this.matches.ownProfile(tx, agencyId, accountId),
+      guardedProfile: (agencyId, accountId) =>
+        this.matches.guardedProfile(tx, agencyId, accountId),
       settings: (agencyId, clientId) => this.candidates.settings(tx, agencyId, clientId),
       releasedTotal: (agencyId, clientId) => this.matches.releasedTotal(tx, agencyId, clientId),
       page: (agencyId, clientId, visible, filters, page, today) =>

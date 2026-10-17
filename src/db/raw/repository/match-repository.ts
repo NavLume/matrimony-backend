@@ -26,6 +26,16 @@ export class MatchRepository {
     return (result.rows[0] as { id: string; status: string } | undefined) ?? null;
   }
 
+  /** The profile a guardian account looks after, while the guardian link is active. */
+  async guardedProfile(
+    tx: Transaction,
+    agencyId: string,
+    accountId: string,
+  ): Promise<{ id: string; status: string } | null> {
+    const result = await tx.query(matchQueries.guardedProfile, [agencyId, accountId]);
+    return (result.rows[0] as { id: string; status: string } | undefined) ?? null;
+  }
+
   async releasedTotal(tx: Transaction, agencyId: string, clientId: string): Promise<number> {
     const result = await tx.query(matchQueries.releasedTotal, [agencyId, clientId]);
     return (result.rows[0] as { n: number }).n;
@@ -104,6 +114,13 @@ export class MatchRepository {
         theyShared: link!.theyShared,
         note: (row.note as string | null) ?? null,
         position: row.position as string,
+        guardianAdvice: row.advice
+          ? {
+              advice: row.advice as 'supportive' | 'concerned',
+              note: (row.advice_note as string | null) ?? null,
+              at: (row.advice_at as Date).toISOString(),
+            }
+          : null,
         profile: item,
       };
     });
@@ -185,6 +202,7 @@ export class MatchRepository {
       candidateId: row.id as string,
       memberCode: row.member_code as string,
       position: (row.position as string | undefined) ?? '',
+      verified: row.verified === true,
       connection: link && { id: link.id, status: link.status, direction: link.direction },
     };
     const has = (field: VisibleField) => visible.includes(field);

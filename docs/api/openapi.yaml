@@ -18,6 +18,9 @@ servers:
   - url: /
 tags:
   - name: Health
+  - name: Guardians
+  - name: Verification
+  - name: Meetings
   - name: Tenant
   - name: Auth
   - name: Registration
@@ -438,6 +441,1199 @@ paths:
         '204': { description: Removed (or was not registered). }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
+
+  /api/v1/me/verification:
+    get:
+      tags: [Verification]
+      summary: My verification (members)
+      description: Whether my profile carries the Verified mark, and my latest request.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+    put:
+      tags: [Verification]
+      summary: Send an identity document
+      description: |
+        The request body is the file itself (PDF, JPEG or PNG, up to 5 MB) and the `X-Document-Type`
+        header says what it is. The document is private and is deleted when the request is decided.
+        409 `VERIFICATION_PENDING`, `ALREADY_VERIFIED` or `PROFILE_CLOSED`; 422 `DOCUMENT_INVALID` when
+        the bytes are not the type claimed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: X-Document-Type, in: header, required: true, schema: { $ref: '#/components/schemas/DocumentType' } }
+      requestBody:
+        required: true
+        content:
+          application/pdf: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: The state, with the request waiting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+        '413': { description: The file is too large. }
+    delete:
+      tags: [Verification]
+      summary: Take my waiting request back
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+        '404': { description: Nothing is waiting (`VERIFICATION_NOT_FOUND`). }
+
+  /api/v1/staff/verifications:
+    get:
+      tags: [Verification]
+      summary: Requests waiting for a decision (staff)
+      description: Oldest first. An agent sees those of their own clients, an admin all.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The waiting requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/VerificationWaiting' }
+
+  /api/v1/staff/clients/{profileId}/verification:
+    get:
+      tags: [Verification]
+      summary: A client's verification (staff)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+    put:
+      tags: [Verification]
+      summary: Send an identity document for a client (staff)
+      description: Same as the member's call. The request is decided by someone else (an admin may decide their own).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-Document-Type, in: header, required: true, schema: { $ref: '#/components/schemas/DocumentType' } }
+      requestBody:
+        required: true
+        content:
+          application/pdf: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+    delete:
+      tags: [Verification]
+      summary: Take a waiting request back (staff)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+
+  /api/v1/staff/clients/{profileId}/verification/document:
+    get:
+      tags: [Verification]
+      summary: Open the waiting document (staff)
+      description: Opening it is recorded in the event log. 404 `VERIFICATION_NOT_FOUND` once the request is decided.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The file.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+
+  /api/v1/staff/clients/{profileId}/verification/approve:
+    post:
+      tags: [Verification]
+      summary: Approve the waiting request
+      description: The profile now carries the Verified mark. 409 `REVIEW_OWN_SUBMISSION` for someone deciding their own submission (an admin may).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+
+  /api/v1/staff/clients/{profileId}/verification/reject:
+    post:
+      tags: [Verification]
+      summary: Reject the waiting request, with a reason
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+
+  /api/v1/staff/clients/{profileId}/verification/revoke:
+    post:
+      tags: [Verification]
+      summary: Take the Verified mark away (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+        '409': { description: The profile is not verified (`NOT_VERIFIED`). }
+
+  /api/v1/me/meetings:
+    get:
+      tags: [Meetings]
+      summary: My meetings (members)
+      description: When and where, with the other person, for my accepted proposals. Never feedback or notes.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The meetings, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/MemberMeeting' }
+
+  /api/v1/staff/agenda:
+    get:
+      tags: [Meetings]
+      summary: What waits for me (staff)
+      description: Scheduled meetings of my clients and my open follow-ups. `attention` is the badge number.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The agenda.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agenda' }
+
+  /api/v1/staff/connections/{connectionId}/meetings:
+    post:
+      tags: [Meetings]
+      summary: Set a meeting for an accepted proposal
+      description: |
+        Staff who look after either side (an admin: any). Both people are told. 409
+        `CONNECTION_NOT_ACCEPTED`; 400 with `fields[].code = past` for a time in the past.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MeetingInput' }
+      responses:
+        '201':
+          description: The meeting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeetingRow' }
+        '404': { description: No such proposal for you (`CONNECTION_NOT_FOUND`). }
+
+  /api/v1/staff/meetings/{meetingId}:
+    patch:
+      tags: [Meetings]
+      summary: Change, cancel or finish a meeting
+      description: Only a scheduled meeting can change. `status` may become `done` or `cancelled`. 409 `MEETING_CLOSED`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: meetingId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                scheduledAt: { type: string, format: date-time }
+                kind: { $ref: '#/components/schemas/MeetingKind' }
+                place: { type: [string, 'null'], maxLength: 200 }
+                note: { type: [string, 'null'], maxLength: 500 }
+                status: { type: string, enum: [done, cancelled] }
+      responses:
+        '200':
+          description: The meeting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeetingRow' }
+
+  /api/v1/staff/meetings/{meetingId}/feedback/{profileId}:
+    put:
+      tags: [Meetings]
+      summary: Record what one side said after a meeting
+      description: For staff who look after that side, once the meeting is done (409 `MEETING_NOT_DONE`). Recording again replaces it. Private to the office.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: meetingId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [verdict]
+              properties:
+                verdict: { type: string, enum: [interested, undecided, not_interested] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: The meeting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeetingRow' }
+
+  /api/v1/staff/clients/{profileId}/meetings:
+    get:
+      tags: [Meetings]
+      summary: Meetings of a client's proposals (staff)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The meetings, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/MeetingRow' }
+
+  /api/v1/staff/clients/{profileId}/notes:
+    get:
+      tags: [Meetings]
+      summary: Private notes about a client (staff)
+      description: Never shown to the client. Newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The notes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NoteList' }
+    post:
+      tags: [Meetings]
+      summary: Add a private note
+      description: A note is never changed or deleted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '201':
+          description: All the notes, with the new one.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NoteList' }
+
+  /api/v1/staff/clients/{profileId}/follow-ups:
+    get:
+      tags: [Meetings]
+      summary: A client's follow-ups (staff)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Open ones first, by due day.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowUpList' }
+    post:
+      tags: [Meetings]
+      summary: Add a follow-up
+      description: A reminder for the agent who looks after the client (the creator when nobody does).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [dueOn, text]
+              properties:
+                dueOn: { type: string, format: date }
+                text: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '201':
+          description: The follow-ups of the client.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowUpList' }
+
+  /api/v1/staff/follow-ups/{followUpId}/done:
+    post:
+      tags: [Meetings]
+      summary: Mark a follow-up done
+      description: 409 `FOLLOW_UP_DONE` when it already is.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: followUpId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The follow-ups of the client.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowUpList' }
+
+  /api/v1/staff/clients/{profileId}/guardian:
+    get:
+      tags: [Guardians]
+      summary: A client's guardian (staff)
+      description: Admin, or the agent who looks after the client. Anyone else gets 404 `PROFILE_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+    post:
+      tags: [Guardians]
+      summary: Ask for a guardian for a client
+      description: |
+        One guardian per profile (409 `GUARDIAN_EXISTS`); an address that already has an account is
+        refused (409 `EMAIL_IN_USE`). The client must agree first. For a client who signs in the state is
+        `awaiting_client` and nothing is sent until they agree in the app. For a client with no login the
+        agent confirms with `clientAgreed: true` (400 otherwise), who and when is kept, and the email goes out now.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GuardianInvite' }
+      responses:
+        '201':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+        '409': { description: GUARDIAN_EXISTS or EMAIL_IN_USE. }
+    delete:
+      tags: [Guardians]
+      summary: Cancel the request or end the guardian
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+        '404': { description: No guardian (`GUARDIAN_NOT_FOUND`). }
+
+  /api/v1/staff/clients/{profileId}/guardian/resend:
+    post:
+      tags: [Guardians]
+      summary: Send the invitation again with a new link
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+        '404': { description: No invitation is out (`GUARDIAN_NOT_FOUND`). }
+
+  /api/v1/me/guardian:
+    get:
+      tags: [Guardians]
+      summary: My guardian (members)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+    delete:
+      tags: [Guardians]
+      summary: Decline the request, or remove my guardian
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+        '404': { description: No guardian (`GUARDIAN_NOT_FOUND`). }
+
+  /api/v1/me/guardian/approve:
+    post:
+      tags: [Guardians]
+      summary: Agree to the guardian my agency asked for
+      description: The invitation is emailed now. The agreement is recorded as given in the app.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Where the guardian stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianState' }
+        '404': { description: Nothing waits for my agreement (`GUARDIAN_NOT_FOUND`). }
+
+  /api/v1/auth/guardian-invitation/preview:
+    post:
+      tags: [Guardians]
+      summary: What a guardian invitation link is for
+      description: Public, 10 per minute, same-origin only. Does not use the link up. 400 `LINK_INVALID_OR_EXPIRED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: The invitation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GuardianPreview' }
+        '400': { $ref: '#/components/responses/Error400' }
+
+  /api/v1/auth/guardian-invitation/accept:
+    post:
+      tags: [Guardians]
+      summary: Open a guardian invitation, choose a password and sign in
+      description: |
+        Public, 10 per minute, same-origin only. The link works once, for 7 days, and only at the agency
+        that sent it. The account is created now with the role `guardian` and linked to the client's
+        profile. The terms and privacy policy must be accepted. 409 `ADDRESS_IN_USE`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password, acceptTerms, acceptPrivacy]
+              properties:
+                token: { type: string }
+                password: { type: string }
+                acceptTerms: { type: boolean, enum: [true] }
+                acceptPrivacy: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: The account exists and the person is signed in.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tokens' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '409': { description: ADDRESS_IN_USE. }
+
+  /api/v1/guardian/ward:
+    get:
+      tags: [Guardians]
+      summary: The client a guardian looks after
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The client.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WardSummary' }
+
+  /api/v1/guardian/connections/{connectionId}/advice:
+    put:
+      tags: [Guardians]
+      summary: Advise on a proposal the client received
+      description: |
+        Only a guardian, and only for a proposal the client received and has not answered (409
+        `PROPOSAL_NOT_OPEN`). Advising again replaces it. The client and their agent are told. The
+        guardian cannot accept or decline.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [advice]
+              properties:
+                advice: { type: string, enum: [supportive, concerned] }
+                note: { type: string, maxLength: 300 }
+      responses:
+        '204': { description: Saved. }
+        '404': { description: Not a proposal the client received (`CONNECTION_NOT_FOUND`). }
+        '409': { description: PROPOSAL_NOT_OPEN. }
+
+  /api/v1/me/payments:
+    get:
+      tags: [Payments]
+      summary: My payments (members)
+      description: |
+        The signed-in member's own ledger: what was agreed for each stage, what was paid, what is left,
+        and every payment with its invoice. A cancelled payment is listed, flagged, without the reason.
+        A member with no profile yet gets 404 `PROFILE_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The ledger.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLedger' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+
+  /api/v1/me/payments/{paymentId}/invoice:
+    get:
+      tags: [Payments]
+      summary: Open the invoice file of one of my payments
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The file, as a PDF, JPEG or PNG.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        '404': { description: No such payment or invoice (`INVOICE_NOT_FOUND`). }
+
+  /api/v1/staff/clients/{profileId}/payments:
+    get:
+      tags: [Payments]
+      summary: A client's payments (staff)
+      description: Admin, or the agent who looks after the client. Anyone else gets 404 `PROFILE_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The ledger, with the reason for each cancelled payment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLedger' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+    post:
+      tags: [Payments]
+      summary: Record a payment received in the office
+      description: |
+        Admin or the client's agent. The amount is in whole taka. The date may not be in the future.
+        For a success fee, `connectionId` may name the accepted proposal it came from (422
+        `CONNECTION_NOT_ACCEPTED` otherwise). Attach the invoice with the next call.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage, amount, paidOn, method]
+              additionalProperties: false
+              properties:
+                stage: { type: string, enum: [registration, success] }
+                amount: { type: integer, minimum: 1, maximum: 100000000 }
+                paidOn: { type: string, format: date }
+                method: { type: string, enum: [cash, bank, bkash, other] }
+                reference: { type: string, maxLength: 60 }
+                note: { type: string, maxLength: 300 }
+                connectionId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentRow' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '422': { description: The proposal is not an accepted one of this client (`CONNECTION_NOT_ACCEPTED`). }
+
+  /api/v1/staff/clients/{profileId}/agreements/{stage}:
+    put:
+      tags: [Payments]
+      summary: Set the amount agreed with a client for a stage
+      description: Admin or the client's agent. A record of what was agreed, not a charge. Zero is allowed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: stage, in: path, required: true, schema: { type: string, enum: [registration, success] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              additionalProperties: false
+              properties:
+                amount: { type: integer, minimum: 0, maximum: 100000000 }
+      responses:
+        '200':
+          description: The updated ledger.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLedger' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+
+  /api/v1/staff/clients/{profileId}/payments/{paymentId}/invoice:
+    put:
+      tags: [Payments]
+      summary: Attach the invoice file to a payment
+      description: |
+        The request body is the file itself, sent with its own content type (application/pdf, image/jpeg
+        or image/png), up to 5 MB, and its first bytes must match that type (422 `INVOICE_INVALID`).
+        `X-File-Name` may carry the name. Once only: 409 `INVOICE_ALREADY_ATTACHED`. Not for a cancelled
+        payment (409 `PAYMENT_VOIDED`).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/pdf: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: The payment with its invoice.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentRow' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '413': { description: The file is over 5 MB. }
+        '422': { description: The file is not what it says it is. }
+    get:
+      tags: [Payments]
+      summary: Open the invoice file of a payment (staff)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The file.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        '404': { description: No such payment or invoice. }
+
+  /api/v1/staff/clients/{profileId}/payments/{paymentId}/void:
+    post:
+      tags: [Payments]
+      summary: Cancel a payment (admin only)
+      description: |
+        The record stays, flagged, with the reason. It no longer counts toward what was paid. 409
+        `PAYMENT_ALREADY_VOIDED` the second time.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200':
+          description: The updated ledger.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLedger' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: Already cancelled. }
+
+  /api/v1/admin/reports/summary:
+    get:
+      tags: [Reports]
+      summary: The admin's overview (admin only)
+      description: |
+        People, reviews waiting, proposals by stage and the funnel, twelve months of registrations and
+        proposals, each agent's figures, and the money recorded in the office. Money is for one year:
+        the financial year (July to June, named by the year it starts in) or the calendar year. Months
+        are Bangladesh time. Cancelled payments never count. Limited to 30 a minute.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: basis, in: query, schema: { type: string, enum: [fiscal, calendar], default: fiscal } }
+        - { name: year, in: query, description: 'The year the figures for money are for. Defaults to the current one.', schema: { type: integer, minimum: 2000, maximum: 2100 } }
+      responses:
+        '200':
+          description: The overview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SummaryReport' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+
+  /api/v1/admin/reports/proposals:
+    get:
+      tags: [Reports]
+      summary: Every proposal in the agency (admin only)
+      description: Newest first, one page at a time. Search matches the member code or name of either side.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [in_review, pending, accepted, declined, withdrawn] } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 60 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: after, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProposalReportPage' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+
+  /api/v1/admin/reports/network:
+    get:
+      tags: [Reports]
+      summary: Who is connected with whom (admin only)
+      description: |
+        With `client`, that client's proposals (open and answered, not withdrawn) around them. Without it,
+        the agency's accepted proposals, the newest 60 (`truncated` says more exist).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: client, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The people and the proposals between them.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NetworkReport' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+
+  /api/v1/me/chats:
+    get:
+      tags: [Chat]
+      summary: My conversations (members)
+      description: |
+        Every conversation, newest activity first, with the other person (a name only where the reader may see names), the unread count and the latest message. `enabled` is false when the platform owner turned chat off for the agency.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatList' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/connections/{connectionId}/chat:
+    post:
+      tags: [Chat]
+      summary: Ask to chat on an accepted proposal
+      description: |
+        Both sides must agree. If the other person already asked, the chat starts. A declined or ended conversation can be asked for again; a blocked one cannot. The other person needs a login and a published profile. 20 a minute.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSummary' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/chats/{chatId}/messages:
+    get:
+      tags: [Chat]
+      summary: Messages of a conversation, newest first
+      description: |
+        Opening the first page marks the other person's messages as read. 30 to a page.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatMessagePage' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+    post:
+      tags: [Chat]
+      summary: Send a message
+      description: |
+        Text up to 1000 characters. Phone numbers, emails and links are hidden before it is stored (`masked` says so). Only while the conversation is active and both profiles are published. 30 a minute.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], additionalProperties: false, properties: { body: { type: string, minLength: 1, maxLength: 1000 } } }
+      responses:
+        '201':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatMessage' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/chats/{chatId}/respond:
+    post:
+      tags: [Chat]
+      summary: Accept or decline a request to chat
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [accept], additionalProperties: false, properties: { accept: { type: boolean } } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSummary' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/chats/{chatId}/end:
+    post:
+      tags: [Chat]
+      summary: End a conversation
+      description: |
+        Either person may end it. It can be asked for again.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSummary' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/chats/{chatId}/block:
+    post:
+      tags: [Chat]
+      summary: End a conversation and block the other person
+      description: |
+        The other person cannot ask to chat on this proposal again.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSummary' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/chats/{chatId}/report:
+    post:
+      tags: [Chat]
+      summary: Report a conversation
+      description: |
+        Tells the admins and the agents of both people. Staff may then read the conversation (each reading is logged). 10 a minute.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], additionalProperties: false, properties: { reason: { type: string, minLength: 3, maxLength: 500 } } }
+      responses:
+        '204': { description: Done. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/me/chats/{chatId}/chaperone:
+    post:
+      tags: [Chat]
+      summary: Invite my own agent into the conversation
+      description: |
+        Both people then see that the agent is in it. 409 `NO_AGENT` when nobody looks after the person.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSummary' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+    delete:
+      tags: [Chat]
+      summary: Take my agent out of the conversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSummary' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/staff/clients/{profileId}/chats:
+    get:
+      tags: [Chat]
+      summary: A client's conversations (staff)
+      description: |
+        Admin, or the agent who looks after the client. That a conversation exists, how active it is and any open report; never the text. `canRead` says whether this staff member may open it (reported, or invited in).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/StaffChatRow' } }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/staff/chats/{chatId}/messages:
+    get:
+      tags: [Chat]
+      summary: Read a conversation (staff)
+      description: |
+        Only when it has an open report, or this staff member was invited in; otherwise 403 `CHAT_NOT_SHARED`. The first page is written to the access log.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffMessagePage' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/staff/chats/{chatId}/end:
+    post:
+      tags: [Chat]
+      summary: End a conversation (staff)
+      description: |
+        Ends it for both people and closes its reports.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { note: { type: string, maxLength: 500 } } }
+      responses:
+        '204': { description: Done. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
+
+  /api/v1/staff/chats/{chatId}/resolve:
+    post:
+      tags: [Chat]
+      summary: Close the reports on a conversation without ending it
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { note: { type: string, maxLength: 500 } } }
+      responses:
+        '204': { description: Done. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/TenantNotFound' }
+        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
 
   /api/v1/auth/register:
     post:
@@ -2340,6 +3536,22 @@ paths:
             schema: { type: integer, minimum: 1, maximum: 50, default: 20 },
           }
         - { name: after, in: query, schema: { type: string } }
+        - {
+            name: group,
+            in: query,
+            description: 'Narrow to a group of lines: requests (new, forwarded, in review, withdrawn), answers (accepted, declined), contact (shared details), reviews (profile, photo and CV reviews), updates (released matches, assignments, staff joined), chats (requests to chat, new messages, reports).',
+            schema: { type: string, enum: [requests, answers, contact, reviews, updates, chats] },
+          }
+        - { name: read, in: query, schema: { type: string, enum: [read, unread] } }
+        - { name: from, in: query, description: 'First day, YYYY-MM-DD, Bangladesh time.', schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - { name: to, in: query, description: 'Last day, YYYY-MM-DD, Bangladesh time, included.', schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - {
+            name: q,
+            in: query,
+            description: 'Search by member code, or by name when the reader may see names. Matches the person the line is about and, for staff, the client it is for.',
+            schema: { type: string, minLength: 1, maxLength: 60 },
+          }
+        - { name: client, in: query, description: 'Staff only: one client''s profile id. Ignored for members.', schema: { type: string, format: uuid } }
       responses:
         '200':
           description: One page.
@@ -3452,6 +4664,631 @@ components:
       schema: { type: string }
 
   schemas:
+    ChatPerson:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: [string, 'null'], description: Null when the reader may not see names. }
+    ChatSummary:
+      type: object
+      additionalProperties: false
+      required: [id, status, endReason, requestedBy, other, requestedAt, acceptedAt, endedAt, lastMessageAt, unread, preview, canSend, chaperones]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [requested, active, ended] }
+        endReason: { type: [string, 'null'], enum: [declined, ended_by_member, blocked, profile_unavailable, ended_by_staff, account_deleted, null] }
+        requestedBy: { type: string, enum: [me, them] }
+        other: { $ref: '#/components/schemas/ChatPerson' }
+        requestedAt: { type: string, format: date-time }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
+        lastMessageAt: { type: [string, 'null'], format: date-time }
+        unread: { type: integer }
+        preview: { type: [string, 'null'] }
+        canSend: { type: boolean, description: Active, chat on for the agency and both profiles published. }
+        chaperones:
+          type: array
+          description: Staff invited into the conversation. Both people see this.
+          items:
+            type: object
+            additionalProperties: false
+            required: [accountId, name, invitedByMe]
+            properties:
+              accountId: { type: string, format: uuid }
+              name: { type: string }
+              invitedByMe: { type: boolean }
+    ChatList:
+      type: object
+      additionalProperties: false
+      required: [enabled, items]
+      properties:
+        enabled: { type: boolean }
+        items: { type: array, items: { $ref: '#/components/schemas/ChatSummary' } }
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      required: [id, mine, body, masked, createdAt, read]
+      properties:
+        id: { type: string, format: uuid }
+        mine: { type: boolean }
+        body: { type: string }
+        masked: { type: boolean, description: Something in the text was hidden. }
+        createdAt: { type: string, format: date-time }
+        read: { type: boolean }
+    ChatMessagePage:
+      type: object
+      additionalProperties: false
+      required: [chat, items, next]
+      properties:
+        chat: { $ref: '#/components/schemas/ChatSummary' }
+        items: { type: array, items: { $ref: '#/components/schemas/ChatMessage' } }
+        next: { type: [string, 'null'] }
+    StaffChatRow:
+      type: object
+      additionalProperties: false
+      required: [id, status, endReason, other, requestedAt, lastMessageAt, messageCount, openReport, canRead, invited]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [requested, active, ended] }
+        endReason: { type: [string, 'null'] }
+        other:
+          type: object
+          additionalProperties: false
+          required: [profileId, memberCode, fullName]
+          properties:
+            profileId: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        requestedAt: { type: string, format: date-time }
+        lastMessageAt: { type: [string, 'null'], format: date-time }
+        messageCount: { type: integer }
+        openReport:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, reason, createdAt, byClient]
+              properties:
+                id: { type: string, format: uuid }
+                reason: { type: string }
+                createdAt: { type: string, format: date-time }
+                byClient: { type: boolean, description: The client of the page made the report, not the other person. }
+        canRead: { type: boolean }
+        invited: { type: boolean }
+    StaffMessagePage:
+      type: object
+      additionalProperties: false
+      required: [chat, people, items, next]
+      properties:
+        chat:
+          type: object
+          additionalProperties: false
+          required: [id, status, endReason]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [requested, active, ended] }
+            endReason: { type: [string, 'null'] }
+        people:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [profileId, memberCode, fullName]
+            properties:
+              profileId: { type: string, format: uuid }
+              memberCode: { type: string }
+              fullName: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, sender, body, createdAt]
+            properties:
+              id: { type: string, format: uuid }
+              sender: { type: string, format: uuid, description: The profile id of the person who wrote it. }
+              body: { type: string }
+              createdAt: { type: string, format: date-time }
+        next: { type: [string, 'null'] }
+    ProposalStatus:
+      type: string
+      enum: [in_review, pending, accepted, declined, withdrawn]
+    AgentReport:
+      type: object
+      additionalProperties: false
+      required: [id, name, role, clients, activeClients, matchedClients, requestsReviewed, averageReviewHours, waitingForReview, collected]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string, enum: [admin, agent] }
+        clients: { type: integer }
+        activeClients: { type: integer }
+        matchedClients: { type: integer }
+        requestsReviewed: { type: integer }
+        averageReviewHours: { type: [number, 'null'], description: Hours a request waited for this person's review, on average. }
+        waitingForReview: { type: integer }
+        collected: { type: integer, description: Whole taka collected in the chosen year. }
+    ClientMoney:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName, agentName, agreed, paid]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        agentName: { type: [string, 'null'] }
+        agreed: { type: integer, description: Both stages together, whole taka. }
+        paid: { type: integer, description: Payments that are not cancelled. }
+    SummaryReport:
+      type: object
+      additionalProperties: false
+      required: [basis, year, years, people, waiting, proposals, funnel, months, agents, money]
+      properties:
+        basis: { type: string, enum: [fiscal, calendar] }
+        year: { type: integer }
+        years: { type: array, items: { type: integer } }
+        people:
+          type: object
+          additionalProperties: false
+          required: [members, clients, assistedClients, agents, admins, profilesByStatus]
+          properties:
+            members: { type: integer, description: Accounts of members who sign in. }
+            clients: { type: integer, description: Every profile, with or without a login. }
+            assistedClients: { type: integer }
+            agents: { type: integer }
+            admins: { type: integer }
+            profilesByStatus: { type: object, additionalProperties: { type: integer } }
+        waiting:
+          type: object
+          additionalProperties: false
+          required: [profileReviews, proposalReviews, cvs]
+          properties:
+            profileReviews: { type: integer }
+            proposalReviews: { type: integer }
+            cvs: { type: integer }
+        proposals:
+          type: object
+          additionalProperties: false
+          required: [total, byStatus, contactShared, bothShared]
+          properties:
+            total: { type: integer }
+            byStatus:
+              type: object
+              additionalProperties: false
+              required: [in_review, pending, accepted, declined, withdrawn]
+              properties:
+                in_review: { type: integer }
+                pending: { type: integer }
+                accepted: { type: integer }
+                declined: { type: integer }
+                withdrawn: { type: integer }
+            contactShared: { type: integer, description: Accepted proposals where at least one side shared contact details. }
+            bothShared: { type: integer }
+        funnel:
+          type: object
+          additionalProperties: false
+          required: [made, accepted, contactShared, matchedClients]
+          properties:
+            made: { type: integer, description: Proposals not withdrawn. }
+            accepted: { type: integer }
+            contactShared: { type: integer }
+            matchedClients: { type: integer, description: Clients marked as matched. }
+        months:
+          type: array
+          description: The last twelve months, the current one last.
+          items:
+            type: object
+            additionalProperties: false
+            required: [month, registrations, proposals, accepted]
+            properties:
+              month: { type: string, example: '2026-10' }
+              registrations: { type: integer }
+              proposals: { type: integer }
+              accepted: { type: integer }
+        agents:
+          type: array
+          items: { $ref: '#/components/schemas/AgentReport' }
+        money:
+          type: object
+          additionalProperties: false
+          required: [yearly, monthly, yearTotals, agreedTotal, paidTotal, clients]
+          properties:
+            yearly:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [year, total]
+                properties:
+                  year: { type: integer }
+                  total: { type: integer }
+            monthly:
+              type: array
+              description: The twelve months of the chosen year, in order.
+              items:
+                type: object
+                additionalProperties: false
+                required: [month, registration, success]
+                properties:
+                  month: { type: string }
+                  registration: { type: integer }
+                  success: { type: integer }
+            yearTotals:
+              type: object
+              additionalProperties: false
+              required: [registration, success]
+              properties:
+                registration: { type: integer }
+                success: { type: integer }
+            agreedTotal: { type: integer, description: All time. }
+            paidTotal: { type: integer, description: All time. }
+            clients:
+              type: array
+              description: Clients with an agreement or a payment, most paid first, at most 100.
+              items: { $ref: '#/components/schemas/ClientMoney' }
+    ProposalSide:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName, gender, agentName]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        gender: { type: [string, 'null'] }
+        agentName: { type: [string, 'null'] }
+    ProposalReportRow:
+      type: object
+      additionalProperties: false
+      required: [id, status, createdAt, respondedAt, from, to, fromSharedContact, toSharedContact]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ProposalStatus' }
+        createdAt: { type: string, format: date-time }
+        respondedAt: { type: [string, 'null'], format: date-time }
+        from: { $ref: '#/components/schemas/ProposalSide' }
+        to: { $ref: '#/components/schemas/ProposalSide' }
+        fromSharedContact: { type: boolean }
+        toSharedContact: { type: boolean }
+    ProposalReportPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ProposalReportRow' } }
+        next: { type: [string, 'null'] }
+    NetworkReport:
+      type: object
+      additionalProperties: false
+      required: [centre, nodes, edges, truncated]
+      properties:
+        centre: { type: [string, 'null'], format: uuid }
+        nodes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [profileId, memberCode, fullName, gender]
+            properties:
+              profileId: { type: string, format: uuid }
+              memberCode: { type: string }
+              fullName: { type: string }
+              gender: { type: [string, 'null'] }
+        edges:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, from, to, status]
+            properties:
+              id: { type: string, format: uuid }
+              from: { type: string, format: uuid }
+              to: { type: string, format: uuid }
+              status: { $ref: '#/components/schemas/ProposalStatus' }
+        truncated: { type: boolean }
+    PaymentRow:
+      type: object
+      additionalProperties: false
+      required: [id, stage, amount, paidOn, method, reference, note, connection, receivedBy, createdAt, invoice, voided]
+      properties:
+        id: { type: string, format: uuid }
+        stage: { type: string, enum: [registration, success] }
+        amount: { type: integer, description: Whole taka. }
+        paidOn: { type: string, format: date }
+        method: { type: string, enum: [cash, bank, bkash, other] }
+        reference: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        connection:
+          description: The accepted proposal a success fee came from.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, memberCode, fullName]
+              properties:
+                id: { type: string, format: uuid }
+                memberCode: { type: string }
+                fullName: { type: string }
+        receivedBy: { type: string, description: The staff member who recorded it. }
+        createdAt: { type: string, format: date-time }
+        invoice:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [name, mime, size]
+              properties:
+                name: { type: string }
+                mime: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+                size: { type: integer }
+        voided:
+          description: Set when an admin cancelled it. The reason is null for a member.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [at, reason]
+              properties:
+                at: { type: string, format: date-time }
+                reason: { type: [string, 'null'] }
+    PaymentStageSummary:
+      type: object
+      additionalProperties: false
+      required: [agreed, paid, balance]
+      properties:
+        agreed: { type: [integer, 'null'], description: The amount agreed. Null while none is set. }
+        paid: { type: integer, description: Payments that are not cancelled. }
+        balance: { type: [integer, 'null'], description: Agreed less paid. Null while nothing is agreed. }
+    DocumentType:
+      type: string
+      enum: [nid, passport, birth_certificate, driving_license]
+    VerificationState:
+      type: object
+      additionalProperties: false
+      required: [verified, request]
+      properties:
+        verified:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [at]
+              properties:
+                at: { type: string, format: date-time }
+            - type: 'null'
+        request:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [id, docType, status, submittedAt, decidedAt, note, hasFile]
+              properties:
+                id: { type: string, format: uuid }
+                docType: { $ref: '#/components/schemas/DocumentType' }
+                status: { type: string, enum: [pending, approved, rejected, withdrawn] }
+                submittedAt: { type: string, format: date-time }
+                decidedAt: { type: [string, 'null'], format: date-time }
+                note: { type: [string, 'null'] }
+                hasFile: { type: boolean }
+            - type: 'null'
+    VerificationWaiting:
+      type: object
+      additionalProperties: false
+      required: [id, profile, docType, submittedAt, submittedBy]
+      properties:
+        id: { type: string, format: uuid }
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        docType: { $ref: '#/components/schemas/DocumentType' }
+        submittedAt: { type: string, format: date-time }
+        submittedBy: { type: string }
+    MeetingKind:
+      type: string
+      enum: [first_meeting, family_meeting, visit, call, other]
+    MeetingInput:
+      type: object
+      additionalProperties: false
+      required: [scheduledAt, kind]
+      properties:
+        scheduledAt: { type: string, format: date-time, description: With a time zone offset. }
+        kind: { $ref: '#/components/schemas/MeetingKind' }
+        place: { type: string, maxLength: 200 }
+        note: { type: string, maxLength: 500 }
+    MeetingPerson:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName, managed, feedback]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        managed: { type: boolean, description: The staff member looks after this side; only then is feedback present. }
+        feedback:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [verdict, note, recordedAt]
+              properties:
+                verdict: { type: string, enum: [interested, undecided, not_interested] }
+                note: { type: [string, 'null'] }
+                recordedAt: { type: string, format: date-time }
+            - type: 'null'
+    MeetingRow:
+      type: object
+      additionalProperties: false
+      required: [id, connectionId, scheduledAt, kind, place, note, status, createdBy, awaitingOutcome, people]
+      properties:
+        id: { type: string, format: uuid }
+        connectionId: { type: string, format: uuid }
+        scheduledAt: { type: string, format: date-time }
+        kind: { $ref: '#/components/schemas/MeetingKind' }
+        place: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        status: { type: string, enum: [scheduled, done, cancelled] }
+        createdBy: { type: string }
+        awaitingOutcome: { type: boolean, description: Still scheduled although its time has passed. }
+        people:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: '#/components/schemas/MeetingPerson' }
+    MemberMeeting:
+      type: object
+      additionalProperties: false
+      required: [id, scheduledAt, kind, place, note, status, other]
+      properties:
+        id: { type: string, format: uuid }
+        scheduledAt: { type: string, format: date-time }
+        kind: { $ref: '#/components/schemas/MeetingKind' }
+        place: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        status: { type: string, enum: [scheduled, done, cancelled] }
+        other:
+          type: object
+          additionalProperties: false
+          required: [profileId, memberCode, fullName]
+          properties:
+            profileId: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+    NoteList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, body, author, createdAt]
+            properties:
+              id: { type: string, format: uuid }
+              body: { type: string }
+              author: { type: string }
+              createdAt: { type: string, format: date-time }
+    FollowUp:
+      type: object
+      additionalProperties: false
+      required: [id, profile, dueOn, text, assignedTo, due, done]
+      properties:
+        id: { type: string, format: uuid }
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        dueOn: { type: string, format: date }
+        text: { type: string }
+        assignedTo: { type: string }
+        due: { type: boolean, description: Due today or earlier (Bangladesh time) and not done. }
+        done:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [at, by]
+              properties:
+                at: { type: string, format: date-time }
+                by: { type: string }
+            - type: 'null'
+    FollowUpList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FollowUp' }
+    Agenda:
+      type: object
+      additionalProperties: false
+      required: [meetings, followUps, attention]
+      properties:
+        meetings:
+          type: array
+          items: { $ref: '#/components/schemas/MeetingRow' }
+        followUps:
+          type: array
+          items: { $ref: '#/components/schemas/FollowUp' }
+        attention: { type: integer, description: Overdue follow-ups plus meetings waiting for an outcome. }
+    GuardianInvite:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, locale]
+      properties:
+        email: { type: string, format: email }
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        locale: { type: string, enum: [bn, en] }
+        clientAgreed: { type: boolean, description: For a client with no login, the agent confirms the client agreed. }
+    GuardianState:
+      type: object
+      additionalProperties: false
+      required: [state, displayName, email, expiresAt, consentBasis, consentedAt, clientHasLogin]
+      properties:
+        state: { type: string, enum: [none, awaiting_client, invited, expired, active] }
+        displayName: { type: [string, 'null'] }
+        email: { type: [string, 'null'] }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        consentBasis: { type: [string, 'null'], enum: [client_in_app, agent_recorded, null] }
+        consentedAt: { type: [string, 'null'], format: date-time }
+        clientHasLogin: { type: boolean }
+    GuardianPreview:
+      type: object
+      additionalProperties: false
+      required: [displayName, clientName, locale]
+      properties:
+        displayName: { type: string }
+        clientName: { type: string }
+        locale: { type: string, enum: [bn, en] }
+    WardSummary:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+    GuardianAdvice:
+      type: object
+      additionalProperties: false
+      required: [advice, note, at]
+      properties:
+        advice: { type: string, enum: [supportive, concerned] }
+        note: { type: [string, 'null'] }
+        at: { type: string, format: date-time }
+    PaymentLedger:
+      type: object
+      additionalProperties: false
+      required: [profile, stages, payments]
+      properties:
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        stages:
+          type: object
+          additionalProperties: false
+          required: [registration, success]
+          properties:
+            registration: { $ref: '#/components/schemas/PaymentStageSummary' }
+            success: { $ref: '#/components/schemas/PaymentStageSummary' }
+        payments:
+          type: array
+          description: Newest first, cancelled ones included.
+          items: { $ref: '#/components/schemas/PaymentRow' }
     Tenant:
       type: object
       required: [id, name, locale, content]
@@ -3532,7 +5369,7 @@ components:
       properties:
         id: { type: string }
         agencyId: { type: string }
-        role: { type: string, enum: [admin, agent, member] }
+        role: { type: string, enum: [admin, agent, member, guardian] }
         displayName: { type: string }
 
     Tokens:
@@ -4351,10 +6188,12 @@ components:
           forward,
           reverse,
           proposedAt,
+          connection,
         ]
       properties:
         candidateId: { type: string, format: uuid }
         memberCode: { type: string }
+        verified: { type: boolean, description: The profile carries the Verified mark. Always present. }
         fullName: { type: string }
         age: { type: [integer, 'null'] }
         professionCode: { type: [string, 'null'] }
@@ -4376,6 +6215,16 @@ components:
           description: The client measured against the candidate's own preferences.
           items: { $ref: '#/components/schemas/CriterionResult' }
         proposedAt: { type: string, format: date-time }
+        connection:
+          description: The proposal between the client and this candidate, if there is one (a withdrawn one does not count). direction says who asked.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [status, direction]
+              properties:
+                status: { type: string, enum: [in_review, pending, accepted, declined] }
+                direction: { type: string, enum: [sent, received] }
     VisibleField:
       type: string
       description: A field of a released profile that staff may show to a client.
@@ -4450,13 +6299,14 @@ components:
     MatchItem:
       type: object
       additionalProperties: false
-      required: [candidateId, memberCode, connection]
+      required: [candidateId, memberCode, verified, connection]
       description: |
         A released profile. Only the fields staff chose are present; every other key is absent.
         Contact details and internal notes are never present.
       properties:
         candidateId: { type: string, format: uuid }
         memberCode: { type: string }
+        verified: { type: boolean, description: The profile carries the Verified mark. Always present. }
         fullName: { type: string }
         age: { type: [integer, 'null'] }
         hasPhoto: { type: boolean }
@@ -4562,6 +6412,7 @@ components:
           iSharedContact,
           theySharedContact,
           note,
+          guardianAdvice,
           profile,
         ]
       properties:
@@ -4577,6 +6428,8 @@ components:
             type: [string, 'null'],
             description: The note the asker added. Present only for the person asked.,
           }
+        guardianAdvice:
+          anyOf: [{ $ref: '#/components/schemas/GuardianAdvice' }, { type: 'null' }]
         profile: { $ref: '#/components/schemas/MatchItem' }
     ConnectionPage:
       type: object
@@ -4655,7 +6508,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [id, kind, createdAt, read, connectionId, what, decision, staff, count, forProfileId, about]
+        [id, kind, createdAt, read, connectionId, what, decision, staff, count, chatId, forProfileId, about]
       properties:
         id: { type: string, format: uuid }
         kind:
@@ -4677,6 +6530,14 @@ components:
                 review_decided,
                 candidates_released,
                 client_assigned,
+                chat_requested,
+                chat_accepted,
+                chat_message,
+                chat_reported,
+                chat_invited,
+                meeting_update,
+                guardian_request,
+                guardian_advice,
               ],
           }
         createdAt: { type: string, format: date-time }
@@ -4698,6 +6559,7 @@ components:
             enum: [approved, rejected, null],
             description: 'For a decision on something sent for review: approved or rejected.',
           }
+        chatId: { type: [string, 'null'], format: uuid, description: For a chat line, the conversation. }
         count: { type: [integer, 'null'], description: 'For a release: how many profiles.' }
         staff:
           type: [object, 'null']
@@ -4741,6 +6603,7 @@ components:
           respondedAt,
           clientSharedContact,
           otherSharedContact,
+          guardianAdvice,
           other,
         ]
       properties:
@@ -4751,6 +6614,8 @@ components:
         respondedAt: { type: [string, 'null'], format: date-time }
         clientSharedContact: { type: boolean }
         otherSharedContact: { type: boolean }
+        guardianAdvice:
+          anyOf: [{ $ref: '#/components/schemas/GuardianAdvice' }, { type: 'null' }]
         other:
           type: object
           additionalProperties: false
@@ -4819,6 +6684,7 @@ components:
           assignedAgent,
           districtCode,
           hasPendingReview,
+          verified,
         ]
       properties:
         id: { type: string, format: uuid }
@@ -4831,6 +6697,7 @@ components:
         assignedAgent: { anyOf: [{ $ref: '#/components/schemas/StaffRef' }, { type: 'null' }] }
         districtCode: { type: [string, 'null'] }
         hasPendingReview: { type: boolean }
+        verified: { type: boolean }
     ClientPage:
       type: object
       required: [items, next]

@@ -24,6 +24,7 @@ export function mapClientItem(value: unknown): ClientListItem {
         : null,
     districtCode: row.current_district_code,
     hasPendingReview: row.has_pending_review,
+    verified: row.verified,
   };
 }
 

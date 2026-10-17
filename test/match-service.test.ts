@@ -35,6 +35,7 @@ function fake(start: Start = {}) {
   }[] = [];
   const unit: MatchUnit = {
     ownProfile: async () => (start.own === undefined ? { id: OWN, status: 'active' } : start.own),
+    guardedProfile: async () => null,
     settings: async () =>
       start.visible === null
         ? null
@@ -60,6 +61,7 @@ const row = (n: number): MatchItem => ({
   candidateId: `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
   memberCode: `M${n}`,
   position: `2026-10-10T08:00:0${n}.000000Z`,
+  verified: false,
   connection: null,
   fullName: `P${n}`,
 });

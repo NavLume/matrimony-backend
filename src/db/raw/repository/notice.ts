@@ -7,7 +7,7 @@ import type { Transaction } from '../../config/database.js';
  */
 
 /** What was sent for review: shown in the staff member's inbox line. */
-export type ReviewWhat = 'profile' | 'edit' | 'photo' | 'cv';
+export type ReviewWhat = 'profile' | 'edit' | 'photo' | 'cv' | 'verification';
 
 /**
  * Tells the staff who can review a profile that something waits for them: the agent who looks after

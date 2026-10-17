@@ -23,6 +23,7 @@ export const connectionPageResponse = (page: ConnectionPage) => ({
     iSharedContact: row.iShared,
     theySharedContact: row.theyShared,
     note: row.note,
+    guardianAdvice: row.guardianAdvice,
     profile: matchItemResponse(row.profile),
   })),
   next: page.next,
@@ -38,6 +39,7 @@ export const notificationPageResponse = (page: NotificationPage) => ({
     what: n.what,
     decision: n.decision,
     count: n.count,
+    chatId: n.chatId,
     staff: n.staff,
     forProfileId: n.forProfileId,
     about: n.about
@@ -61,6 +63,7 @@ export const staffConnectionsResponse = (rows: StaffConnectionRow[]) => ({
     respondedAt: row.respondedAt,
     clientSharedContact: row.clientShared,
     otherSharedContact: row.otherShared,
+    guardianAdvice: row.guardianAdvice,
     other: {
       profileId: row.other.profileId,
       memberCode: row.other.memberCode,

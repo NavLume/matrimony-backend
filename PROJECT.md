@@ -136,6 +136,16 @@ These are the file's "Required cross-cutting acceptance" items, plus launch work
 
 The owner wants each agency's admin to configure fields, visible data and payment options. It is **skipped for now**. Before any work: the friend must say whether "tenant-facing UI" in the launch file excludes an agency-admin settings screen, and whether launch can start with the platform owner configuring each agency. Phase 3 uses fixed field lists kept in one place so they can later become per-agency definitions.
 
+### Friend feedback of 16 October 2026 (built 17 October unless noted)
+
+- **Inbox filters:** `GET /api/v1/me/notifications` takes `group`, `read`, `from`, `to`, `q` and (staff) `client`. The search matches member codes, and names only where the reader may see names; LIKE characters in the search are escaped.
+- **Candidates include everyone connected:** accepting a connection releases both profiles to each other in the same transaction (`releaseBoth`); migration 030 added the pairs accepted earlier. The candidate list item has `connection` (`status`, `direction`). The word Connections became Proposals in the frontend.
+- **Payments moved outside the platform (decided, not built):** no plans, pricing page, plan limits or bKash checkout. Phase 4 is now: agreements (Registration fee before a match, Success fee after) and payment records with an invoice file (PDF, JPG or PNG up to 5 MB), cancelled by an admin with a reason and never deleted; the client sees their own history and balance; and the admin dashboard with proposal, agent and money charts (fiscal year July to June). See the trackers and `friend-feedback-2026-10-17` in memory.
+
+- **Payments recorded in the office (built 17 October 2026):** migration 031 (`client_agreements`, `client_payments`; the runtime role may add rows, set an agreement, attach an invoice once and cancel a payment, never delete). Staff of the client (or an admin) set the agreed amount per stage (`registration`, `success`), record payments (whole taka, date not in the future, method, optional receipt number, note, accepted proposal) and attach the invoice (PDF, JPG or PNG up to 5 MB, first bytes checked, stored like CVs). Only an admin cancels a payment, with a reason; the record stays. A member sees their own ledger without the cancel reason. Endpoints under `/api/v1/staff/clients/{profileId}/payments|agreements` and `/api/v1/me/payments`. Code: `service/payment-service.ts`, `controller/payment-controller.ts`, `db/raw/repository/payment-repository.ts`. **Not built:** the admin dashboard reports (slice C). Dev database holds test payments for Rahim.
+
+- **Admin reports (built 17 October 2026):** read-only, admin only. `GET /api/v1/admin/reports/summary?basis=&year=` (people, reviews waiting, proposals by stage and the funnel, twelve months, each agent's figures, and the money of one financial year July to June or calendar year, plus agreed and paid per client), `/proposals` (every proposal, filter and search, paged) and `/network?client=` (one client's proposals or the newest 60 accepted). Cancelled payments never count. Code: `service/report-service.ts`, `db/raw/repository/report-repository.ts`, `controller/report-controller.ts`; test `test/report-service.test.ts`.
+
 ### Mobile app groundwork (started 14 October 2026)
 
 One app for every agency; the person types an agency code. Built so far, all additions beside the website:
@@ -200,6 +210,16 @@ Not built in authentication: a real SMS gateway and a real email service, the pr
 - Rate limits live in Redis and survive test runs: integration tests use random client addresses for that reason.
 - Keep the frontend's stand-in backend (`tests/e2e/stub-backend.mjs`) in step with `openapi.yaml` in the same change.
 - Long shell heredocs with quotes break easily on Windows; write scripts to a file instead.
+
+**Chat (17 October 2026):** a client-to-client text chat after an accepted proposal (migration 032, `chat-service.ts`, `chat-controller.ts`, hourly `chat-maintenance-scheduler.ts`). Both people must agree. Private: staff see only that a chat exists and how active it is, and read it only when it is reported or a person invites their own agent (every reading is logged and visible). Phones, emails and links are masked to `[hidden]`. Chats end when a profile is unpublished or an account is deleted; messages are erased 90 days after. Assisted clients with no login are not eligible. The platform owner switches chat off per agency with `UPDATE agencies SET chat_enabled = false`. Verified: `test/chat.test.ts` (6 tests), a real-backend smoke run and a two-member browser run. Not run: the full test suites.
+
+**Identity verification (17 October 2026):** a client or the agent of an assisted client sends one identity document (migration 033, `verification-service.ts`); staff who look after the client approve or reject it. An approved profile has `verified_at` and shows a Verified mark to other members (`verified` on match, proposal and client list items). The document is private and is deleted from storage when the request is decided or withdrawn; opening it is logged as an event. Nobody decides their own submission except an admin. Open: a change of name or birth date does not remove the mark yet.
+
+**Meetings, notes and follow-ups (17 October 2026):** staff set meetings for accepted proposals, record what each side said after (private to that side's staff), keep private client notes and follow-ups, and read one agenda (migration 034, `meeting-service.ts`). Both people are told when a meeting is set or changed (`meeting_update` notification). A client sees only time and place. Time is entered and shown in Bangladesh time.
+
+Verified for both: real-backend smoke runs and browser runs with two members and an agent; the existing targeted tests pass. Not done: dedicated automated tests for these two services, the full test suites.
+
+**Guardian (17 October 2026):** a client's parent or relative gets a login (role `guardian`, migration 035, `guardian-service.ts`, `guardian-process.ts`) to see the client's proposals and give advice only. One guardian per profile, invited by email by the agent; the client must agree first (in the app for a client who signs in, recorded by the agent for one with no login). The guardian reads through the profile they look after (`guardedProfile`), with the same visible fields as the client, and is refused on chat, payments, profile, matches list, connecting and answering. Advice (`guardian_advice`) is shown to the client, the agent and the guardian. Verified: 646 unit tests pass, real-backend and browser runs. Not done: a dedicated automated test file for the guardian service, the full integration and Playwright runs.
 
 ## 9. Where to read next
 

@@ -75,6 +75,8 @@ export interface ClientListItem {
   districtCode: string | null;
   /** A request is waiting for review on this profile. */
   hasPendingReview: boolean;
+  /** The profile carries the Verified mark. */
+  verified: boolean;
 }
 
 export interface ClientPage {

@@ -50,6 +50,35 @@ const BY_KIND: Record<string, Record<Locale, string>> = {
     bn: 'একটি অনুরোধ আপনার পর্যালোচনার অপেক্ষায় আছে।',
     en: 'A request is waiting for your review.',
   },
+  'guardian.requested': {
+    bn: 'আপনার এজেন্সি একজন অভিভাবক যুক্ত করার জন্য আপনার সম্মতি চেয়েছে।',
+    en: 'Your agency asked for your agreement to add a guardian.',
+  },
+  'guardian.advice': {
+    bn: 'অভিভাবক একটি প্রস্তাবে পরামর্শ দিয়েছেন।',
+    en: 'Your guardian gave advice on a proposal.',
+  },
+  'meeting.update': {
+    bn: 'একটি সাক্ষাতের সময় ঠিক বা পরিবর্তন করা হয়েছে।',
+    en: 'A meeting was set or changed.',
+  },
+  'chat.requested': {
+    bn: 'কেউ আপনার সঙ্গে কথা বলতে চেয়েছেন।',
+    en: 'Someone would like to chat with you.',
+  },
+  'chat.accepted': {
+    bn: 'আপনার কথা বলার অনুরোধ গ্রহণ করা হয়েছে।',
+    en: 'Your request to chat was accepted.',
+  },
+  'chat.message': { bn: 'আপনার একটি নতুন বার্তা আছে।', en: 'You have a new message.' },
+  'chat.reported': {
+    bn: 'একটি কথোপকথন নিয়ে অভিযোগ এসেছে।',
+    en: 'A conversation was reported.',
+  },
+  'chat.invited': {
+    bn: 'আপনাকে একটি কথোপকথনে যুক্ত করা হয়েছে।',
+    en: 'You were invited into a conversation.',
+  },
   'profile.review_requested': {
     bn: 'একটি পরিবর্তন আপনার পর্যালোচনার অপেক্ষায় আছে।',
     en: 'A change is waiting for your review.',

@@ -17,7 +17,7 @@ import { AppError } from '../exception/app-error.js';
 export interface ProfileActor {
   agencyId: string;
   accountId: string;
-  role: 'admin' | 'agent' | 'member';
+  role: 'admin' | 'agent' | 'member' | 'guardian';
 }
 
 type EventType = Extract<

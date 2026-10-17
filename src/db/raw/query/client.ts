@@ -7,7 +7,8 @@ const ITEM = `p.id, p.member_code, p.full_name, p.status, p.service_mode, p.vers
    SELECT 1 FROM matrimony.profile_reviews r
    WHERE r.agency_id = p.agency_id AND r.profile_id = p.id AND r.status = 'pending'
      AND r.kind IN ('initial_submission', 'field_update')
- ) AS has_pending_review`;
+ ) AS has_pending_review,
+ p.verified_at IS NOT NULL AS verified`;
 
 /**
  * One page of clients, most recently changed first. $1 agency; $2 the agent whose view this is
