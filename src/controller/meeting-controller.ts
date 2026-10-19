@@ -6,6 +6,7 @@ import {
   meetingInputSchema,
   meetingPatchSchema,
   noteInputSchema,
+  suggestInputSchema,
 } from '../bo/meeting.js';
 import type { MeetingService } from '../service/meeting-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
@@ -31,6 +32,9 @@ export function registerMeetingController(
     MeetingService,
     | 'schedule'
     | 'change'
+    | 'confirm'
+    | 'confirmAsClient'
+    | 'suggestAsClient'
     | 'recordFeedback'
     | 'forClient'
     | 'mine'
@@ -54,6 +58,34 @@ export function registerMeetingController(
   app.get('/api/v1/me/meetings', { config: memberOrGuardian }, async (req) => ({
     items: await meetings.mine(actor(req)),
   }));
+
+  app.post(
+    '/api/v1/me/meetings/:meetingId/confirm',
+    { config: { roles: ['member' as const], rateLimit: { max: 30, timeWindow: 60000 } } },
+    async (req, reply) => {
+      await meetings.confirmAsClient(actor(req), meetingParams.parse(req.params).meetingId, req.id);
+      return reply.code(204).send();
+    },
+  );
+  app.post(
+    '/api/v1/me/meetings/:meetingId/suggest',
+    { config: { roles: ['member' as const], rateLimit: { max: 30, timeWindow: 60000 } } },
+    async (req, reply) => {
+      await meetings.suggestAsClient(
+        actor(req),
+        meetingParams.parse(req.params).meetingId,
+        suggestInputSchema.parse(req.body).scheduledAt,
+        req.id,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    '/api/v1/staff/meetings/:meetingId/confirm',
+    { config: { ...staffOnly, ...write } },
+    async (req) => meetings.confirm(actor(req), meetingParams.parse(req.params).meetingId, req.id),
+  );
 
   app.get('/api/v1/staff/agenda', { config: staffOnly }, async (req) =>
     meetings.agenda(actor(req)),

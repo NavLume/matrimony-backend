@@ -35,6 +35,8 @@ export interface RawMeeting {
   place: string | null;
   note: string | null;
   status: MeetingStatus;
+  /** For a proposed meeting: the profile whose side proposed it. The other side answers. */
+  proposedSide: string | null;
   createdBy: string;
   past: boolean;
   sides: [RawSide, RawSide];
@@ -60,7 +62,7 @@ const profileOf = (row: Row | undefined): MeetingProfile | null =>
       }
     : null;
 
-const MEETING_SELECT = `m.id, m.interest_id, m.scheduled_at, m.kind, m.place, m.note, m.status,
+const MEETING_SELECT = `m.id, m.interest_id, m.scheduled_at, m.kind, m.place, m.note, m.status, m.proposed_side,
        (m.scheduled_at < now()) AS past, ca.display_name AS created_by_name,
        s.id AS s_id, s.member_code AS s_code, s.full_name AS s_name,
        s.assigned_agent_id AS s_agent, s.owner_account_id AS s_owner,
@@ -88,6 +90,7 @@ const meetingOf = (row: Row): RawMeeting => ({
   place: (row.place as string | null) ?? null,
   note: (row.note as string | null) ?? null,
   status: row.status as MeetingStatus,
+  proposedSide: (row.proposed_side as string | null) ?? null,
   createdBy: row.created_by_name as string,
   past: row.past === true,
   sides: [side(row, 's'), side(row, 'r')],
@@ -176,12 +179,25 @@ export class MeetingRepository {
       place: string | null;
       note: string | null;
       createdBy: string;
+      status: 'proposed' | 'scheduled';
+      proposedSide: string | null;
     },
   ): Promise<void> {
     await tx.query(
-      `INSERT INTO matrimony.meetings (agency_id, id, interest_id, scheduled_at, kind, place, note, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [agencyId, m.id, m.interestId, m.scheduledAt, m.kind, m.place, m.note, m.createdBy],
+      `INSERT INTO matrimony.meetings (agency_id, id, interest_id, scheduled_at, kind, place, note, created_by, status, proposed_side)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        agencyId,
+        m.id,
+        m.interestId,
+        m.scheduledAt,
+        m.kind,
+        m.place,
+        m.note,
+        m.createdBy,
+        m.status,
+        m.proposedSide,
+      ],
     );
   }
 
@@ -203,7 +219,11 @@ export class MeetingRepository {
       kind?: MeetingKind;
       place?: string | null;
       note?: string | null;
-      status?: 'done' | 'cancelled';
+      status?: 'proposed' | 'scheduled' | 'done' | 'cancelled';
+      /** The side that proposes now; null once the meeting is confirmed. */
+      proposedSide?: string | null;
+      /** Marks the meeting confirmed, by this account. */
+      confirmedBy?: string;
     },
   ): Promise<boolean> {
     const has = (key: keyof typeof patch) => patch[key] !== undefined;
@@ -214,8 +234,11 @@ export class MeetingRepository {
           place = CASE WHEN $7::boolean THEN $8::text ELSE place END,
           note = CASE WHEN $9::boolean THEN $10::text ELSE note END,
           status = CASE WHEN $11::boolean THEN $12::text ELSE status END,
+          proposed_side = CASE WHEN $13::boolean THEN $14::uuid ELSE proposed_side END,
+          confirmed_at = CASE WHEN $15::boolean THEN now() ELSE confirmed_at END,
+          confirmed_by = CASE WHEN $15::boolean THEN $16::uuid ELSE confirmed_by END,
           updated_at = now()
-        WHERE agency_id = $1 AND id = $2 AND status = 'scheduled'`,
+        WHERE agency_id = $1 AND id = $2 AND status IN ('proposed', 'scheduled')`,
       [
         agencyId,
         id,
@@ -229,6 +252,10 @@ export class MeetingRepository {
         patch.note ?? null,
         has('status'),
         patch.status ?? null,
+        has('proposedSide'),
+        patch.proposedSide ?? null,
+        has('confirmedBy'),
+        patch.confirmedBy ?? null,
       ],
     );
     return result.rowCount === 1;
@@ -257,7 +284,19 @@ export class MeetingRepository {
   ): Promise<RawMeeting[]> {
     const result = await tx.query(
       `SELECT ${MEETING_SELECT}
-        WHERE m.agency_id = $1 AND m.status = 'scheduled'
+        WHERE m.agency_id = $1
+          AND (
+            m.status IN ('proposed', 'scheduled')
+            -- A meeting that is done stays here until what each side said is recorded, for the sides
+            -- this staff member looks after (an admin: both), for a month at most.
+            OR (m.status = 'done' AND m.updated_at > now() - interval '30 days' AND (
+                 (($2::uuid IS NULL OR s.assigned_agent_id = $2::uuid) AND NOT EXISTS (
+                    SELECT 1 FROM matrimony.meeting_feedback f
+                     WHERE f.agency_id = m.agency_id AND f.meeting_id = m.id AND f.profile_id = s.id))
+              OR (($2::uuid IS NULL OR r.assigned_agent_id = $2::uuid) AND NOT EXISTS (
+                    SELECT 1 FROM matrimony.meeting_feedback f
+                     WHERE f.agency_id = m.agency_id AND f.meeting_id = m.id AND f.profile_id = r.id))))
+          )
           AND ($2::uuid IS NULL OR s.assigned_agent_id = $2::uuid OR r.assigned_agent_id = $2::uuid)
         ORDER BY m.scheduled_at ASC LIMIT 100`,
       [agencyId, agentId],

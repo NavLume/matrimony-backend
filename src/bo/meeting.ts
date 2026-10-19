@@ -15,7 +15,7 @@ const fail = (key: string) => ({ error: key });
 
 export const MEETING_KINDS = ['first_meeting', 'family_meeting', 'visit', 'call', 'other'] as const;
 export type MeetingKind = (typeof MEETING_KINDS)[number];
-export const MEETING_STATUSES = ['scheduled', 'done', 'cancelled'] as const;
+export const MEETING_STATUSES = ['proposed', 'scheduled', 'done', 'cancelled'] as const;
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 export const VERDICTS = ['interested', 'undecided', 'not_interested'] as const;
 export type Verdict = (typeof VERDICTS)[number];
@@ -51,6 +51,9 @@ export const meetingPatchSchema = z
   .strict()
   .refine((value) => Object.keys(value).length > 0, { message: 'invalid' });
 export type MeetingPatch = z.output<typeof meetingPatchSchema>;
+
+/** The other side suggests another time for a proposed meeting. */
+export const suggestInputSchema = z.object({ scheduledAt: when }).strict();
 
 export const feedbackInputSchema = z
   .object({ verdict: z.enum(VERDICTS, fail('invalidOption')), note: text(500) })
@@ -98,12 +101,16 @@ export interface MeetingRow {
   createdBy: string;
   /** Still marked scheduled although its time has passed: the outcome is missing. */
   awaitingOutcome: boolean;
+  /** Proposed by one side: the staff member (or an admin) may confirm it or suggest another time. */
+  canRespond: boolean;
   people: [MeetingPerson, MeetingPerson];
 }
 
 /** A meeting as a client sees it: when and where, with the other person. Never feedback or notes. */
 export interface MemberMeeting {
   id: string;
+  /** Proposed by the other side: the client may confirm it or suggest another time. */
+  canRespond: boolean;
   scheduledAt: string;
   kind: MeetingKind;
   place: string | null;

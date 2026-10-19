@@ -54,6 +54,10 @@ const BY_KIND: Record<string, Record<Locale, string>> = {
     bn: 'আপনার এজেন্সি একজন অভিভাবক যুক্ত করার জন্য আপনার সম্মতি চেয়েছে।',
     en: 'Your agency asked for your agreement to add a guardian.',
   },
+  'guardian.answer': {
+    bn: 'একজন ক্লায়েন্ট অভিভাবকের বিষয়ে উত্তর দিয়েছেন।',
+    en: 'A client answered about their guardian.',
+  },
   'guardian.advice': {
     bn: 'অভিভাবক একটি প্রস্তাবে পরামর্শ দিয়েছেন।',
     en: 'Your guardian gave advice on a proposal.',

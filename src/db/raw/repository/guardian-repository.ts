@@ -305,6 +305,24 @@ export class GuardianRepository {
     );
   }
 
+  /** Tells the agent who looks after the client that the client agreed to, or declined, the guardian. */
+  async notifyAnswer(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+    guardianId: string,
+    decision: 'approved' | 'rejected',
+  ): Promise<void> {
+    await tx.query(
+      `INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+       SELECT $1, p.assigned_agent_id, $3::text, 'guardian.answer',
+              jsonb_build_object('forProfileId', p.id, 'aboutProfileId', p.id, 'decision', $4::text)
+         FROM matrimony.member_profiles p
+        WHERE p.agency_id = $1 AND p.id = $2 AND p.assigned_agent_id IS NOT NULL`,
+      [agencyId, profileId, `guardian-answer:${guardianId}:${randomUUID()}`, decision],
+    );
+  }
+
   /** Tells the client and the agent who looks after them that the guardian gave advice. */
   async notifyAdvice(
     tx: Transaction,

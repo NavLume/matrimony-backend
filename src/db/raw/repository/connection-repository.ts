@@ -40,6 +40,7 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   meeting_update: 'meeting.update',
   guardian_request: 'guardian.requested',
   guardian_advice: 'guardian.advice',
+  guardian_answer: 'guardian.answer',
 };
 const KIND_OF = Object.fromEntries(
   Object.entries(TEMPLATE_OF).map(([kind, template]) => [template, kind]),

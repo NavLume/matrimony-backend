@@ -696,6 +696,62 @@ paths:
               schema: { $ref: '#/components/schemas/MeetingRow' }
         '404': { description: No such proposal for you (`CONNECTION_NOT_FOUND`). }
 
+  /api/v1/staff/meetings/{meetingId}/confirm:
+    post:
+      tags: [Meetings]
+      summary: Confirm a meeting the other side proposed
+      description: |
+        When the two clients have different agents, a meeting set by one side is `proposed` and the other
+        side answers: an agent who looks after that side, or an admin. Confirming makes it `scheduled` and
+        tells everyone. 409 `MEETING_NOT_PROPOSED`; 403 `MEETING_OWN_PROPOSAL` for the side that proposed it.
+        To suggest another time instead, change the time with PATCH: the suggestion becomes your proposal.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: meetingId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The meeting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeetingRow' }
+
+  /api/v1/me/meetings/{meetingId}/confirm:
+    post:
+      tags: [Meetings]
+      summary: Confirm a meeting the other side proposed (members)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: meetingId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Confirmed. }
+        '403': { description: MEETING_OWN_PROPOSAL. }
+        '409': { description: MEETING_NOT_PROPOSED. }
+
+  /api/v1/me/meetings/{meetingId}/suggest:
+    post:
+      tags: [Meetings]
+      summary: Suggest another time for a proposed meeting (members)
+      description: The new time becomes the client's proposal and the other side answers.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: meetingId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scheduledAt]
+              properties:
+                scheduledAt: { type: string, format: date-time }
+      responses:
+        '204': { description: Suggested. }
+        '409': { description: MEETING_NOT_PROPOSED. }
+
   /api/v1/staff/meetings/{meetingId}:
     patch:
       tags: [Meetings]
@@ -5122,7 +5178,7 @@ components:
     MeetingRow:
       type: object
       additionalProperties: false
-      required: [id, connectionId, scheduledAt, kind, place, note, status, createdBy, awaitingOutcome, people]
+      required: [id, connectionId, scheduledAt, kind, place, note, status, createdBy, awaitingOutcome, canRespond, people]
       properties:
         id: { type: string, format: uuid }
         connectionId: { type: string, format: uuid }
@@ -5130,9 +5186,10 @@ components:
         kind: { $ref: '#/components/schemas/MeetingKind' }
         place: { type: [string, 'null'] }
         note: { type: [string, 'null'] }
-        status: { type: string, enum: [scheduled, done, cancelled] }
+        status: { type: string, enum: [proposed, scheduled, done, cancelled] }
         createdBy: { type: string }
         awaitingOutcome: { type: boolean, description: Still scheduled although its time has passed. }
+        canRespond: { type: boolean, description: Proposed by the other side; this staff member may confirm it or suggest another time. }
         people:
           type: array
           minItems: 2
@@ -5141,14 +5198,15 @@ components:
     MemberMeeting:
       type: object
       additionalProperties: false
-      required: [id, scheduledAt, kind, place, note, status, other]
+      required: [id, canRespond, scheduledAt, kind, place, note, status, other]
       properties:
         id: { type: string, format: uuid }
+        canRespond: { type: boolean, description: Proposed by the other side; the client may confirm it or suggest another time. }
         scheduledAt: { type: string, format: date-time }
         kind: { $ref: '#/components/schemas/MeetingKind' }
         place: { type: [string, 'null'] }
         note: { type: [string, 'null'] }
-        status: { type: string, enum: [scheduled, done, cancelled] }
+        status: { type: string, enum: [proposed, scheduled, done, cancelled] }
         other:
           type: object
           additionalProperties: false
@@ -6538,6 +6596,7 @@ components:
                 meeting_update,
                 guardian_request,
                 guardian_advice,
+                guardian_answer,
               ],
           }
         createdAt: { type: string, format: date-time }

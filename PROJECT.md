@@ -221,6 +221,8 @@ Verified for both: real-backend smoke runs and browser runs with two members and
 
 **Guardian (17 October 2026):** a client's parent or relative gets a login (role `guardian`, migration 035, `guardian-service.ts`, `guardian-process.ts`) to see the client's proposals and give advice only. One guardian per profile, invited by email by the agent; the client must agree first (in the app for a client who signs in, recorded by the agent for one with no login). The guardian reads through the profile they look after (`guardedProfile`), with the same visible fields as the client, and is refused on chat, payments, profile, matches list, connecting and answering. Advice (`guardian_advice`) is shown to the client, the agent and the guardian. Verified: 646 unit tests pass, real-backend and browser runs. Not done: a dedicated automated test file for the guardian service, the full integration and Playwright runs.
 
+**Meeting confirmation (19 October 2026, migration 036):** when the two clients of an accepted proposal have different agents, a meeting set by one side is `proposed`; the other side (their agent, an admin, or the client in the app) confirms it or suggests another time (the suggestion becomes their proposal and the first side answers). Only a confirmed meeting is `scheduled`; marking done needs it. Same agent for both clients, or an admin setting it, means confirmed at once. A later change of time, place or kind by an agent with different agents asks the other side again. Verified on the real backend (proposal, own-side refusal, suggestion, confirmation, client answers, admin and same-agent cases) and in the browser; 646 unit tests pass.
+
 ## 9. Where to read next
 
 1. [AGENTS.md](AGENTS.md): the rules for working in this repo.

@@ -182,6 +182,7 @@ export class GuardianService {
         tokenHash,
         GUARDIAN_INVITE_DAYS,
       );
+      await unit.notifyAnswer(actor.agencyId, own.id, current.id, 'approved');
       await unit.appendEvent(this.event('guardian.consented', actor, current.id, correlationId));
       return {
         state: await this.read(unit, actor.agencyId, own),
@@ -199,7 +200,11 @@ export class GuardianService {
   async removeByClient(actor: ProfileActor, correlationId: string): Promise<GuardianState> {
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const own = await this.ownProfile(unit, actor, true);
+      const asked = await unit.current(actor.agencyId, own.id);
       await this.end(unit, actor, own.id, correlationId);
+      // Declining a request is something the agent who asked wants to know.
+      if (asked?.status === 'awaiting_client')
+        await unit.notifyAnswer(actor.agencyId, own.id, asked.id, 'rejected');
       return this.read(unit, actor.agencyId, own);
     });
   }

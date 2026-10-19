@@ -111,6 +111,7 @@ export const NOTIFICATION_GROUP_KINDS: Record<
     'meeting_update',
     'guardian_request',
     'guardian_advice',
+    'guardian_answer',
   ],
   chats: ['chat_requested', 'chat_accepted', 'chat_message', 'chat_reported', 'chat_invited'],
 };
@@ -248,7 +249,9 @@ export type NotificationKind =
   /** The agency asked for a guardian and the client has to agree. */
   | 'guardian_request'
   /** The guardian gave advice on a proposal. */
-  | 'guardian_advice';
+  | 'guardian_advice'
+  /** The client agreed to (or declined) the guardian the agency asked for. */
+  | 'guardian_answer';
 
 export interface NotificationItem {
   id: string;

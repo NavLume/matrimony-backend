@@ -22,6 +22,7 @@ type EventType = Extract<
   WorkflowEvent['type'],
   | 'meeting.scheduled'
   | 'meeting.changed'
+  | 'meeting.confirmed'
   | 'meeting.feedback'
   | 'note.added'
   | 'followup.added'
@@ -73,6 +74,10 @@ export class MeetingService {
         throw new AppError(404, 'CONNECTION_NOT_FOUND');
       if (interest.status !== 'accepted') throw new AppError(409, 'CONNECTION_NOT_ACCEPTED');
       const id = this.newId();
+      // The other side has to confirm unless both clients have the same agent, or an admin sets it.
+      const sides = [a, b].map((p) => ({ profileId: p.id, agentId: p.assignedAgentId }));
+      const proposing = this.needsConfirmation(actor, sides);
+      const mine = sides.find((side) => looksAfter(actor, side));
       await unit.insertMeeting(actor.agencyId, {
         id,
         interestId: connectionId,
@@ -81,6 +86,8 @@ export class MeetingService {
         place: input.place ?? null,
         note: input.note ?? null,
         createdBy: actor.accountId,
+        status: proposing ? 'proposed' : 'scheduled',
+        proposedSide: proposing ? (mine?.profileId ?? sides[0]!.profileId) : null,
       });
       await unit.notifyMeeting(actor.agencyId, id, connectionId, actor.accountId);
       await unit.appendEvent(this.event('meeting.scheduled', actor, id, correlationId));
@@ -97,25 +104,90 @@ export class MeetingService {
     correlationId: string,
   ): Promise<MeetingRow> {
     this.staffOnly(actor);
-    if (
-      patch.scheduledAt !== undefined &&
-      Date.parse(patch.scheduledAt) < this.now().getTime() - 10 * 60_000
-    )
-      throw new AppError(400, 'INVALID_REQUEST', {
-        fields: [{ path: 'scheduledAt', code: 'past' }],
-      });
+    this.notInThePast(patch.scheduledAt);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const meeting = await this.meetingOf(unit, actor, meetingId);
-      if (meeting.status !== 'scheduled') throw new AppError(409, 'MEETING_CLOSED');
+      if (meeting.status !== 'scheduled' && meeting.status !== 'proposed')
+        throw new AppError(409, 'MEETING_CLOSED');
       const { status, ...rest } = patch;
-      if (!(await unit.updateMeeting(actor.agencyId, meetingId, { ...rest, status })))
+      if (status === 'done' && meeting.status !== 'scheduled')
+        throw new AppError(409, 'MEETING_NOT_CONFIRMED');
+      // A meeting is done only once its time has come.
+      if (status === 'done' && Date.parse(meeting.scheduledAt) > this.now().getTime())
+        throw new AppError(409, 'MEETING_NOT_HELD_YET');
+      const update: Parameters<MeetingUnit['updateMeeting']>[2] = { ...rest, status };
+      // A change to when, where or what kind has to be answered by the other side again.
+      const material =
+        patch.scheduledAt !== undefined || patch.place !== undefined || patch.kind !== undefined;
+      if (material && status === undefined) {
+        const sides = meeting.sides;
+        const mine = sides.find((side) => looksAfter(actor, side));
+        const answering = this.canAnswer(actor, meeting);
+        if (actor.role === 'admin') {
+          // An admin's change stands.
+          update.status = 'scheduled';
+          update.proposedSide = null;
+        } else if (meeting.status === 'proposed') {
+          // The side that proposed keeps it; the other side's new time becomes their proposal.
+          if (answering && mine) update.proposedSide = mine.profileId;
+        } else if (this.needsConfirmation(actor, sides) && mine) {
+          update.status = 'proposed';
+          update.proposedSide = mine.profileId;
+        }
+      }
+      if (!(await unit.updateMeeting(actor.agencyId, meetingId, update)))
         throw new AppError(409, 'MEETING_CLOSED');
       // Both people hear about a new time, a new place or a cancellation, not about a note to the office.
-      if (patch.scheduledAt || patch.place !== undefined || patch.kind || status === 'cancelled')
+      if (material || status === 'cancelled')
         await unit.notifyMeeting(actor.agencyId, meetingId, meeting.connectionId, actor.accountId);
       await unit.appendEvent(this.event('meeting.changed', actor, meetingId, correlationId));
       const fresh = (await unit.meeting(actor.agencyId, meetingId))!;
       return (await this.staffView(unit, actor, [fresh]))[0]!;
+    });
+  }
+
+  /** The other side confirms a proposed meeting: it is scheduled now. */
+  async confirm(
+    actor: ProfileActor,
+    meetingId: string,
+    correlationId: string,
+  ): Promise<MeetingRow> {
+    this.staffOnly(actor);
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const meeting = await this.meetingOf(unit, actor, meetingId);
+      if (meeting.status !== 'proposed') throw new AppError(409, 'MEETING_NOT_PROPOSED');
+      if (!this.canAnswer(actor, meeting)) throw new AppError(403, 'MEETING_OWN_PROPOSAL');
+      await this.confirmed(unit, actor, meeting, correlationId);
+      const fresh = (await unit.meeting(actor.agencyId, meetingId))!;
+      return (await this.staffView(unit, actor, [fresh]))[0]!;
+    });
+  }
+
+  /** A client who signs in confirms a meeting the other side proposed. */
+  async confirmAsClient(
+    actor: ProfileActor,
+    meetingId: string,
+    correlationId: string,
+  ): Promise<void> {
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const { meeting } = await this.clientAnswer(unit, actor, meetingId);
+      await this.confirmed(unit, actor, meeting, correlationId);
+    });
+  }
+
+  /** A client who signs in suggests another time: it becomes their proposal and the other side answers. */
+  async suggestAsClient(
+    actor: ProfileActor,
+    meetingId: string,
+    scheduledAt: string,
+    correlationId: string,
+  ): Promise<void> {
+    this.notInThePast(scheduledAt);
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const { meeting, own } = await this.clientAnswer(unit, actor, meetingId);
+      await unit.updateMeeting(actor.agencyId, meetingId, { scheduledAt, proposedSide: own.id });
+      await unit.notifyMeeting(actor.agencyId, meetingId, meeting.connectionId, actor.accountId);
+      await unit.appendEvent(this.event('meeting.changed', actor, meetingId, correlationId));
     });
   }
 
@@ -160,6 +232,8 @@ export class MeetingService {
         const other = m.sides.find((s) => s.profileId !== own.id)!;
         return {
           id: m.id,
+          canRespond:
+            actor.role === 'member' && m.status === 'proposed' && m.proposedSide !== own.id,
           scheduledAt: m.scheduledAt,
           kind: m.kind,
           place: m.place,
@@ -270,12 +344,76 @@ export class MeetingService {
         meetings,
         followUps,
         attention:
-          followUps.filter((f) => f.due).length + meetings.filter((m) => m.awaitingOutcome).length,
+          followUps.filter((f) => f.due).length +
+          meetings.filter(
+            (m) =>
+              m.awaitingOutcome ||
+              m.canRespond ||
+              (m.status === 'done' && m.people.some((p) => p.managed && !p.feedback)),
+          ).length,
       };
     });
   }
 
   // ---- helpers ----------------------------------------------------------------------------
+
+  private notInThePast(scheduledAt: string | undefined) {
+    // A few minutes' grace, for the difference between a phone's clock and the server's.
+    if (scheduledAt !== undefined && Date.parse(scheduledAt) < this.now().getTime() - 10 * 60_000)
+      throw new AppError(400, 'INVALID_REQUEST', {
+        fields: [{ path: 'scheduledAt', code: 'past' }],
+      });
+  }
+
+  /**
+   * Whether a meeting set by this staff member has to be answered by the other side: not when an admin
+   * sets it, and not when both clients have the same agent.
+   */
+  private needsConfirmation(
+    actor: ProfileActor,
+    sides: readonly { agentId: string | null }[],
+  ): boolean {
+    if (actor.role === 'admin') return false;
+    const [first, second] = sides;
+    return !(first?.agentId && first.agentId === second?.agentId);
+  }
+
+  /** The staff member may confirm a proposed meeting: they (or an admin) look after the side that did not propose it. */
+  private canAnswer(actor: ProfileActor, meeting: RawMeeting): boolean {
+    if (meeting.status !== 'proposed') return false;
+    if (actor.role === 'admin') return true;
+    return meeting.sides.some(
+      (side) => side.profileId !== meeting.proposedSide && looksAfter(actor, side),
+    );
+  }
+
+  private async confirmed(
+    unit: MeetingUnit,
+    actor: ProfileActor,
+    meeting: RawMeeting,
+    correlationId: string,
+  ) {
+    await unit.updateMeeting(actor.agencyId, meeting.id, {
+      status: 'scheduled',
+      proposedSide: null,
+      confirmedBy: actor.accountId,
+    });
+    await unit.notifyMeeting(actor.agencyId, meeting.id, meeting.connectionId, actor.accountId);
+    await unit.appendEvent(this.event('meeting.confirmed', actor, meeting.id, correlationId));
+  }
+
+  /** The proposed meeting a signed-in client may answer: it must be with them and proposed by the other side. */
+  private async clientAnswer(unit: MeetingUnit, actor: ProfileActor, meetingId: string) {
+    if (actor.role !== 'member') throw new AppError(403, 'ROLE_FORBIDDEN');
+    const own = await unit.ownProfile(actor.agencyId, actor.accountId);
+    if (!own) throw new AppError(404, 'PROFILE_NOT_FOUND');
+    const meeting = await unit.meeting(actor.agencyId, meetingId);
+    if (!meeting || !meeting.sides.some((side) => side.profileId === own.id))
+      throw new AppError(404, 'MEETING_NOT_FOUND');
+    if (meeting.status !== 'proposed') throw new AppError(409, 'MEETING_NOT_PROPOSED');
+    if (meeting.proposedSide === own.id) throw new AppError(403, 'MEETING_OWN_PROPOSAL');
+    return { meeting, own };
+  }
 
   private staffOnly(actor: ProfileActor) {
     if (actor.role === 'member') throw new AppError(403, 'ROLE_FORBIDDEN');
@@ -332,6 +470,7 @@ export class MeetingService {
         status: m.status,
         createdBy: m.createdBy,
         awaitingOutcome: m.status === 'scheduled' && m.past,
+        canRespond: this.canAnswer(actor, m),
         people: [person(0), person(1)],
       };
     });

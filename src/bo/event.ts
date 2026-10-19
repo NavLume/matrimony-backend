@@ -73,6 +73,7 @@ export const eventSchema = z
       'verification.file_viewed',
       'meeting.scheduled',
       'meeting.changed',
+      'meeting.confirmed',
       'meeting.feedback',
       'note.added',
       'followup.added',
