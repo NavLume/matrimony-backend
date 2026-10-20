@@ -32,14 +32,18 @@ export function registerMatchController(
     profileDetailResponse(await matches.detail(actor(req), params.parse(req.params).candidateId)),
   );
 
-  app.get('/api/v1/me/matches/:candidateId/photo', { config: memberOrGuardian }, async (req, reply) => {
-    const { candidateId } = params.parse(req.params);
-    const { size } = imageQuery.parse(req.query);
-    const bytes = await matches.photo(actor(req), candidateId, size);
-    // Private to this member's browser: a photo's picture never changes.
-    return reply
-      .header('content-type', 'image/webp')
-      .header('cache-control', 'private, max-age=3600')
-      .send(bytes);
-  });
+  app.get(
+    '/api/v1/me/matches/:candidateId/photo',
+    { config: memberOrGuardian },
+    async (req, reply) => {
+      const { candidateId } = params.parse(req.params);
+      const { size } = imageQuery.parse(req.query);
+      const bytes = await matches.photo(actor(req), candidateId, size);
+      // Private to this member's browser: a photo's picture never changes.
+      return reply
+        .header('content-type', 'image/webp')
+        .header('cache-control', 'private, max-age=3600')
+        .send(bytes);
+    },
+  );
 }

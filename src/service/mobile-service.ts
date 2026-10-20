@@ -1,5 +1,6 @@
 import type { AppConfig } from '../config/env.js';
 import type { IdentityService } from './identity-service.js';
+import type { SiteContentService } from './site-content-service.js';
 
 export type AppPlatform = 'ios' | 'android';
 
@@ -32,6 +33,7 @@ export class MobileService {
       | 'APP_STORE_URL_IOS'
       | 'APP_STORE_URL_ANDROID'
     >,
+    private readonly siteContent?: Pick<SiteContentService, 'withStories'>,
   ) {}
 
   /** The public look of an agency, and the address the app talks to for it. */
@@ -42,7 +44,9 @@ export class MobileService {
       hostname: tenant.hostname,
       name: tenant.name,
       locale: tenant.locale,
-      content: tenant.publicConfig,
+      content: this.siteContent
+        ? await this.siteContent.withStories(tenant.id, tenant.publicConfig)
+        : tenant.publicConfig,
     };
   }
 

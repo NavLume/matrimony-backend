@@ -329,6 +329,8 @@ export interface StaffConnectionRow {
   clientShared: boolean;
   /** The other person has shared theirs. */
   otherShared: boolean;
+  /** When the connection was marked matched, if it was. */
+  matchedAt: string | null;
   /** What the client's guardian advised about this proposal, if they did. */
   guardianAdvice: { advice: 'supportive' | 'concerned'; note: string | null; at: string } | null;
   other: {

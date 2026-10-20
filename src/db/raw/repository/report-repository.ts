@@ -418,6 +418,8 @@ export class ReportRepository {
               ${money('s', 'success', 'agreed')} AS a_suc_agreed, ${money('s', 'success', 'paid')} AS a_suc_paid,
               ${money('r', 'registration', 'agreed')} AS b_reg_agreed, ${money('r', 'registration', 'paid')} AS b_reg_paid,
               ${money('r', 'success', 'agreed')} AS b_suc_agreed, ${money('r', 'success', 'paid')} AS b_suc_paid,
+              cm.matched_at, st.id AS story_id, st.status AS story_status,
+              (st.consent_a_at IS NOT NULL AND st.consent_b_at IS NOT NULL) AS story_ok,
               coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
                          WHERE c.agency_id = i.agency_id AND c.interest_id = i.id AND c.voided_at IS NULL), 0)::bigint AS for_this,
               (SELECT count(*) FROM matrimony.meetings m WHERE m.agency_id = i.agency_id AND m.interest_id = i.id
@@ -431,6 +433,8 @@ export class ReportRepository {
          JOIN matrimony.member_profiles r ON r.agency_id = i.agency_id AND r.id = i.recipient_profile_id
          LEFT JOIN matrimony.accounts sa ON sa.agency_id = s.agency_id AND sa.id = s.assigned_agent_id
          LEFT JOIN matrimony.accounts ra ON ra.agency_id = r.agency_id AND ra.id = r.assigned_agent_id
+         LEFT JOIN matrimony.couple_matches cm ON cm.agency_id = i.agency_id AND cm.interest_id = i.id
+         LEFT JOIN matrimony.success_stories st ON st.agency_id = cm.agency_id AND st.match_id = cm.id
         WHERE i.agency_id = $1 AND i.status = 'accepted'
           AND ($2::timestamptz IS NULL OR (i.responded_at, i.id) < ($2::timestamptz, $3::uuid))
           AND ($4::text IS NULL
@@ -477,6 +481,14 @@ export class ReportRepository {
         b,
         contactShared: { a: row.a_shared === true, b: row.b_shared === true },
         matched: a.status === 'matched' || b.status === 'matched',
+        matchedAt: row.matched_at ? (row.matched_at as Date).toISOString() : null,
+        story: row.story_id
+          ? {
+              id: row.story_id as string,
+              status: row.story_status as 'draft' | 'published' | 'hidden',
+              consentBoth: row.story_ok === true,
+            }
+          : null,
         meetings: {
           total: num(row.meetings_total),
           done: num(row.meetings_done),

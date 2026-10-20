@@ -27,6 +27,10 @@ import {
 import { registerPhotoController } from './photo-controller.js';
 import { registerReviewController } from './review-controller.js';
 import { registerClientController } from './client-controller.js';
+import { registerLegalController } from './legal-controller.js';
+import { registerSiteContentController } from './site-content-controller.js';
+import { registerCoupleMatchController } from './couple-match-controller.js';
+import { registerActivityController } from './activity-controller.js';
 import { registerGuardianController } from './guardian-controller.js';
 import { registerClientLoginController } from './client-login-controller.js';
 import type { ClientLoginProcess } from '../process/client-login-process.js';
@@ -39,6 +43,7 @@ import { registerReportController } from './report-controller.js';
 import { registerChatController } from './chat-controller.js';
 import { registerMobileController } from './mobile-controller.js';
 import { registerDeviceAuthController } from './device-auth-controller.js';
+import type { SiteContentService } from '../service/site-content-service.js';
 import type { MobileService } from '../service/mobile-service.js';
 import { registerCandidateController } from './candidate-controller.js';
 import { registerMatchController } from './match-controller.js';
@@ -136,6 +141,11 @@ export interface AppDependencies {
   >;
   /** Undefined in tests that do not need it. */
   guardians?: Parameters<typeof registerGuardianController>[1];
+  activity?: Parameters<typeof registerActivityController>[1];
+  coupleMatches?: Parameters<typeof registerCoupleMatchController>[1];
+  legal?: Parameters<typeof registerLegalController>[1];
+  siteContent?: Parameters<typeof registerSiteContentController>[1] &
+    Pick<SiteContentService, 'withStories'>;
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
   /** Undefined in tests that do not need it. */
   deletions?: Pick<AccountDeletionProcess, 'request'>;
@@ -269,7 +279,9 @@ export async function buildApp(deps: AppDependencies) {
     id: req.tenant!.id,
     name: req.tenant!.name,
     locale: req.tenant!.locale,
-    content: req.tenant!.publicConfig,
+    content: deps.siteContent
+      ? await deps.siteContent.withStories(req.tenant!.id, req.tenant!.publicConfig)
+      : req.tenant!.publicConfig,
   }));
   app.get('/api/v1/me', { schema: { response: { 200: selfResponseSchema } } }, async (req) =>
     accountResponse(req.principal!),
@@ -296,6 +308,10 @@ export async function buildApp(deps: AppDependencies) {
   registerStaffController(app, deps.invitations);
   if (deps.clientLogins) registerClientLoginController(app, deps.clientLogins, config);
   if (deps.guardians) registerGuardianController(app, deps.guardians, config);
+  if (deps.activity) registerActivityController(app, deps.activity);
+  if (deps.coupleMatches) registerCoupleMatchController(app, deps.coupleMatches);
+  if (deps.siteContent) registerSiteContentController(app, deps.siteContent);
+  if (deps.legal) registerLegalController(app, deps.legal);
   if (deps.mobile) registerMobileController(app, deps.mobile);
   if (deps.payments) registerPaymentController(app, deps.payments);
   if (deps.verification) registerVerificationController(app, deps.verification);

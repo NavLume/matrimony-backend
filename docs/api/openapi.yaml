@@ -18,6 +18,8 @@ servers:
   - url: /
 tags:
   - name: Health
+  - name: Matches
+  - name: Activity
   - name: Guardians
   - name: Verification
   - name: Meetings
@@ -1432,6 +1434,277 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SuccessfulPage' }
+
+  /api/v1/staff/connections/{connectionId}/match:
+    post:
+      tags: [Matches]
+      summary: Mark an accepted connection as matched
+      description: |
+        The end of a successful search, in one step: records who and when, moves both clients to `matched`
+        (they stop appearing to others) and withdraws their other waiting proposals, sets the success fee
+        each client agrees to pay, and may start a success story. An admin may do it for any connection; an
+        agent only when they look after both clients (403 `MATCH_NEEDS_ADMIN` when the clients have
+        different agents). 409 `CONNECTION_NOT_ACCEPTED`, `ALREADY_MATCHED`, `PROFILE_NOT_ACTIVE`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MarkMatchedInput' }
+      responses:
+        '201':
+          description: Matched.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matchedAt]
+                properties:
+                  matchedAt: { type: string, format: date-time }
+
+  /api/v1/admin/success-stories/{storyId}/status:
+    put:
+      tags: [Matches]
+      summary: Publish a success story or hide it again (admin)
+      description: Publishing needs both clients' agreement (409 `CONSENT_MISSING`).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: { type: string, enum: [published, hidden] }
+      responses:
+        '204': { description: Done. }
+
+  /api/v1/admin/branding:
+    put:
+      tags: [Site content]
+      summary: Set the agency's name and main colour (admin)
+      description: An empty name or colour is removed, so the agency's own name and the platform colour apply. 400 with field codes (`invalid`, `tooLong`, `tooLight` when white cannot be read on the colour).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 200 }
+                primaryColor: { type: string, description: '`#RRGGBB`, or empty to remove.' }
+                accentColor: { type: string, description: '`#RRGGBB` light enough for dark text to be read on it (400 `tooDark`), or empty to remove.' }
+                theme: { type: string, enum: [classic, modern, warm, royal] }
+      responses:
+        '204': { description: Saved. }
+
+  /api/v1/admin/branding/logo:
+    put:
+      tags: [Site content]
+      summary: Upload the agency's logo (admin)
+      description: The picture is the request body (PNG, JPEG or WebP, up to 2 MB, at least 32 pixels). It is written again as a WebP of at most 512 by 512 pixels. Replaces and deletes the previous logo. 413 `PAYLOAD_TOO_LARGE`, 415 `LOGO_TYPE_UNSUPPORTED`, 422 `LOGO_INVALID` or `LOGO_TOO_SMALL`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: The new logo address.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logoUrl]
+                properties:
+                  logoUrl: { type: string }
+    delete:
+      tags: [Site content]
+      summary: Remove the agency's logo (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '204': { description: Removed. }
+
+  /api/v1/public/branding/{file}:
+    get:
+      tags: [Public]
+      summary: The agency's logo file
+      description: Public, for the agency of the request's host. The file name is a random id, so the response is cached for a year.
+      parameters:
+        - { name: file, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The logo as WebP.
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { description: No such file. }
+
+  /api/v1/public/legal/{kind}:
+    get:
+      tags: [Public]
+      summary: The agency's terms of service or privacy policy
+      description: When `custom` is false the agency has not written its own, and the page shows the platform's draft.
+      parameters:
+        - { name: kind, in: path, required: true, schema: { type: string, enum: [terms, privacy] } }
+      responses:
+        '200':
+          description: The current document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicLegal' }
+
+  /api/v1/admin/legal:
+    get:
+      tags: [Site content]
+      summary: The current terms and privacy policy as stored (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Both documents. `version` is 0 when the agency never wrote one.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [terms, privacy]
+                properties:
+                  terms: { $ref: '#/components/schemas/LegalDocument' }
+                  privacy: { $ref: '#/components/schemas/LegalDocument' }
+
+  /api/v1/admin/legal/{kind}:
+    put:
+      tags: [Site content]
+      summary: Save a new version of the terms or privacy policy (admin)
+      description: Every save is a new numbered version that is kept. Registrations record the version current when the person agreed; existing members are not asked again. Both texts empty goes back to the platform's draft.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: kind, in: path, required: true, schema: { type: string, enum: [terms, privacy] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LegalInput' }
+      responses:
+        '200':
+          description: The version that was saved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LegalDocument' }
+
+  /api/v1/admin/site-preview:
+    post:
+      tags: [Site content]
+      summary: Keep a draft of the public site to look at before saving (admin)
+      description: The draft (branding and/or content, with the same fields and rules as saving) is applied to a copy of the stored content and kept for 30 minutes under a random link. Nothing is saved and no event is recorded. 400 with field codes for an invalid value.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                branding:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    primaryColor: { type: string }
+                    accentColor: { type: string }
+                    theme: { type: string, enum: [classic, modern, warm, royal] }
+                content: { $ref: '#/components/schemas/SiteContentInput' }
+      responses:
+        '201':
+          description: The link's id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string, description: 32 hexadecimal characters. }
+
+  /api/v1/public/preview/{id}:
+    get:
+      tags: [Public]
+      summary: A draft of the agency's public site
+      description: The same shape as `/public/tenant`, built from a draft. The id is random and expires after 30 minutes; it belongs to one agency (404 `PREVIEW_NOT_FOUND` for any other host).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The draft as the site would be served.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '404': { description: The draft expired or never existed. }
+
+  /api/v1/admin/site-content:
+    get:
+      tags: [Site content]
+      summary: The public site's editable words (admin)
+      description: Contact, home title and subtitle, about text and up to three branches. The name, colours and logo are operator-set; success stories come from Reports.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The stored content.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteContent' }
+    put:
+      tags: [Site content]
+      summary: Replace the public site's editable words (admin)
+      description: Sends all four parts. A part or field left empty is removed and the site shows its default words. 400 with field codes when a value is invalid (`mapUrl` must be https).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteContentInput' }
+      responses:
+        '204': { description: Saved. }
+
+  /api/v1/admin/activity:
+    get:
+      tags: [Activity]
+      summary: What happened in the agency, who did it and when (admin)
+      description: |
+        Newest first, read from the event log. Without `group` everything except sign-ins is shown.
+        `q` matches the name of the person who did it; `from` and `to` are days in Bangladesh time.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: group, in: query, required: false, schema: { type: string, enum: [signins, people, profiles, proposals, meetings, payments, chats, guardians, site] } }
+        - { name: q, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 60 } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPage' }
 
   /api/v1/admin/reports/network:
     get:
@@ -5450,7 +5723,7 @@ components:
     SuccessfulConnection:
       type: object
       additionalProperties: false
-      required: [id, sentAt, connectedAt, daysToAccept, a, b, contactShared, matched, meetings, successFeeForThis, bothPaid, bothAgreed]
+      required: [id, sentAt, connectedAt, daysToAccept, a, b, contactShared, matched, matchedAt, story, meetings, successFeeForThis, bothPaid, bothAgreed]
       properties:
         id: { type: string, format: uuid }
         sentAt: { type: string, format: date-time }
@@ -5466,6 +5739,17 @@ components:
             a: { type: boolean }
             b: { type: boolean }
         matched: { type: boolean, description: At least one of the two clients is marked matched. }
+        matchedAt: { type: [string, 'null'], format: date-time, description: When the connection itself was marked matched. }
+        story:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [id, status, consentBoth]
+              properties:
+                id: { type: string, format: uuid }
+                status: { type: string, enum: [draft, published, hidden] }
+                consentBoth: { type: boolean }
+            - type: 'null'
         meetings:
           type: object
           additionalProperties: false
@@ -5494,6 +5778,73 @@ components:
             connections: { type: integer }
             matched: { type: integer }
             successFeeCollected: { type: integer }
+    MarkMatchedInput:
+      type: object
+      additionalProperties: false
+      properties:
+        note: { type: string, maxLength: 500 }
+        fees:
+          type: array
+          maxItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required: [profileId, amount]
+            properties:
+              profileId: { type: string, format: uuid }
+              amount: { type: integer, minimum: 0, description: The success fee in whole taka. }
+        story:
+          type: object
+          additionalProperties: false
+          required: [names, text]
+          properties:
+            names:
+              type: object
+              additionalProperties: false
+              properties:
+                bn: { type: string, maxLength: 120 }
+                en: { type: string, maxLength: 120 }
+            text:
+              type: object
+              additionalProperties: false
+              properties:
+                bn: { type: string, maxLength: 1500 }
+                en: { type: string, maxLength: 1500 }
+            year: { type: integer }
+            consentFrom:
+              type: array
+              maxItems: 2
+              items: { type: string, format: uuid }
+              description: The clients who agreed to a story. Both are needed before it can be published.
+    ActivityItem:
+      type: object
+      additionalProperties: false
+      required: [id, type, at, actor, subject, profileId]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, description: The event's name, such as payment.voided. }
+        at: { type: string, format: date-time }
+        actor:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [id, name, role]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+                role: { type: string }
+            - type: 'null'
+        subject: { type: [string, 'null'], description: What it was about, in words, when it can be told. }
+        profileId: { type: [string, 'null'], format: uuid }
+    ActivityPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+        next: { type: [string, 'null'] }
     PaymentLedger:
       type: object
       additionalProperties: false
@@ -5551,6 +5902,14 @@ components:
               type: string
               pattern: '^#[0-9a-fA-F]{6}$'
               description: Main brand color as `#RRGGBB`. It reaches CSS, so nothing else is accepted.
+            accentColor:
+              type: string
+              pattern: '^#[0-9a-fA-F]{6}$'
+              description: The second colour of the look (gold in the classic theme), as `#RRGGBB`.
+            theme:
+              type: string
+              enum: [classic, modern, warm, royal]
+              description: The complete look. Missing means classic.
         contact:
           type: object
           properties:
@@ -5558,10 +5917,22 @@ components:
             email: { type: string, maxLength: 200 }
         home:
           type: object
-          description: Optional homepage copy that replaces the platform's default wording.
+          description: Optional homepage copy that replaces the platform's default wording, and the order and visibility of the parts below the first screen.
           properties:
             title: { $ref: '#/components/schemas/LocalizedText' }
             subtitle: { $ref: '#/components/schemas/LocalizedText' }
+            sections:
+              type: array
+              maxItems: 7
+              description: Parts of the home page in the order to show them. A part not listed shows in its default place; the first screen always comes first.
+              items: { $ref: '#/components/schemas/HomeSection' }
+        auth:
+          type: object
+          description: The side panel of the sign-in and registration pages.
+          properties:
+            headline: { $ref: '#/components/schemas/LocalizedText' }
+            text: { $ref: '#/components/schemas/LocalizedText' }
+            scene: { type: boolean, description: Whether the village scene shows (default true). }
         about: { $ref: '#/components/schemas/LocalizedText' }
         branches:
           type: array
@@ -5569,8 +5940,136 @@ components:
           items: { $ref: '#/components/schemas/Branch' }
         successStories:
           type: array
-          maxItems: 6
+          maxItems: 12
+          description: The stories an admin published (newest first), then any typed in by the operator.
           items: { $ref: '#/components/schemas/SuccessStory' }
+
+    LegalInput:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: object
+          additionalProperties: false
+          properties:
+            bn: { type: string, maxLength: 200 }
+            en: { type: string, maxLength: 200 }
+        body:
+          type: object
+          additionalProperties: false
+          description: Plain text. A line starting with `## ` is a heading, a line starting with `- ` a list item, a blank line separates paragraphs.
+          properties:
+            bn: { type: string, maxLength: 40000 }
+            en: { type: string, maxLength: 40000 }
+
+    LegalDocument:
+      type: object
+      required: [kind, version]
+      properties:
+        kind: { type: string, enum: [terms, privacy] }
+        version: { type: integer }
+        title: { $ref: '#/components/schemas/LocalizedText' }
+        body: { $ref: '#/components/schemas/LocalizedText' }
+        createdAt: { type: string, format: date-time }
+
+    PublicLegal:
+      type: object
+      required: [kind, version, custom]
+      properties:
+        kind: { type: string, enum: [terms, privacy] }
+        version: { type: string, description: The version a registration records (`agency-vN` or the platform draft's). }
+        custom: { type: boolean }
+        title: { $ref: '#/components/schemas/LocalizedText' }
+        body: { $ref: '#/components/schemas/LocalizedText' }
+
+    HomeSection:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, enum: [village, how, why, trust, stories, agency, final] }
+        visible: { type: boolean, description: False hides the part (default true). }
+        title: { $ref: '#/components/schemas/LocalizedText' }
+        text: { $ref: '#/components/schemas/LocalizedText' }
+        items:
+          type: array
+          maxItems: 4
+          description: Words for the part's cards, steps or points, by position; an empty one keeps the default.
+          items:
+            type: object
+            properties:
+              title: { $ref: '#/components/schemas/LocalizedText' }
+              text: { $ref: '#/components/schemas/LocalizedText' }
+
+    SiteContentInput:
+      type: object
+      additionalProperties: false
+      properties:
+        contact:
+          type: object
+          additionalProperties: false
+          properties:
+            phone: { type: string, maxLength: 40 }
+            email: { type: string, maxLength: 200 }
+        home:
+          type: object
+          additionalProperties: false
+          properties:
+            title: { $ref: '#/components/schemas/LocalizedText' }
+            subtitle: { $ref: '#/components/schemas/LocalizedText' }
+            sections:
+              type: array
+              maxItems: 7
+              items: { $ref: '#/components/schemas/HomeSection' }
+        auth:
+          type: object
+          additionalProperties: false
+          properties:
+            headline: { $ref: '#/components/schemas/LocalizedText' }
+            text: { $ref: '#/components/schemas/LocalizedText' }
+            scene: { type: boolean }
+        about: { $ref: '#/components/schemas/LocalizedText' }
+        branches:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/Branch' }
+
+    SiteContent:
+      type: object
+      required: [branding, contact, home, auth, branches, publishedStories]
+      properties:
+        branding:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string, description: The name shown on the site; the agency's own name when none was set. }
+            primaryColor: { type: string }
+            accentColor: { type: string }
+            theme: { type: string, enum: [classic, modern, warm, royal] }
+            logoUrl: { type: string }
+        contact:
+          type: object
+          properties:
+            phone: { type: string }
+            email: { type: string }
+        home:
+          type: object
+          properties:
+            title: { $ref: '#/components/schemas/LocalizedText' }
+            subtitle: { $ref: '#/components/schemas/LocalizedText' }
+            sections:
+              type: array
+              items: { $ref: '#/components/schemas/HomeSection' }
+        auth:
+          type: object
+          properties:
+            headline: { $ref: '#/components/schemas/LocalizedText' }
+            text: { $ref: '#/components/schemas/LocalizedText' }
+            scene: { type: boolean }
+        about: { $ref: '#/components/schemas/LocalizedText' }
+        branches:
+          type: array
+          items: { $ref: '#/components/schemas/Branch' }
+        publishedStories: { type: integer, description: How many published success stories the site shows. }
 
     Branch:
       type: object
@@ -6833,6 +7332,7 @@ components:
           respondedAt,
           clientSharedContact,
           otherSharedContact,
+          matchedAt,
           guardianAdvice,
           other,
         ]
@@ -6844,6 +7344,7 @@ components:
         respondedAt: { type: [string, 'null'], format: date-time }
         clientSharedContact: { type: boolean }
         otherSharedContact: { type: boolean }
+        matchedAt: { type: [string, 'null'], format: date-time, description: When the connection was marked matched. }
         guardianAdvice:
           anyOf: [{ $ref: '#/components/schemas/GuardianAdvice' }, { type: 'null' }]
         other:

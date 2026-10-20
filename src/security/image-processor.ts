@@ -63,3 +63,41 @@ export async function processImage(input: Buffer): Promise<ProcessedImage> {
     throw new AppError(422, 'PHOTO_INVALID');
   }
 }
+
+const LOGO_MAX_SIDE = 512;
+const LOGO_MIN_SIDE = 32;
+
+/**
+ * An agency's logo: decoded and written again as a WebP that fits in 512 by 512 pixels, keeping any
+ * transparency. Like a photo, the file's own bytes decide what it is, and nothing but pixels is kept
+ * (an SVG, which can carry script, is refused as an unsupported type).
+ */
+export async function processLogo(input: Buffer): Promise<Buffer> {
+  const open = () =>
+    sharp(input, { limitInputPixels: MAX_PIXELS, failOn: 'error', sequentialRead: true });
+  let format: string | undefined;
+  let size = 0;
+  try {
+    const meta = await open().metadata();
+    format = meta.format;
+    size = Math.min(meta.width ?? 0, meta.height ?? 0);
+  } catch {
+    throw new AppError(422, 'LOGO_INVALID');
+  }
+  if (!format || !FORMATS[format]) throw new AppError(415, 'LOGO_TYPE_UNSUPPORTED');
+  if (size < LOGO_MIN_SIDE) throw new AppError(422, 'LOGO_TOO_SMALL');
+  try {
+    return await open()
+      .rotate()
+      .resize({
+        width: LOGO_MAX_SIDE,
+        height: LOGO_MAX_SIDE,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 90 })
+      .toBuffer();
+  } catch {
+    throw new AppError(422, 'LOGO_INVALID');
+  }
+}

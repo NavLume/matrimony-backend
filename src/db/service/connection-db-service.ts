@@ -135,8 +135,7 @@ export class ConnectionDbService {
     const c = this.connections;
     return {
       ownProfile: (agencyId, accountId) => this.matches.ownProfile(tx, agencyId, accountId),
-      guardedProfile: (agencyId, accountId) =>
-        this.matches.guardedProfile(tx, agencyId, accountId),
+      guardedProfile: (agencyId, accountId) => this.matches.guardedProfile(tx, agencyId, accountId),
       settings: (agencyId, clientId) => this.candidates.settings(tx, agencyId, clientId),
       lockProfiles: (agencyId, ids) => c.lockProfiles(tx, agencyId, ids),
       readProfiles: (agencyId, ids) => c.readProfiles(tx, agencyId, ids),

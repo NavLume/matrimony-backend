@@ -63,6 +63,7 @@ export const staffConnectionsResponse = (rows: StaffConnectionRow[]) => ({
     respondedAt: row.respondedAt,
     clientSharedContact: row.clientShared,
     otherSharedContact: row.otherShared,
+    matchedAt: row.matchedAt,
     guardianAdvice: row.guardianAdvice,
     other: {
       profileId: row.other.profileId,

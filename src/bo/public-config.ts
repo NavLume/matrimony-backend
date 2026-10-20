@@ -68,6 +68,34 @@ function lenientList<T extends z.ZodType>(item: T, max: number) {
     );
 }
 
+/** The complete looks an agency can choose from (their colours, fonts and shapes live in the frontend's stylesheet). */
+export const THEME_IDS = ['classic', 'modern', 'warm', 'royal'] as const;
+
+/** The parts of the home page below the first screen, in their default order. The first screen always comes first. */
+export const HOME_SECTION_IDS = [
+  'village',
+  'how',
+  'why',
+  'trust',
+  'stories',
+  'agency',
+  'final',
+] as const;
+
+const sectionItem = z.object({
+  title: localizedText.optional(),
+  text: localizedText.optional(),
+});
+
+/** One part of the home page: where it stands, whether it shows, and the words that replace its defaults. */
+const homeSection = z.object({
+  id: z.enum(HOME_SECTION_IDS),
+  visible: z.boolean().optional().catch(undefined),
+  title: localizedText.optional(),
+  text: localizedText.optional(),
+  items: lenientList(sectionItem, 4),
+});
+
 const publicConfigSchema = z
   .object({
     name: z.string().max(200).optional().catch(undefined),
@@ -75,6 +103,8 @@ const publicConfigSchema = z
       .object({
         logoUrl: assetUrl.optional().catch(undefined),
         primaryColor: color.optional().catch(undefined),
+        accentColor: color.optional().catch(undefined),
+        theme: z.enum(THEME_IDS).optional().catch(undefined),
       })
       .optional()
       .catch(undefined),
@@ -86,7 +116,19 @@ const publicConfigSchema = z
       .optional()
       .catch(undefined),
     home: z
-      .object({ title: localizedText.optional(), subtitle: localizedText.optional() })
+      .object({
+        title: localizedText.optional(),
+        subtitle: localizedText.optional(),
+        sections: lenientList(homeSection, HOME_SECTION_IDS.length),
+      })
+      .optional()
+      .catch(undefined),
+    auth: z
+      .object({
+        headline: localizedText.optional(),
+        text: localizedText.optional(),
+        scene: z.boolean().optional().catch(undefined),
+      })
       .optional()
       .catch(undefined),
     about: localizedText.optional(),

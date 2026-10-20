@@ -10,7 +10,8 @@ import {
   type GoogleStartInput,
 } from '../bo/google.js';
 import type { Registration } from '../bo/registration.js';
-import { PRIVACY_VERSION, TERMS_VERSION } from '../bo/registration.js';
+import { platformLegalVersions, type LegalVersionSource } from '../bo/legal.js';
+
 import type { OneTimeTokenRepository } from '../cache/repository/one-time-token-repository.js';
 import type { SessionRepository } from '../cache/repository/session-repository.js';
 import { AppError } from '../exception/app-error.js';
@@ -81,6 +82,7 @@ export class GoogleAuthProcess {
     private readonly auth: Pick<AuthProcess, 'checkPassword' | 'startSession'>,
     private readonly box: SecretBox,
     private readonly logger: Logger,
+    private readonly legalVersions: LegalVersionSource = platformLegalVersions,
   ) {}
 
   async start(
@@ -97,6 +99,7 @@ export class GoogleAuthProcess {
     };
     // The authorization address first: if Google cannot be reached nothing is stored.
     const authorizationUrl = await this.google.authorize(attempt);
+    const versions = input.intent === 'register' ? await this.legalVersions(agencyId) : null;
     const challenge = {
       agencyId,
       ...attempt,
@@ -106,8 +109,8 @@ export class GoogleAuthProcess {
         ? {
             agreements: {
               onBehalfOfOther: input.onBehalfOfOther,
-              termsVersion: TERMS_VERSION,
-              privacyVersion: PRIVACY_VERSION,
+              termsVersion: versions!.terms,
+              privacyVersion: versions!.privacy,
             },
           }
         : {}),
@@ -253,12 +256,13 @@ export class GoogleAuthProcess {
     const sealed = await this.tokens.take('google-signup', key);
     if (!sealed) throw new AppError(400, 'LINK_INVALID_OR_EXPIRED');
     const pending = pendingGoogleSignupSchema.parse(JSON.parse(this.box.open(sealed, key)));
+    const versions = await this.legalVersions(agencyId);
     const registration: Registration = {
       displayName: pending.name,
       locale: pending.locale,
       onBehalfOfOther: input.onBehalfOfOther,
-      termsVersion: TERMS_VERSION,
-      privacyVersion: PRIVACY_VERSION,
+      termsVersion: versions.terms,
+      privacyVersion: versions.privacy,
     };
     const created = await this.registrations.registerExternal(
       agencyId,

@@ -7,7 +7,8 @@ import {
   type PhonePurpose,
   type PhoneSignupInput,
 } from '../bo/phone.js';
-import { PRIVACY_VERSION, TERMS_VERSION, type Registration } from '../bo/registration.js';
+import { platformLegalVersions, type LegalVersionSource } from '../bo/legal.js';
+import type { Registration } from '../bo/registration.js';
 import type { Account } from '../bo/identity.js';
 import type { OneTimeTokenRepository } from '../cache/repository/one-time-token-repository.js';
 import type { PhoneCodeRepository } from '../cache/repository/phone-code-repository.js';
@@ -88,6 +89,7 @@ export class PhoneAuthProcess {
     private readonly logger: Logger,
     /** Calling codes (without +) whose numbers may be sent a code. Bangladesh only, by default. */
     private readonly allowedCountryCodes: readonly string[] = ['880'],
+    private readonly legalVersions: LegalVersionSource = platformLegalVersions,
   ) {}
 
   private readonly sending = new Set<Promise<void>>();
@@ -200,12 +202,13 @@ export class PhoneAuthProcess {
     // Now the step is used up, so a double press cannot create two accounts.
     if (!(await this.tokens.take('phone-signup', key)))
       throw new AppError(400, 'LINK_INVALID_OR_EXPIRED');
+    const versions = await this.legalVersions(agencyId);
     const registration: Registration = {
       displayName: input.displayName,
       locale: pending.locale,
       onBehalfOfOther: input.onBehalfOfOther,
-      termsVersion: TERMS_VERSION,
-      privacyVersion: PRIVACY_VERSION,
+      termsVersion: versions.terms,
+      privacyVersion: versions.privacy,
     };
     const created = await this.registrations.registerPhone(
       agencyId,

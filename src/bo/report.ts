@@ -246,6 +246,10 @@ export interface SuccessfulConnection {
   contactShared: { a: boolean; b: boolean };
   /** At least one of the two clients is marked matched. */
   matched: boolean;
+  /** When the connection itself was marked matched (the matched step), if it was. */
+  matchedAt: string | null;
+  /** The success story of this match: its state and whether both clients agreed. */
+  story: { id: string; status: 'draft' | 'published' | 'hidden'; consentBoth: boolean } | null;
   meetings: { total: number; done: number; last: string | null };
   /** Success-fee payments recorded for this very connection. */
   successFeeForThis: number;

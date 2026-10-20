@@ -8,7 +8,8 @@ import {
 } from '../bo/client-login.js';
 import type { WorkflowEvent } from '../bo/event.js';
 import type { Account } from '../bo/identity.js';
-import { PRIVACY_VERSION, TERMS_VERSION } from '../bo/registration.js';
+import { platformLegalVersions, type LegalVersionSource } from '../bo/legal.js';
+
 import type {
   ClientLoginDbService,
   ClientLoginUnit,
@@ -35,7 +36,10 @@ export interface LoginActor {
  *   so it is theirs to see and to edit (every edit is reviewed, as for any member).
  */
 export class ClientLoginService {
-  constructor(private readonly db: ClientLoginDbService) {}
+  constructor(
+    private readonly db: ClientLoginDbService,
+    private readonly legalVersions: LegalVersionSource = platformLegalVersions,
+  ) {}
 
   async status(actor: LoginActor, profileId: string): Promise<ClientLoginStatus> {
     this.requireStaff(actor);
@@ -119,6 +123,7 @@ export class ClientLoginService {
     passwordHash: string,
     correlationId: string,
   ): Promise<Account | null> {
+    const versions = await this.legalVersions(agencyId);
     return this.db.inTransaction(agencyId, async (unit): Promise<Account | null> => {
       const found = await unit.byLink(agencyId, tokenHash, true);
       if (!found || found.ownerAccountId) return null;
@@ -134,8 +139,8 @@ export class ClientLoginService {
       if (!account) throw new AppError(409, 'ADDRESS_IN_USE');
       await unit.createCredential(agencyId, account.id, passwordHash);
       await unit.recordConsents(agencyId, account.id, [
-        { purpose: 'terms', documentVersion: TERMS_VERSION },
-        { purpose: 'privacy', documentVersion: PRIVACY_VERSION },
+        { purpose: 'terms', documentVersion: versions.terms },
+        { purpose: 'privacy', documentVersion: versions.privacy },
       ]);
       // The profile only ever gets an owner while it has none. If it just got one, none of this stands.
       if (!(await unit.attachOwner(agencyId, found.profileId, account.id)))

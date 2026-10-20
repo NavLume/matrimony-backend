@@ -8,6 +8,7 @@ import {
 } from '../bo/account-email.js';
 import type { Account } from '../bo/identity.js';
 import { passwordMatchesEmail } from '../bo/credentials.js';
+import { platformLegalVersions, type LegalVersionSource } from '../bo/legal.js';
 import { toRegistration, registrationSchema, type RegistrationInput } from '../bo/registration.js';
 import type { OneTimeTokenRepository } from '../cache/repository/one-time-token-repository.js';
 import type { SessionRepository } from '../cache/repository/session-repository.js';
@@ -84,6 +85,8 @@ export class AccountAccessProcess {
     private readonly logger: Logger,
     /** Undefined when phone codes are not set up; adding an email then is not possible. */
     private readonly phone?: Pick<PhoneAuthProcess, 'sendReauthCode' | 'checkReauthCode'>,
+    /** The version of the terms and privacy text the agency shows now, recorded with the person's agreement. */
+    private readonly legalVersions: LegalVersionSource = platformLegalVersions,
   ) {}
 
   /**
@@ -107,7 +110,11 @@ export class AccountAccessProcess {
 
     const token = newToken();
     const key = tokenKey(context.agencyId, token);
-    const pending = { email: input.email, passwordHash, registration: toRegistration(input) };
+    const pending = {
+      email: input.email,
+      passwordHash,
+      registration: toRegistration(input, await this.legalVersions(context.agencyId)),
+    };
     await this.tokens.put(
       'registration',
       scope,

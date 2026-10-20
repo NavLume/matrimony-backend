@@ -227,6 +227,8 @@ Verified for both: real-backend smoke runs and browser runs with two members and
 
 **More reports (20 October 2026):** `GET /admin/reports/client-money?q=` (the per-client money table searched by member or agent), `/admin/reports/cancelled-payments` (cancelled payments with who, when and why, never counted in totals) and `/admin/reports/successful-connections` (every accepted proposal with both clients, agents, dates, meetings, contact sharing and money; filters: search, matched). Admin only. Checked on the real backend and in the browser; no dedicated automated test yet.
 
+**Matched step and activity log (20 October 2026, migration 038):** `POST /staff/connections/:id/match` marks an accepted connection as matched in one step (`couple-match-service.ts`): both clients become `matched` and leave the search, their other waiting proposals are withdrawn, the success fee each client agreed to is set, a record is kept (who, when, note) and a success story draft may start (names, text, each client's agreement). An admin may do it for any connection; an agent only when they look after both clients. `PUT /admin/success-stories/:id/status` publishes (needs both agreements) or hides a story. **Not built:** the published stories do not appear on the public website yet (the public tenant content is cached and set by the operator; feeding it needs a decision). `GET /admin/activity` reads the event outbox (admin only, filters: group, who, days). Checked on the real backend and in the browser; no dedicated automated tests yet.
+
 ## 9. Where to read next
 
 1. [AGENTS.md](AGENTS.md): the rules for working in this repo.
@@ -239,3 +241,31 @@ Verified for both: real-backend smoke runs and browser runs with two members and
 ## 10. Keeping this file true
 
 When you finish a task, update section 5 (statuses), section 6 or 7 if they changed, and the "Last updated" date. Say what is verified and what is not. A wrong status here misleads the next person more than a missing one.
+
+## Public site content (2026-10-20)
+
+The agency admin edits the public site's words (contact, home heading/subtitle, about, up to 3 branches, each bn/en) with `GET/PUT /api/v1/admin/site-content`; stored inside `agencies.public_config` (migration 039 grants UPDATE on that column only). Name, colours and logo stay operator-set. `SiteContentService.withStories` adds published success stories (newest first, max 12) to the content served by `/public/tenant` and the mobile agency look-up. Event `site.content_updated`, Activity group `site`. Tests: `test/site-content-service.test.ts`.
+
+## Agency look: name, colour, logo (2026-10-20)
+
+Admin only. `PUT /api/v1/admin/branding` (name, `#RRGGBB` colour that white text can be read on; empty removes), `PUT/DELETE /api/v1/admin/branding/logo` (raw PNG/JPEG/WebP ≤ 2 MB, decoded and re-saved as WebP ≤ 512 px by `processLogo`, old file deleted), public `GET /api/v1/public/branding/:file` (cached for a year, random file name). Stored in `public_config` (`name`, `branding.primaryColor`, `branding.logoUrl`) and in storage under `<agency>/branding/`. `GET /admin/site-content` now returns `branding`. Tests in `test/site-content-service.test.ts`.
+
+## Agency legal documents (2026-10-20)
+
+`legal_documents` (migration 040): numbered, append-only versions of each agency's terms and privacy policy (bn/en). `LegalService.versions(agencyId)` gives the version strings a registration records (`agency-vN`, or the old draft version when the agency has no text); it is passed as an optional last constructor argument to the email, Google and phone registration, client-login and guardian acceptance code (default: the platform draft versions, so tests are unchanged). Endpoints: `GET /public/legal/:kind`, `GET /admin/legal`, `PUT /admin/legal/:kind`. Existing members are never asked to re-accept (decided 2026-10-20).
+
+## Home page parts and sign-in panel (2026-10-20)
+
+`public_config.home.sections` (ordered list of `{id, visible, title, text, items}` for village, how, why, trust, stories, agency, final) and `public_config.auth` (`headline`, `text`, `scene`), written through `PUT /admin/site-content`; the service prunes empty parts but keeps item positions and `visible: false`. Ids are validated and unique; more than seven are refused.
+
+## Site themes and accent colour (2026-10-20)
+
+`public_config.branding.theme` (classic | modern | warm | royal, classic not stored) and `branding.accentColor` (`#RRGGBB`, must allow dark text, `contrastOnDark` >= 4.5), set with `PUT /admin/branding`. The looks themselves are CSS in the frontend.
+
+## Tests for the 17-20 October features (2026-10-20)
+
+Rule tests with in-memory fakes (no database): `test/couple-match-service.test.ts` (7), `verification-service.test.ts` (10), `meeting-service.test.ts` (8), `guardian-service.test.ts` (8), `activity-and-report-additions.test.ts` (5). They check who may do what, the statuses, the order of checks, what is recorded and what is deleted. Not covered: the SQL of the new repositories (a real-database integration test is still to write).
+
+## Preview of the public site (2026-10-20)
+
+`POST /admin/site-preview` applies a draft (branding and/or content) to a copy of the stored public config with the same merge functions a save uses (`mergeContent`, `mergeBranding` in `site-content-service.ts`) and keeps the result in Redis (`PreviewRepository`, 30 minutes, key per agency and random id). `GET /public/preview/:id` serves it in the shape of `/public/tenant`. Nothing is written to the database and no event is recorded.

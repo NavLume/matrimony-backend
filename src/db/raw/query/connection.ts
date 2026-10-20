@@ -219,12 +219,13 @@ export const connectionQueries = {
        (x.recipient_contact_consent_at IS NOT NULL) AS to_shared_contact,
        m.id, m.member_code, m.full_name, to_char(m.date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
        m.profession_code, m.current_district_code, m.service_mode,
-       ga.advice, ga.note AS advice_note, ga.advised_at AS advice_at
+       ga.advice, ga.note AS advice_note, ga.advised_at AS advice_at, cm.matched_at
   FROM matrimony.interests x
   JOIN matrimony.member_profiles m ON m.agency_id = x.agency_id
    AND m.id = CASE WHEN x.sender_profile_id = $2 THEN x.recipient_profile_id ELSE x.sender_profile_id END
   LEFT JOIN matrimony.guardian_advice ga ON ga.agency_id = x.agency_id AND ga.interest_id = x.id
    AND ga.profile_id = $2
+  LEFT JOIN matrimony.couple_matches cm ON cm.agency_id = x.agency_id AND cm.interest_id = x.id
  WHERE x.agency_id = $1 AND (x.sender_profile_id = $2 OR x.recipient_profile_id = $2)
  ORDER BY x.updated_at DESC, x.id DESC
  LIMIT 100`,

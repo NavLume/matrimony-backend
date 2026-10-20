@@ -429,6 +429,7 @@ export class ConnectionRepository {
         respondedAt: row.responded_at ? (row.responded_at as Date).toISOString() : null,
         clientShared: (sent ? row.from_shared_contact : row.to_shared_contact) === true,
         otherShared: (sent ? row.to_shared_contact : row.from_shared_contact) === true,
+        matchedAt: row.matched_at ? (row.matched_at as Date).toISOString() : null,
         guardianAdvice: row.advice
           ? {
               advice: row.advice as 'supportive' | 'concerned',

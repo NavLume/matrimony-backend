@@ -64,13 +64,16 @@ export const registrationSchema = z.object({
 });
 export type Registration = z.output<typeof registrationSchema>;
 
-export function toRegistration(input: RegistrationInput): Registration {
+export function toRegistration(
+  input: RegistrationInput,
+  versions: { terms: string; privacy: string } = { terms: TERMS_VERSION, privacy: PRIVACY_VERSION },
+): Registration {
   return {
     displayName: input.displayName,
     locale: input.locale,
     onBehalfOfOther: input.onBehalfOfOther,
-    termsVersion: TERMS_VERSION,
-    privacyVersion: PRIVACY_VERSION,
+    termsVersion: versions.terms,
+    privacyVersion: versions.privacy,
   };
 }
 

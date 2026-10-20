@@ -22,6 +22,18 @@ import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
 import { ClientLoginProcess } from './process/client-login-process.js';
 import { PaymentService } from './service/payment-service.js';
+import { LegalService } from './service/legal-service.js';
+import { LegalDbService } from './db/service/legal-db-service.js';
+import { LegalRepository } from './db/raw/repository/legal-repository.js';
+import { PreviewRepository } from './cache/repository/preview-repository.js';
+import { SiteContentService } from './service/site-content-service.js';
+import { SiteContentDbService } from './db/service/site-content-db-service.js';
+import { SiteContentRepository } from './db/raw/repository/site-content-repository.js';
+import { CoupleMatchService } from './service/couple-match-service.js';
+import { CoupleMatchDbService } from './db/service/couple-match-db-service.js';
+import { CoupleMatchRepository } from './db/raw/repository/couple-match-repository.js';
+import { ActivityService } from './service/activity-service.js';
+import { ActivityRepository } from './db/raw/repository/activity-repository.js';
 import { GuardianProcess } from './process/guardian-process.js';
 import { GuardianService } from './service/guardian-service.js';
 import { GuardianDbService } from './db/service/guardian-db-service.js';
@@ -173,6 +185,11 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       new RegistrationDbService(db, new RegistrationRepository(), new EventRepository()),
     );
     const oneTimeTokens = new OneTimeTokenRepository(redis);
+    // The agency's own terms and privacy text; a registration records the version shown when the person agreed.
+    const legal = new LegalService(
+      new LegalDbService(db, new LegalRepository(), new EventRepository()),
+    );
+    const legalVersions = (agencyId: string) => legal.versions(agencyId);
     // Phone sign-in is on only when a way to send the codes is configured.
     const phone =
       config.SMS_DRIVER === 'console'
@@ -187,6 +204,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
             box,
             logger,
             config.SMS_ALLOWED_COUNTRIES,
+            legalVersions,
           )
         : undefined;
     const mailer = createMailer(config);
@@ -213,6 +231,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
           new RegistrationRepository(),
           new EventRepository(),
         ),
+        legalVersions,
       ),
       credentials,
       auth,
@@ -235,6 +254,9 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
           new RegistrationRepository(),
           new EventRepository(),
         ),
+        undefined,
+        undefined,
+        legalVersions,
       ),
       credentials,
       auth,
@@ -253,6 +275,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       box,
       logger,
       phone,
+      legalVersions,
     );
     // Sign-in with Google is on only when both settings are given.
     const google =
@@ -270,6 +293,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
             auth,
             box,
             logger,
+            legalVersions,
           )
         : undefined;
     await hub.start();
@@ -295,6 +319,13 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
     );
     if (config.PUSH_DRIVER === 'console')
       hub.onAny((signal) => void push.dispatch(signal.agencyId, signal.accountId));
+    const siteContent = new SiteContentService(
+      new SiteContentDbService(db, new SiteContentRepository(), new EventRepository()),
+      storage,
+      undefined,
+      undefined,
+      new PreviewRepository(redis),
+    );
     // Signing in again within the waiting time cancels a deletion.
     auth.afterSignIn = (agencyId, accountId) =>
       deletions.cancelOnSignIn(agencyId, accountId).catch(() => undefined);
@@ -308,7 +339,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       invitations,
       clientLogins,
       guardians,
-      mobile: new MobileService(identities, config),
+      mobile: new MobileService(identities, config, siteContent),
       deletions,
       push,
       reports: new ReportService(db, new ReportRepository()),
@@ -317,6 +348,12 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         new PaymentDbService(db, new PaymentRepository(), new EventRepository()),
         storage,
         logger,
+      ),
+      activity: new ActivityService(db, new ActivityRepository()),
+      siteContent,
+      legal,
+      coupleMatches: new CoupleMatchService(
+        new CoupleMatchDbService(db, new CoupleMatchRepository(), new EventRepository()),
       ),
       meetings: new MeetingService(
         new MeetingDbService(db, new MeetingRepository(), new EventRepository()),

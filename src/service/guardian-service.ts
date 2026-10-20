@@ -10,7 +10,8 @@ import {
   type WardSummary,
 } from '../bo/guardian.js';
 import type { Account } from '../bo/identity.js';
-import { PRIVACY_VERSION, TERMS_VERSION } from '../bo/registration.js';
+import { platformLegalVersions, type LegalVersionSource } from '../bo/legal.js';
+
 import type { GuardedProfile, GuardianRow } from '../db/raw/repository/guardian-repository.js';
 import type { GuardianDbService, GuardianUnit } from '../db/service/guardian-db-service.js';
 import { AppError } from '../exception/app-error.js';
@@ -50,6 +51,7 @@ export class GuardianService {
     private readonly db: Pick<GuardianDbService, 'inTransaction'>,
     private readonly now: () => Date = () => new Date(),
     private readonly newId: () => string = randomUUID,
+    private readonly legalVersions: LegalVersionSource = platformLegalVersions,
   ) {}
 
   // ---- the agency ----------------------------------------------------------------------------
@@ -231,6 +233,7 @@ export class GuardianService {
     passwordHash: string,
     correlationId: string,
   ): Promise<Account | null> {
+    const versions = await this.legalVersions(agencyId);
     return this.db.inTransaction(agencyId, async (unit): Promise<Account | null> => {
       const found = await unit.byLink(agencyId, tokenHash, true);
       if (!found) return null;
@@ -244,8 +247,8 @@ export class GuardianService {
       if (!account) throw new AppError(409, 'ADDRESS_IN_USE');
       await unit.createCredential(agencyId, account.id, passwordHash);
       await unit.recordConsents(agencyId, account.id, [
-        { purpose: 'terms', documentVersion: TERMS_VERSION },
-        { purpose: 'privacy', documentVersion: PRIVACY_VERSION },
+        { purpose: 'terms', documentVersion: versions.terms },
+        { purpose: 'privacy', documentVersion: versions.privacy },
       ]);
       if (!(await unit.markAccepted(agencyId, found.id, account.id)))
         throw new AppError(409, 'ADDRESS_IN_USE');
