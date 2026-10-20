@@ -770,17 +770,16 @@ await test('connection requests and the inbox on real PostgreSQL', async (t) => 
   );
 
   await t.test(
-    'a client with a login is answered for only by themselves, never by staff',
+    'staff answer for a client who has a login too; the first answer counts',
     async () => {
       const x = await member('Own Ozzy', 'male');
       const y = await member('Own Yara', 'female');
       await release(x.profileId, y.profileId);
       const { connectionId } = await ask(x.actor, y.profileId);
-      await assert.rejects(
-        connections.staffRespond(boss.actor, y.profileId, connectionId, true, 'c'),
-        refused(403, 'PROFILE_SELF_SERVICE'),
-      );
-      assert.equal((await connectionRows(x.profileId, y.profileId))[0].status, 'pending');
+      await connections.staffRespond(boss.actor, y.profileId, connectionId, true, 'c');
+      assert.equal((await connectionRows(x.profileId, y.profileId))[0].status, 'accepted');
+      // The client's own answer comes too late: the request is no longer waiting.
+      await assert.rejects(connections.respond(y.actor, connectionId, true, 'c'));
     },
   );
 

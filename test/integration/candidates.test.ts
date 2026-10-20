@@ -270,6 +270,7 @@ await test('candidate lists on real PostgreSQL', async (t) => {
       [
         'age',
         'candidateId',
+        'connection',
         'currentDistrictCode',
         'forward',
         'fullName',

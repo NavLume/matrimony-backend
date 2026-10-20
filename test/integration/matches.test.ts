@@ -235,6 +235,7 @@ await test("a member's matches on real PostgreSQL", async (t) => {
         'position',
         'professionCode',
         'religionCode',
+        'verified',
       ]);
       assert.equal(ayesha.fullName, 'Ayesha');
       assert.equal(ayesha.age, 28);
