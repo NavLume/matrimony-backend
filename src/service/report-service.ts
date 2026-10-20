@@ -1,7 +1,12 @@
 import { decodeCursor, encodeCursor } from '../bo/review.js';
 import {
   PROPOSAL_STATUSES,
+  type CancelledPage,
+  type CancelledQuery,
+  type ClientMoney,
   type NetworkReport,
+  type SuccessfulPage,
+  type SuccessfulQuery,
   type ProposalListQuery,
   type ProposalPage,
   type ProposalStatus,
@@ -186,6 +191,85 @@ export class ReportService {
           rows.length > query.limit && last
             ? encodeCursor({ createdAt: last.position, id: last.id })
             : null,
+      };
+    });
+  }
+
+  /** The per-client money table narrowed by a search for a member (name or code) or an agent. */
+  async clientMoney(actor: ProfileActor, text: string | null): Promise<ClientMoney[]> {
+    this.requireAdmin(actor);
+    return this.db.transaction(actor.agencyId, (tx) =>
+      this.repository.clientMoney(
+        tx,
+        actor.agencyId,
+        text ? text.replace(/[\\%_]/g, (c) => `\\${c}`) : null,
+      ),
+    );
+  }
+
+  /** Payments that were cancelled, with who cancelled them and why. They never count in any total. */
+  async cancelledPayments(actor: ProfileActor, query: CancelledQuery): Promise<CancelledPage> {
+    this.requireAdmin(actor);
+    const after = query.after ? decodeCursor(query.after) : null;
+    if (query.after && !after) throw new AppError(400, 'INVALID_REQUEST');
+    return this.db.transaction(actor.agencyId, async (tx) => {
+      const [rows, totals] = await Promise.all([
+        this.repository.cancelled(
+          tx,
+          actor.agencyId,
+          { text: query.q ? query.q.replace(/[\\%_]/g, (c) => `\\${c}`) : null },
+          { limit: query.limit, after },
+        ),
+        this.repository.cancelledTotals(tx, actor.agencyId),
+      ]);
+      const items = rows.slice(0, query.limit);
+      const last = items.at(-1);
+      return {
+        items: items.map((item) => {
+          const row: Partial<typeof item> = { ...item };
+          delete row.position;
+          return row as Omit<typeof item, 'position'>;
+        }),
+        next:
+          rows.length > query.limit && last
+            ? encodeCursor({ createdAt: last.position, id: last.id })
+            : null,
+        totals,
+      };
+    });
+  }
+
+  /** Accepted proposals with everything known about each: both clients, agents, dates, meetings and money. */
+  async successful(actor: ProfileActor, query: SuccessfulQuery): Promise<SuccessfulPage> {
+    this.requireAdmin(actor);
+    const after = query.after ? decodeCursor(query.after) : null;
+    if (query.after && !after) throw new AppError(400, 'INVALID_REQUEST');
+    return this.db.transaction(actor.agencyId, async (tx) => {
+      const [rows, totals] = await Promise.all([
+        this.repository.successful(
+          tx,
+          actor.agencyId,
+          {
+            text: query.q ? query.q.replace(/[\\%_]/g, (c) => `\\${c}`) : null,
+            matched: query.matched === undefined ? null : query.matched === 'true',
+          },
+          { limit: query.limit, after },
+        ),
+        this.repository.successfulTotals(tx, actor.agencyId),
+      ]);
+      const items = rows.slice(0, query.limit);
+      const last = items.at(-1);
+      return {
+        items: items.map((item) => {
+          const row: Partial<typeof item> = { ...item };
+          delete row.position;
+          return row as Omit<typeof item, 'position'>;
+        }),
+        next:
+          rows.length > query.limit && last
+            ? encodeCursor({ createdAt: last.position, id: last.id })
+            : null,
+        totals,
       };
     });
   }

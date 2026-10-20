@@ -225,6 +225,8 @@ Verified for both: real-backend smoke runs and browser runs with two members and
 
 **Changes after the guardian test (20 October 2026):** a guardian also reads the CV of a connected person (read-only, through the profile they look after). An agent or admin who looks after a client may accept, decline and share contact for that client whether or not the client has a login (the first answer counts; the old rule that only clients without a login are answered for was wrong). The agent is told when a client agrees to or declines a guardian (`guardian_answer`). Declining or cancelling a guardian request crashed because of a database check, fixed in migration 037.
 
+**More reports (20 October 2026):** `GET /admin/reports/client-money?q=` (the per-client money table searched by member or agent), `/admin/reports/cancelled-payments` (cancelled payments with who, when and why, never counted in totals) and `/admin/reports/successful-connections` (every accepted proposal with both clients, agents, dates, meetings, contact sharing and money; filters: search, matched). Admin only. Checked on the real backend and in the browser; no dedicated automated test yet.
+
 ## 9. Where to read next
 
 1. [AGENTS.md](AGENTS.md): the rules for working in this repo.

@@ -164,3 +164,99 @@ export interface NetworkReport {
   /** More accepted proposals exist than are drawn. */
   truncated: boolean;
 }
+
+const searchText = z.string().trim().min(1, fail('required')).max(60, fail('tooLong'));
+
+/** A search of the per-client money table, by member (name or code) or agent. */
+export const clientMoneyQuerySchema = z.object({ q: searchText.optional() }).strict();
+
+export const cancelledQuerySchema = z
+  .object({
+    q: searchText.optional(),
+    limit: z.coerce
+      .number(fail('invalid'))
+      .int(fail('invalid'))
+      .min(1, fail('outOfRange'))
+      .max(50, fail('outOfRange'))
+      .default(15),
+    after: z.string().max(300, fail('tooLong')).optional(),
+  })
+  .strict();
+export type CancelledQuery = z.output<typeof cancelledQuerySchema>;
+
+export const successfulQuerySchema = z
+  .object({
+    q: searchText.optional(),
+    /** `true`: only connections where a client is marked matched; `false`: only those not yet matched. */
+    matched: z.enum(['true', 'false'], fail('invalidOption')).optional(),
+    limit: z.coerce
+      .number(fail('invalid'))
+      .int(fail('invalid'))
+      .min(1, fail('outOfRange'))
+      .max(50, fail('outOfRange'))
+      .default(15),
+    after: z.string().max(300, fail('tooLong')).optional(),
+  })
+  .strict();
+export type SuccessfulQuery = z.output<typeof successfulQuerySchema>;
+
+/** A payment that was cancelled, with who cancelled it and why. It never counts in any total. */
+export interface CancelledPayment {
+  id: string;
+  profile: { id: string; memberCode: string; fullName: string };
+  agentName: string | null;
+  stage: 'registration' | 'success';
+  amount: number;
+  paidOn: string;
+  method: string;
+  receivedBy: string;
+  cancelledAt: string;
+  cancelledBy: string;
+  reason: string;
+  hasInvoice: boolean;
+}
+
+export interface CancelledPage {
+  items: CancelledPayment[];
+  next: string | null;
+  /** Everything ever cancelled, whatever the search. */
+  totals: { count: number; amount: number };
+}
+
+/** One client of a successful connection, with what they agreed and paid, all time. */
+export interface SuccessSide {
+  profileId: string;
+  memberCode: string;
+  fullName: string;
+  status: string;
+  agentName: string | null;
+  verified: boolean;
+  registration: { agreed: number; paid: number };
+  success: { agreed: number; paid: number };
+}
+
+/** An accepted proposal with everything known about it: dates, meetings and money. */
+export interface SuccessfulConnection {
+  id: string;
+  sentAt: string;
+  connectedAt: string;
+  daysToAccept: number;
+  a: SuccessSide;
+  b: SuccessSide;
+  contactShared: { a: boolean; b: boolean };
+  /** At least one of the two clients is marked matched. */
+  matched: boolean;
+  meetings: { total: number; done: number; last: string | null };
+  /** Success-fee payments recorded for this very connection. */
+  successFeeForThis: number;
+  /** What both clients paid, all stages, all time. */
+  bothPaid: number;
+  bothAgreed: number;
+}
+
+export interface SuccessfulPage {
+  items: SuccessfulConnection[];
+  next: string | null;
+  /** Over all accepted connections, whatever the search. */
+  totals: { connections: number; matched: number; successFeeCollected: number };
+}

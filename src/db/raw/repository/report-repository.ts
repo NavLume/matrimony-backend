@@ -1,6 +1,9 @@
 import type {
   AgentReport,
+  CancelledPayment,
   ClientMoney,
+  SuccessSide,
+  SuccessfulConnection,
   NetworkEdge,
   NetworkNode,
   ProposalRow,
@@ -188,7 +191,11 @@ export class ReportRepository {
   }
 
   /** Every client with an agreement or a payment: what was agreed and what was paid, all time. */
-  async clientMoney(tx: Transaction, agencyId: string): Promise<ClientMoney[]> {
+  async clientMoney(
+    tx: Transaction,
+    agencyId: string,
+    text: string | null = null,
+  ): Promise<ClientMoney[]> {
     const result = await tx.query(
       `SELECT p.id, p.member_code, p.full_name, ag.display_name AS agent_name,
               coalesce((SELECT sum(g.amount) FROM matrimony.client_agreements g
@@ -201,9 +208,11 @@ export class ReportRepository {
         WHERE p.agency_id = $1
           AND (EXISTS (SELECT 1 FROM matrimony.client_agreements g WHERE g.agency_id = p.agency_id AND g.profile_id = p.id)
             OR EXISTS (SELECT 1 FROM matrimony.client_payments c WHERE c.agency_id = p.agency_id AND c.profile_id = p.id))
+          AND ($2::text IS NULL OR p.full_name ILIKE '%' || $2 || '%' OR p.member_code ILIKE '%' || $2 || '%'
+               OR ag.display_name ILIKE '%' || $2 || '%')
         ORDER BY paid DESC, agreed DESC, p.member_code
         LIMIT 100`,
-      [agencyId],
+      [agencyId, text],
     );
     return (result.rows as Row[]).map((r) => ({
       profileId: r.id as string,
@@ -319,5 +328,186 @@ export class ReportRepository {
       fullName: r.full_name as string,
       gender: (r.gender as string | null) ?? null,
     }));
+  }
+
+  /** Payments that were cancelled, newest cancellation first, with the reason. Never part of any total. */
+  async cancelled(
+    tx: Transaction,
+    agencyId: string,
+    filter: { text: string | null },
+    page: { limit: number; after: { createdAt: string; id: string } | null },
+  ): Promise<(CancelledPayment & { position: string })[]> {
+    const result = await tx.query(
+      `SELECT c.id, c.stage, c.amount::bigint AS amount, to_char(c.paid_on, 'YYYY-MM-DD') AS paid_on, c.method,
+              c.voided_at, ${POSITION('c.voided_at')} AS position, c.void_reason, (c.invoice_key IS NOT NULL) AS has_invoice,
+              p.id AS p_id, p.member_code, p.full_name, ag.display_name AS agent_name,
+              rb.display_name AS received_by, vb.display_name AS voided_by
+         FROM matrimony.client_payments c
+         JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
+         LEFT JOIN matrimony.accounts ag ON ag.agency_id = p.agency_id AND ag.id = p.assigned_agent_id
+         JOIN matrimony.accounts rb ON rb.agency_id = c.agency_id AND rb.id = c.received_by
+         JOIN matrimony.accounts vb ON vb.agency_id = c.agency_id AND vb.id = c.voided_by
+        WHERE c.agency_id = $1 AND c.voided_at IS NOT NULL
+          AND ($2::timestamptz IS NULL OR (c.voided_at, c.id) < ($2::timestamptz, $3::uuid))
+          AND ($4::text IS NULL OR p.full_name ILIKE '%' || $4 || '%' OR p.member_code ILIKE '%' || $4 || '%'
+               OR ag.display_name ILIKE '%' || $4 || '%' OR c.void_reason ILIKE '%' || $4 || '%'
+               OR vb.display_name ILIKE '%' || $4 || '%')
+        ORDER BY c.voided_at DESC, c.id DESC
+        LIMIT $5`,
+      [
+        agencyId,
+        page.after?.createdAt ?? null,
+        page.after?.id ?? null,
+        filter.text,
+        page.limit + 1,
+      ],
+    );
+    return (result.rows as Row[]).map((r) => ({
+      id: r.id as string,
+      profile: {
+        id: r.p_id as string,
+        memberCode: r.member_code as string,
+        fullName: r.full_name as string,
+      },
+      agentName: (r.agent_name as string | null) ?? null,
+      stage: r.stage as 'registration' | 'success',
+      amount: num(r.amount),
+      paidOn: r.paid_on as string,
+      method: r.method as string,
+      receivedBy: r.received_by as string,
+      cancelledAt: (r.voided_at as Date).toISOString(),
+      cancelledBy: r.voided_by as string,
+      reason: r.void_reason as string,
+      hasInvoice: r.has_invoice === true,
+      position: r.position as string,
+    }));
+  }
+
+  async cancelledTotals(tx: Transaction, agencyId: string) {
+    const result = await tx.query(
+      `SELECT count(*)::int AS n, coalesce(sum(amount), 0)::bigint AS amount
+         FROM matrimony.client_payments WHERE agency_id = $1 AND voided_at IS NOT NULL`,
+      [agencyId],
+    );
+    const row = result.rows[0] as Row;
+    return { count: num(row.n), amount: num(row.amount) };
+  }
+
+  /** Accepted proposals with both clients, dates, meetings and what was agreed and paid. */
+  async successful(
+    tx: Transaction,
+    agencyId: string,
+    filter: { text: string | null; matched: boolean | null },
+    page: { limit: number; after: { createdAt: string; id: string } | null },
+  ): Promise<(SuccessfulConnection & { position: string })[]> {
+    const money = (alias: string, stage: string, kind: 'agreed' | 'paid') =>
+      kind === 'agreed'
+        ? `coalesce((SELECT sum(g.amount) FROM matrimony.client_agreements g
+                      WHERE g.agency_id = i.agency_id AND g.profile_id = ${alias}.id AND g.stage = '${stage}'), 0)::bigint`
+        : `coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
+                      WHERE c.agency_id = i.agency_id AND c.profile_id = ${alias}.id AND c.stage = '${stage}'
+                        AND c.voided_at IS NULL), 0)::bigint`;
+    const result = await tx.query(
+      `SELECT i.id, i.created_at, i.responded_at, ${POSITION('i.responded_at')} AS position,
+              (i.sender_contact_consent_at IS NOT NULL) AS a_shared, (i.recipient_contact_consent_at IS NOT NULL) AS b_shared,
+              s.id AS a_id, s.member_code AS a_code, s.full_name AS a_name, s.status AS a_status,
+              (s.verified_at IS NOT NULL) AS a_verified, sa.display_name AS a_agent,
+              r.id AS b_id, r.member_code AS b_code, r.full_name AS b_name, r.status AS b_status,
+              (r.verified_at IS NOT NULL) AS b_verified, ra.display_name AS b_agent,
+              ${money('s', 'registration', 'agreed')} AS a_reg_agreed, ${money('s', 'registration', 'paid')} AS a_reg_paid,
+              ${money('s', 'success', 'agreed')} AS a_suc_agreed, ${money('s', 'success', 'paid')} AS a_suc_paid,
+              ${money('r', 'registration', 'agreed')} AS b_reg_agreed, ${money('r', 'registration', 'paid')} AS b_reg_paid,
+              ${money('r', 'success', 'agreed')} AS b_suc_agreed, ${money('r', 'success', 'paid')} AS b_suc_paid,
+              coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
+                         WHERE c.agency_id = i.agency_id AND c.interest_id = i.id AND c.voided_at IS NULL), 0)::bigint AS for_this,
+              (SELECT count(*) FROM matrimony.meetings m WHERE m.agency_id = i.agency_id AND m.interest_id = i.id
+                  AND m.status <> 'cancelled')::int AS meetings_total,
+              (SELECT count(*) FROM matrimony.meetings m WHERE m.agency_id = i.agency_id AND m.interest_id = i.id
+                  AND m.status = 'done')::int AS meetings_done,
+              (SELECT max(m.scheduled_at) FROM matrimony.meetings m WHERE m.agency_id = i.agency_id AND m.interest_id = i.id
+                  AND m.status IN ('scheduled', 'done')) AS meetings_last
+         FROM matrimony.interests i
+         JOIN matrimony.member_profiles s ON s.agency_id = i.agency_id AND s.id = i.sender_profile_id
+         JOIN matrimony.member_profiles r ON r.agency_id = i.agency_id AND r.id = i.recipient_profile_id
+         LEFT JOIN matrimony.accounts sa ON sa.agency_id = s.agency_id AND sa.id = s.assigned_agent_id
+         LEFT JOIN matrimony.accounts ra ON ra.agency_id = r.agency_id AND ra.id = r.assigned_agent_id
+        WHERE i.agency_id = $1 AND i.status = 'accepted'
+          AND ($2::timestamptz IS NULL OR (i.responded_at, i.id) < ($2::timestamptz, $3::uuid))
+          AND ($4::text IS NULL
+               OR s.member_code ILIKE '%' || $4 || '%' OR r.member_code ILIKE '%' || $4 || '%'
+               OR s.full_name ILIKE '%' || $4 || '%' OR r.full_name ILIKE '%' || $4 || '%'
+               OR sa.display_name ILIKE '%' || $4 || '%' OR ra.display_name ILIKE '%' || $4 || '%')
+          AND ($5::boolean IS NULL
+               OR ($5::boolean = (s.status = 'matched' OR r.status = 'matched')))
+        ORDER BY i.responded_at DESC, i.id DESC
+        LIMIT $6`,
+      [
+        agencyId,
+        page.after?.createdAt ?? null,
+        page.after?.id ?? null,
+        filter.text,
+        filter.matched,
+        page.limit + 1,
+      ],
+    );
+    const sideOf = (prefix: 'a' | 'b', row: Row): SuccessSide => ({
+      profileId: row[`${prefix}_id`] as string,
+      memberCode: row[`${prefix}_code`] as string,
+      fullName: row[`${prefix}_name`] as string,
+      status: row[`${prefix}_status`] as string,
+      agentName: (row[`${prefix}_agent`] as string | null) ?? null,
+      verified: row[`${prefix}_verified`] === true,
+      registration: {
+        agreed: num(row[`${prefix}_reg_agreed`]),
+        paid: num(row[`${prefix}_reg_paid`]),
+      },
+      success: { agreed: num(row[`${prefix}_suc_agreed`]), paid: num(row[`${prefix}_suc_paid`]) },
+    });
+    return (result.rows as Row[]).map((row) => {
+      const a = sideOf('a', row);
+      const b = sideOf('b', row);
+      const sent = row.created_at as Date;
+      const connected = row.responded_at as Date;
+      return {
+        id: row.id as string,
+        sentAt: sent.toISOString(),
+        connectedAt: connected.toISOString(),
+        daysToAccept: Math.max(0, Math.round((connected.getTime() - sent.getTime()) / 86_400_000)),
+        a,
+        b,
+        contactShared: { a: row.a_shared === true, b: row.b_shared === true },
+        matched: a.status === 'matched' || b.status === 'matched',
+        meetings: {
+          total: num(row.meetings_total),
+          done: num(row.meetings_done),
+          last: row.meetings_last ? (row.meetings_last as Date).toISOString() : null,
+        },
+        successFeeForThis: num(row.for_this),
+        bothPaid: a.registration.paid + a.success.paid + b.registration.paid + b.success.paid,
+        bothAgreed:
+          a.registration.agreed + a.success.agreed + b.registration.agreed + b.success.agreed,
+        position: row.position as string,
+      };
+    });
+  }
+
+  async successfulTotals(tx: Transaction, agencyId: string) {
+    const result = await tx.query(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE s.status = 'matched' OR r.status = 'matched')::int AS matched,
+              coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
+                         WHERE c.agency_id = $1 AND c.interest_id IS NOT NULL AND c.voided_at IS NULL), 0)::bigint AS fees
+         FROM matrimony.interests i
+         JOIN matrimony.member_profiles s ON s.agency_id = i.agency_id AND s.id = i.sender_profile_id
+         JOIN matrimony.member_profiles r ON r.agency_id = i.agency_id AND r.id = i.recipient_profile_id
+        WHERE i.agency_id = $1 AND i.status = 'accepted'`,
+      [agencyId],
+    );
+    const row = result.rows[0] as Row;
+    return {
+      connections: num(row.n),
+      matched: num(row.matched),
+      successFeeCollected: num(row.fees),
+    };
   }
 }

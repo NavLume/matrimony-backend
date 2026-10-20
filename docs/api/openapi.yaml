@@ -1374,6 +1374,65 @@ paths:
         '400': { $ref: '#/components/responses/Error400' }
         '403': { $ref: '#/components/responses/Error403' }
 
+  /api/v1/admin/reports/client-money:
+    get:
+      tags: [Reports]
+      summary: What each client agreed and paid, searched (admin)
+      description: Every client with an agreement or a payment, all time, most paid first (at most 100). `q` matches a member's name or code, or their agent's name. Cancelled payments are left out.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 60 } }
+      responses:
+        '200':
+          description: The clients.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClientMoney' }
+
+  /api/v1/admin/reports/cancelled-payments:
+    get:
+      tags: [Reports]
+      summary: Payments that were cancelled, with the reason (admin)
+      description: Newest cancellation first. They never count in any total. `q` matches the client, their agent, the person who cancelled, or the reason. `totals` is over everything cancelled, whatever the search.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 60 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 15 } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancelledPage' }
+
+  /api/v1/admin/reports/successful-connections:
+    get:
+      tags: [Reports]
+      summary: Accepted proposals with everything known about each (admin)
+      description: Newest first. Each row has both clients and their agents, the dates, meetings, contact sharing and what both clients agreed and paid. `matched` narrows to connections where a client is marked matched (`true`) or not (`false`). `totals` is over all accepted connections, whatever the search.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 60 } }
+        - { name: matched, in: query, required: false, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 15 } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessfulPage' }
+
   /api/v1/admin/reports/network:
     get:
       tags: [Reports]
@@ -5323,6 +5382,118 @@ components:
         advice: { type: string, enum: [supportive, concerned] }
         note: { type: [string, 'null'] }
         at: { type: string, format: date-time }
+    CancelledPayment:
+      type: object
+      additionalProperties: false
+      required: [id, profile, agentName, stage, amount, paidOn, method, receivedBy, cancelledAt, cancelledBy, reason, hasInvoice]
+      properties:
+        id: { type: string, format: uuid }
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        agentName: { type: [string, 'null'] }
+        stage: { type: string, enum: [registration, success] }
+        amount: { type: integer, description: Whole taka. }
+        paidOn: { type: string, format: date }
+        method: { type: string }
+        receivedBy: { type: string }
+        cancelledAt: { type: string, format: date-time }
+        cancelledBy: { type: string }
+        reason: { type: string }
+        hasInvoice: { type: boolean }
+    CancelledPage:
+      type: object
+      additionalProperties: false
+      required: [items, next, totals]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CancelledPayment' }
+        next: { type: [string, 'null'] }
+        totals:
+          type: object
+          additionalProperties: false
+          required: [count, amount]
+          properties:
+            count: { type: integer }
+            amount: { type: integer }
+    SuccessSide:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName, status, agentName, verified, registration, success]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        status: { type: string }
+        agentName: { type: [string, 'null'] }
+        verified: { type: boolean }
+        registration:
+          type: object
+          additionalProperties: false
+          required: [agreed, paid]
+          properties:
+            agreed: { type: integer }
+            paid: { type: integer }
+        success:
+          type: object
+          additionalProperties: false
+          required: [agreed, paid]
+          properties:
+            agreed: { type: integer }
+            paid: { type: integer }
+    SuccessfulConnection:
+      type: object
+      additionalProperties: false
+      required: [id, sentAt, connectedAt, daysToAccept, a, b, contactShared, matched, meetings, successFeeForThis, bothPaid, bothAgreed]
+      properties:
+        id: { type: string, format: uuid }
+        sentAt: { type: string, format: date-time }
+        connectedAt: { type: string, format: date-time }
+        daysToAccept: { type: integer }
+        a: { $ref: '#/components/schemas/SuccessSide' }
+        b: { $ref: '#/components/schemas/SuccessSide' }
+        contactShared:
+          type: object
+          additionalProperties: false
+          required: [a, b]
+          properties:
+            a: { type: boolean }
+            b: { type: boolean }
+        matched: { type: boolean, description: At least one of the two clients is marked matched. }
+        meetings:
+          type: object
+          additionalProperties: false
+          required: [total, done, last]
+          properties:
+            total: { type: integer, description: Not counting cancelled ones. }
+            done: { type: integer }
+            last: { type: [string, 'null'], format: date-time }
+        successFeeForThis: { type: integer, description: Success-fee payments recorded for this very connection. }
+        bothPaid: { type: integer }
+        bothAgreed: { type: integer }
+    SuccessfulPage:
+      type: object
+      additionalProperties: false
+      required: [items, next, totals]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SuccessfulConnection' }
+        next: { type: [string, 'null'] }
+        totals:
+          type: object
+          additionalProperties: false
+          required: [connections, matched, successFeeCollected]
+          properties:
+            connections: { type: integer }
+            matched: { type: integer }
+            successFeeCollected: { type: integer }
     PaymentLedger:
       type: object
       additionalProperties: false
