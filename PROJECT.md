@@ -223,6 +223,8 @@ Verified for both: real-backend smoke runs and browser runs with two members and
 
 **Meeting confirmation (19 October 2026, migration 036):** when the two clients of an accepted proposal have different agents, a meeting set by one side is `proposed`; the other side (their agent, an admin, or the client in the app) confirms it or suggests another time (the suggestion becomes their proposal and the first side answers). Only a confirmed meeting is `scheduled`; marking done needs it. Same agent for both clients, or an admin setting it, means confirmed at once. A later change of time, place or kind by an agent with different agents asks the other side again. Verified on the real backend (proposal, own-side refusal, suggestion, confirmation, client answers, admin and same-agent cases) and in the browser; 646 unit tests pass.
 
+**Changes after the guardian test (20 October 2026):** a guardian also reads the CV of a connected person (read-only, through the profile they look after). An agent or admin who looks after a client may accept, decline and share contact for that client whether or not the client has a login (the first answer counts; the old rule that only clients without a login are answered for was wrong). The agent is told when a client agrees to or declines a guardian (`guardian_answer`). Declining or cancelling a guardian request crashed because of a database check, fixed in migration 037.
+
 ## 9. Where to read next
 
 1. [AGENTS.md](AGENTS.md): the rules for working in this repo.

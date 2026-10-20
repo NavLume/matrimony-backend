@@ -10,6 +10,10 @@ export const cvQueries = {
  WHERE agency_id = $1 AND owner_account_id = $2 FOR UPDATE`,
   ownProfile: `SELECT id, status, service_mode, assigned_agent_id FROM matrimony.member_profiles
  WHERE agency_id = $1 AND owner_account_id = $2`,
+  // The profile a guardian account looks after, while the guardian link is active. $1 agency, $2 account.
+  guardedProfile: `SELECT p.id, p.status, p.service_mode, p.assigned_agent_id FROM matrimony.profile_guardians g
+ JOIN matrimony.member_profiles p ON p.agency_id = g.agency_id AND p.id = g.profile_id
+ WHERE g.agency_id = $1 AND g.account_id = $2 AND g.status = 'active'`,
   // $1 agency, $2 profile.
   lockProfile: `SELECT id, status, service_mode, assigned_agent_id FROM matrimony.member_profiles
  WHERE agency_id = $1 AND id = $2 FOR UPDATE`,

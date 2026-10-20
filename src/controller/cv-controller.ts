@@ -10,6 +10,7 @@ import './context.js';
 const memberOnly = { roles: ['member' as const] };
 const staffOnly = { roles: ['admin' as const, 'agent' as const] };
 const profileParams = z.object({ profileId: z.uuid() });
+const memberOrGuardian = { roles: ['member' as const, 'guardian' as const] };
 const candidateParams = z.object({ candidateId: z.uuid() });
 const whichQuery = z.object({ which: z.enum(['current', 'replacement']).default('current') });
 
@@ -92,17 +93,20 @@ export function registerCvController(
   );
 
   // ---- a connected person's CV --------------------------------------------------------------
-  app.get('/api/v1/me/matches/:candidateId/cv', { config: memberOnly }, async (req) =>
+  app.get('/api/v1/me/matches/:candidateId/cv', { config: memberOrGuardian }, async (req) =>
     cvInfoResponse(
       await cvs.infoOfConnection(actor(req), candidateParams.parse(req.params).candidateId),
     ),
   );
 
-  app.get('/api/v1/me/matches/:candidateId/cv/file', { config: memberOnly }, async (req, reply) =>
-    sendPdf(
-      reply,
-      await cvs.fileOfConnection(actor(req), candidateParams.parse(req.params).candidateId),
-    ),
+  app.get(
+    '/api/v1/me/matches/:candidateId/cv/file',
+    { config: memberOrGuardian },
+    async (req, reply) =>
+      sendPdf(
+        reply,
+        await cvs.fileOfConnection(actor(req), candidateParams.parse(req.params).candidateId),
+      ),
   );
 
   // ---- staff, for the clients they look after -------------------------------------------------

@@ -207,9 +207,13 @@ export class CvService {
     actor: ProfileActor,
     candidateId: string,
   ): Promise<{ storageKey: string; fileName: string }> {
-    if (actor.role !== 'member') throw new AppError(403, 'ROLE_FORBIDDEN');
+    if (actor.role !== 'member' && actor.role !== 'guardian')
+      throw new AppError(403, 'ROLE_FORBIDDEN');
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await unit.ownProfile(actor.agencyId, actor.accountId, false);
+      const own =
+        actor.role === 'guardian'
+          ? await unit.guardedProfile(actor.agencyId, actor.accountId)
+          : await unit.ownProfile(actor.agencyId, actor.accountId, false);
       if (!own || own.status !== 'active') throw new AppError(404, 'CV_NOT_FOUND');
       const other = await unit.profileById(actor.agencyId, candidateId, false);
       if (!other || other.status !== 'active') throw new AppError(404, 'CV_NOT_FOUND');
@@ -224,9 +228,13 @@ export class CvService {
 
   /** Whether a connected person has a CV to show, and how big it is. Same answer as no CV otherwise. */
   async infoForConnection(actor: ProfileActor, candidateId: string): Promise<CvInfo | null> {
-    if (actor.role !== 'member') throw new AppError(403, 'ROLE_FORBIDDEN');
+    if (actor.role !== 'member' && actor.role !== 'guardian')
+      throw new AppError(403, 'ROLE_FORBIDDEN');
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await unit.ownProfile(actor.agencyId, actor.accountId, false);
+      const own =
+        actor.role === 'guardian'
+          ? await unit.guardedProfile(actor.agencyId, actor.accountId)
+          : await unit.ownProfile(actor.agencyId, actor.accountId, false);
       if (!own || own.status !== 'active') return null;
       const other = await unit.profileById(actor.agencyId, candidateId, false);
       if (!other || other.status !== 'active') return null;

@@ -289,7 +289,7 @@ export class ConnectionService {
   ): Promise<void> {
     this.requireStaff(actor);
     await this.db.inTransaction(actor.agencyId, async (unit) => {
-      await this.managed(unit, actor, clientId, true);
+      await this.managed(unit, actor, clientId, false);
       await this.decide(unit, actor, clientId, connectionId, accept, correlationId);
     });
   }
@@ -303,7 +303,7 @@ export class ConnectionService {
   ): Promise<void> {
     this.requireStaff(actor);
     await this.db.inTransaction(actor.agencyId, async (unit) => {
-      await this.managed(unit, actor, clientId, true);
+      await this.managed(unit, actor, clientId, false);
       await this.share(unit, actor, clientId, connectionId, correlationId);
     });
   }
@@ -682,7 +682,7 @@ export class ConnectionService {
   ) {
     const [client] = await unit.readProfiles(actor.agencyId, [clientId]);
     if (!client || !canManage(actor, client)) throw new AppError(404, 'PROFILE_NOT_FOUND');
-    // A member who runs their own profile answers for themselves.
+    // Only when asked for: a caller that needs a client with no login of their own.
     if (assistedOnly && client.serviceMode !== 'assisted')
       throw new AppError(403, 'PROFILE_SELF_SERVICE');
     return client;

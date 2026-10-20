@@ -10,6 +10,7 @@ import type { EventRepository } from '../raw/repository/event-repository.js';
  */
 export interface CvUnit {
   ownProfile(agencyId: string, ownerId: string, lock: boolean): Promise<CvProfile | null>;
+  guardedProfile(agencyId: string, accountId: string): Promise<CvProfile | null>;
   profileById(agencyId: string, profileId: string, lock: boolean): Promise<CvProfile | null>;
   live(agencyId: string, profileId: string): Promise<CvRecord[]>;
   published(agencyId: string, profileId: string): Promise<CvRecord | null>;
@@ -52,6 +53,7 @@ export class CvDbService {
     const repo = this.repository;
     return {
       ownProfile: (agencyId, ownerId, lock) => repo.ownProfile(tx, agencyId, ownerId, lock),
+      guardedProfile: (agencyId, accountId) => repo.guardedProfile(tx, agencyId, accountId),
       profileById: (agencyId, profileId, lock) => repo.profileById(tx, agencyId, profileId, lock),
       live: (agencyId, profileId) => repo.live(tx, agencyId, profileId),
       published: (agencyId, profileId) => repo.published(tx, agencyId, profileId),

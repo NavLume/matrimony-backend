@@ -485,14 +485,14 @@ await test('a client with no login is answered for by the agent who looks after 
   assert.ok(t.notices.some((n) => n.to === ACCOUNT.me && n.kind === 'connection_accepted'));
 });
 
-await test('staff never answer for a member who runs their own profile', async () => {
+await test('staff answer for a member who has a login too, once the request has passed review', async () => {
   const t = fake();
   const { connectionId } = await t.service.send(me, PROFILE.them, 'c');
-  await assert.rejects(
-    t.service.staffRespond(admin, PROFILE.them, connectionId, true, 'c'),
-    refused(403, 'PROFILE_SELF_SERVICE'),
-  );
-  assert.equal(t.connections.get(connectionId)?.status, 'in_review');
+  // Still in review: there is nothing to answer yet.
+  await assert.rejects(t.service.staffRespond(admin, PROFILE.them, connectionId, true, 'c'));
+  await t.service.review(admin, connectionId, true, 'c');
+  await t.service.staffRespond(admin, PROFILE.them, connectionId, true, 'c');
+  assert.equal(t.connections.get(connectionId)?.status, 'accepted');
 });
 
 await test('a request to a client nobody looks after is kept, and the admins are told', async () => {

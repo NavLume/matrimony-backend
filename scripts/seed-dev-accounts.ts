@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { pino } from 'pino';
 import { Pool } from 'pg';
 import { clientInputSchema } from '../src/bo/client.js';
 import { profileInputSchema } from '../src/bo/profile.js';

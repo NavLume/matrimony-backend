@@ -46,6 +46,16 @@ export class CvRepository {
     return result.rows[0] ? profile(result.rows[0] as Row) : null;
   }
 
+  /** The profile a guardian account looks after, while the guardian link is active. */
+  async guardedProfile(
+    tx: Transaction,
+    agencyId: string,
+    accountId: string,
+  ): Promise<CvProfile | null> {
+    const result = await tx.query(cvQueries.guardedProfile, [agencyId, accountId]);
+    return result.rows[0] ? profile(result.rows[0] as Row) : null;
+  }
+
   async profileById(
     tx: Transaction,
     agencyId: string,
