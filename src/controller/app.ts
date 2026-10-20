@@ -27,6 +27,8 @@ import {
 import { registerPhotoController } from './photo-controller.js';
 import { registerReviewController } from './review-controller.js';
 import { registerClientController } from './client-controller.js';
+import type { Principal } from '../bo/identity.js';
+import { registerAgreementController } from './agreement-controller.js';
 import { registerLegalController } from './legal-controller.js';
 import { registerSiteContentController } from './site-content-controller.js';
 import { registerCoupleMatchController } from './couple-match-controller.js';
@@ -97,7 +99,14 @@ export interface AppDependencies {
   >;
   candidates: Pick<
     CandidateService,
-    'generate' | 'list' | 'settings' | 'saveSettings' | 'release' | 'remove'
+    | 'generate'
+    | 'list'
+    | 'settings'
+    | 'saveSettings'
+    | 'release'
+    | 'remove'
+    | 'readiness'
+    | 'overrideReadiness'
   >;
   config: AppConfig;
   logger: Logger;
@@ -144,6 +153,13 @@ export interface AppDependencies {
   activity?: Parameters<typeof registerActivityController>[1];
   coupleMatches?: Parameters<typeof registerCoupleMatchController>[1];
   legal?: Parameters<typeof registerLegalController>[1];
+  agreements?: Parameters<typeof registerAgreementController>[1] & {
+    mustAgree(actor: {
+      agencyId: string;
+      accountId: string;
+      role: Principal['role'];
+    }): Promise<boolean>;
+  };
   siteContent?: Parameters<typeof registerSiteContentController>[1] &
     Pick<SiteContentService, 'withStories'>;
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
@@ -213,6 +229,20 @@ export async function buildApp(deps: AppDependencies) {
     req.principal = await deps.auth.authenticate(req.tenant.id, parsed.data);
     const roles = req.routeOptions.config.roles;
     if (roles && !roles.includes(req.principal.role)) throw new AppError(403, 'ROLE_FORBIDDEN');
+    // A member or guardian who has not agreed to the agency's current terms can only read who they are and agree.
+    const path = req.routeOptions.url ?? '';
+    if (
+      deps.agreements &&
+      path !== '/api/v1/me' &&
+      path !== '/api/v1/me/agreements' &&
+      !path.startsWith('/api/v1/auth/') &&
+      (await deps.agreements.mustAgree({
+        agencyId: req.tenant.id,
+        accountId: req.principal.id,
+        role: req.principal.role,
+      }))
+    )
+      throw new AppError(403, 'AGREEMENT_REQUIRED');
   });
   app.setErrorHandler((error, req, reply) => {
     const known = error instanceof AppError;
@@ -312,6 +342,7 @@ export async function buildApp(deps: AppDependencies) {
   if (deps.coupleMatches) registerCoupleMatchController(app, deps.coupleMatches);
   if (deps.siteContent) registerSiteContentController(app, deps.siteContent);
   if (deps.legal) registerLegalController(app, deps.legal);
+  if (deps.agreements) registerAgreementController(app, deps.agreements);
   if (deps.mobile) registerMobileController(app, deps.mobile);
   if (deps.payments) registerPaymentController(app, deps.payments);
   if (deps.verification) registerVerificationController(app, deps.verification);

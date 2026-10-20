@@ -22,6 +22,9 @@ import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
 import { ClientLoginProcess } from './process/client-login-process.js';
 import { PaymentService } from './service/payment-service.js';
+import { AgreementService } from './service/agreement-service.js';
+import { AgreementDbService } from './db/service/agreement-db-service.js';
+import { AgreementRepository } from './db/raw/repository/agreement-repository.js';
 import { LegalService } from './service/legal-service.js';
 import { LegalDbService } from './db/service/legal-db-service.js';
 import { LegalRepository } from './db/raw/repository/legal-repository.js';
@@ -190,6 +193,10 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       new LegalDbService(db, new LegalRepository(), new EventRepository()),
     );
     const legalVersions = (agencyId: string) => legal.versions(agencyId);
+    const agreements = new AgreementService(
+      new AgreementDbService(db, new AgreementRepository(), new EventRepository()),
+      legalVersions,
+    );
     // Phone sign-in is on only when a way to send the codes is configured.
     const phone =
       config.SMS_DRIVER === 'console'
@@ -352,6 +359,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       activity: new ActivityService(db, new ActivityRepository()),
       siteContent,
       legal,
+      agreements,
       coupleMatches: new CoupleMatchService(
         new CoupleMatchDbService(db, new CoupleMatchRepository(), new EventRepository()),
       ),

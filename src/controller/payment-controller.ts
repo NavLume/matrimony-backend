@@ -5,6 +5,7 @@ import {
   agreementInputSchema,
   paymentInputSchema,
   stageParamSchema,
+  amountChangeSchema,
   voidInputSchema,
 } from '../bo/payment.js';
 import { AppError } from '../exception/app-error.js';
@@ -43,7 +44,14 @@ export function registerPaymentController(
   app: FastifyInstance,
   payments: Pick<
     PaymentService,
-    'ledger' | 'setAgreement' | 'record' | 'attachInvoice' | 'invoiceFile' | 'voidPayment'
+    | 'ledger'
+    | 'setAgreement'
+    | 'record'
+    | 'attachInvoice'
+    | 'invoiceFile'
+    | 'voidPayment'
+    | 'changeAmount'
+    | 'changeAmount'
   >,
 ) {
   const actor = (req: {
@@ -154,6 +162,21 @@ export function registerPaymentController(
         params.profileId,
         params.paymentId,
         voidInputSchema.parse(req.body).reason,
+        req.id,
+      );
+    },
+  );
+
+  app.put(
+    '/api/v1/staff/clients/:profileId/payments/:paymentId/amount',
+    { config: adminOnly },
+    async (req) => {
+      const params = paymentParams.parse(req.params);
+      return payments.changeAmount(
+        actor(req),
+        params.profileId,
+        params.paymentId,
+        amountChangeSchema.parse(req.body),
         req.id,
       );
     },

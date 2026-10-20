@@ -11,8 +11,8 @@ import { z } from 'zod';
  *   - may start a success story: the names to show and a short text, which can be published only after
  *     both clients agreed (the staff member who talked with them records it).
  * An admin may do this for any connection. An agent may only when they look after both clients; with
- * two different agents it is an admin's step. A match is never undone here: a client who is not matched
- * after all is moved back by changing their status, as any other status.
+ * two different agents it is an admin's step. A match can be undone (see undoMatchSchema) by the same people:
+ * both clients go back to active, a published success story is hidden, and the record stays, marked undone.
  */
 const fail = (key: string) => ({ error: key });
 
@@ -79,3 +79,11 @@ export interface StoryState {
   /** Both clients agreed, so it may be published. */
   consentBoth: boolean;
 }
+
+/** Undoing a match needs a reason, which is kept with the record (the record itself is never deleted). */
+export const undoMatchSchema = z
+  .object({
+    reason: z.string(fail('required')).trim().min(3, fail('tooShort')).max(500, fail('tooLong')),
+  })
+  .strict();
+export type UndoMatchInput = z.output<typeof undoMatchSchema>;

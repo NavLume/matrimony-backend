@@ -17,6 +17,12 @@ export const photoQueries = {
   findProfile: `SELECT id, status FROM matrimony.member_profiles
  WHERE agency_id = $1 AND owner_account_id = $2`,
 
+  // A client's profile by its id, for the staff who look after the client.
+  lockClientProfile: `SELECT id, status, assigned_agent_id FROM matrimony.member_profiles
+ WHERE agency_id = $1 AND id = $2 FOR UPDATE`,
+  findClientProfile: `SELECT id, status, assigned_agent_id FROM matrimony.member_profiles
+ WHERE agency_id = $1 AND id = $2`,
+
   list: `SELECT ${PHOTO_COLUMNS} ${WITH_REVIEW}
  WHERE p.agency_id = $1 AND p.profile_id = $2 AND p.status <> 'removed'
  ORDER BY p.sort_order, p.created_at`,

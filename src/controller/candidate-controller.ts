@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { candidateListQuerySchema } from '../bo/candidate.js';
+import { readinessOverrideSchema } from '../bo/readiness.js';
 import { candidateIdsSchema, settingsInputSchema } from '../bo/release.js';
 import {
   candidateListResponse,
@@ -23,7 +24,14 @@ export function registerCandidateController(
   app: FastifyInstance,
   candidates: Pick<
     CandidateService,
-    'generate' | 'list' | 'settings' | 'saveSettings' | 'release' | 'remove'
+    | 'generate'
+    | 'list'
+    | 'settings'
+    | 'saveSettings'
+    | 'release'
+    | 'remove'
+    | 'readiness'
+    | 'overrideReadiness'
   >,
 ) {
   const actor = (req: {
@@ -77,6 +85,22 @@ export function registerCandidateController(
     async (req) =>
       outcomeResponse(
         await candidates.remove(actor(req), id(req), candidateIdsSchema.parse(req.body), req.id),
+      ),
+  );
+
+  app.get('/api/v1/staff/clients/:profileId/readiness', { config: staffOnly }, async (req) =>
+    candidates.readiness(actor(req), id(req)),
+  );
+
+  app.put(
+    '/api/v1/staff/clients/:profileId/readiness-override',
+    { config: { roles: ['admin' as const] } },
+    async (req) =>
+      candidates.overrideReadiness(
+        actor(req),
+        id(req),
+        readinessOverrideSchema.parse(req.body),
+        req.id,
       ),
   );
 }

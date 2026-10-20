@@ -16,6 +16,19 @@ export class PhotoRepository {
     return result.rows[0] ? profileRef.parse(result.rows[0]) : null;
   }
 
+  /** A client's profile by id, with who looks after it, locked when `lock` is set. Null when there is none. */
+  async clientProfile(tx: Transaction, agencyId: string, profileId: string, lock: boolean) {
+    const result = await tx.query(
+      lock ? photoQueries.lockClientProfile : photoQueries.findClientProfile,
+      [agencyId, profileId],
+    );
+    const row = result.rows[0] as
+      { id: string; status: string; assigned_agent_id: string | null } | undefined;
+    return row
+      ? { id: row.id, status: row.status, assignedAgentId: row.assigned_agent_id ?? null }
+      : null;
+  }
+
   async list(tx: Transaction, agencyId: string, profileId: string): Promise<PhotoRecord[]> {
     const result = await tx.query(photoQueries.list, [agencyId, profileId]);
     return result.rows.map(mapPhoto);

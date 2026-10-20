@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkflowEvent } from '../src/bo/event.js';
-import { markMatchedSchema } from '../src/bo/couple-match.js';
+import { markMatchedSchema, undoMatchSchema } from '../src/bo/couple-match.js';
 import type { MatchProfile } from '../src/db/raw/repository/couple-match-repository.js';
 import type { CoupleMatchUnit } from '../src/db/service/couple-match-db-service.js';
 import { AppError } from '../src/exception/app-error.js';
@@ -65,6 +65,13 @@ function setup(
       return ID(300);
     },
     insertStory: async (_a: string, story: unknown) => void stories.push(story),
+    standingMatch: async () => (matched ? ID(300) : null),
+    undoMatch: async (_a: string, matchId: string, by: string, reason: string) => {
+      matched = false;
+      calls.push(`undo:${matchId}:${by}:${reason}`);
+    },
+    reopenProfile: async (_a: string, id: string) => void calls.push(`reopen:${id}`),
+    hideStoryOfMatch: async (_a: string, matchId: string) => void calls.push(`hide:${matchId}`),
     setStoryStatus: async (_a: string, id: string) =>
       id === ID(400) ? { changed: true } : id === ID(401) ? { changed: false } : null,
     appendEvent: async (event: WorkflowEvent) => void events.push(event),
@@ -240,4 +247,73 @@ await test('the request is checked: fees are whole taka within range, notes are 
   assert.equal(markMatchedSchema.safeParse({ unknown: true }).success, false);
   assert.equal(markMatchedSchema.parse({ note: '  hello  ' }).note, 'hello');
   assert.equal(markMatchedSchema.parse({ note: '   ' }).note, undefined);
+});
+
+await test('a match can be undone with a reason: both clients reopen, the story is hidden, the record stays', async () => {
+  const { service, calls, events } = setup();
+  await service.markMatched(actor('admin', ADMIN), CONNECTION, input(), 'r');
+  calls.length = 0;
+  await service.undoMatch(
+    actor('admin', ADMIN),
+    CONNECTION,
+    undoMatchSchema.parse({ reason: 'Families changed their minds' }),
+    'r2',
+  );
+  assert.deepEqual(calls, [
+    `undo:${ID(300)}:${ADMIN}:Families changed their minds`,
+    `reopen:${A}`,
+    `reopen:${B}`,
+    `hide:${ID(300)}`,
+  ]);
+  assert.equal(events.at(-1)?.type, 'match.undone');
+  // They can be matched again afterwards.
+  await service.markMatched(actor('admin', ADMIN), CONNECTION, input(), 'r3');
+  assert.equal(events.at(-1)?.type, 'match.recorded');
+});
+
+await test('undoing follows the rules of marking: only an admin, or the agent of both clients; and only a standing match', async () => {
+  const both = setup();
+  await both.service.markMatched(actor('agent', SALMA), CONNECTION, input(), 'r');
+  await both.service.undoMatch(
+    actor('agent', SALMA),
+    CONNECTION,
+    undoMatchSchema.parse({ reason: 'A mistake' }),
+    'r',
+  );
+
+  const split = setup({ profileB: { assignedAgentId: KAMAL } });
+  await split.service.markMatched(actor('admin', ADMIN), CONNECTION, input(), 'r');
+  await assert.rejects(
+    () =>
+      split.service.undoMatch(
+        actor('agent', SALMA),
+        CONNECTION,
+        undoMatchSchema.parse({ reason: 'A mistake' }),
+        'r',
+      ),
+    code(403, 'MATCH_NEEDS_ADMIN'),
+  );
+  const none = setup();
+  await assert.rejects(
+    () =>
+      none.service.undoMatch(
+        actor('admin', ADMIN),
+        CONNECTION,
+        undoMatchSchema.parse({ reason: 'A mistake' }),
+        'r',
+      ),
+    code(409, 'NOT_MATCHED'),
+  );
+  await assert.rejects(
+    () =>
+      none.service.undoMatch(
+        { ...actor('admin', ADMIN), role: 'member' as never },
+        CONNECTION,
+        undoMatchSchema.parse({ reason: 'A mistake' }),
+        'r',
+      ),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
+  assert.equal(undoMatchSchema.safeParse({ reason: 'x' }).success, false);
+  assert.equal(undoMatchSchema.safeParse({}).success, false);
 });

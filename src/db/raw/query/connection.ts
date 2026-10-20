@@ -226,6 +226,7 @@ export const connectionQueries = {
   LEFT JOIN matrimony.guardian_advice ga ON ga.agency_id = x.agency_id AND ga.interest_id = x.id
    AND ga.profile_id = $2
   LEFT JOIN matrimony.couple_matches cm ON cm.agency_id = x.agency_id AND cm.interest_id = x.id
+   AND cm.undone_at IS NULL
  WHERE x.agency_id = $1 AND (x.sender_profile_id = $2 OR x.recipient_profile_id = $2)
  ORDER BY x.updated_at DESC, x.id DESC
  LIMIT 100`,

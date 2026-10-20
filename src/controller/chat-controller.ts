@@ -29,8 +29,6 @@ export function registerChatController(
     | 'send'
     | 'end'
     | 'report'
-    | 'invite'
-    | 'uninvite'
     | 'staffChats'
     | 'staffMessages'
     | 'staffEnd'
@@ -89,14 +87,6 @@ export function registerChatController(
       await chats.report(actor(req), chatId(req), reportInputSchema.parse(req.body).reason, req.id);
       return reply.code(204).send();
     },
-  );
-
-  app.post('/api/v1/me/chats/:chatId/chaperone', { config: memberOnly }, async (req) =>
-    chats.invite(actor(req), chatId(req), req.id),
-  );
-
-  app.delete('/api/v1/me/chats/:chatId/chaperone', { config: memberOnly }, async (req) =>
-    chats.uninvite(actor(req), chatId(req)),
   );
 
   // ---- staff ---------------------------------------------------------------------------------

@@ -18,6 +18,7 @@ export interface PaymentUnit {
   insertPayment: PaymentRepositoryBound['insertPayment'];
   setInvoice: PaymentRepositoryBound['setInvoice'];
   voidPayment: PaymentRepositoryBound['voidPayment'];
+  changeAmount: PaymentRepositoryBound['changeAmount'];
   appendEvent(event: WorkflowEvent): Promise<void>;
 }
 
@@ -51,6 +52,7 @@ export class PaymentDbService {
       insertPayment: (...a) => repo.insertPayment(tx, ...a),
       setInvoice: (...a) => repo.setInvoice(tx, ...a),
       voidPayment: (...a) => repo.voidPayment(tx, ...a),
+      changeAmount: (...a) => repo.changeAmount(tx, ...a),
       appendEvent: (event) => this.events.append(tx, event),
     };
   }

@@ -1234,7 +1234,7 @@ paths:
         - bearerAuth: []
       parameters:
         - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: stage, in: path, required: true, schema: { type: string, enum: [registration, success] } }
+        - { name: stage, in: path, required: true, schema: { type: string, enum: [registration, success, total] } }
       requestBody:
         required: true
         content:
@@ -1299,6 +1299,36 @@ paths:
             image/jpeg: { schema: { type: string, format: binary } }
             image/png: { schema: { type: string, format: binary } }
         '404': { description: No such payment or invoice. }
+
+  /api/v1/staff/clients/{profileId}/payments/{paymentId}/amount:
+    put:
+      tags: [Payments]
+      summary: Change the amount of a recorded payment (admin only)
+      description: |
+        The earlier amount stays in the change history (who, when, why) and every total follows the new
+        amount. 409 `PAYMENT_VOIDED` for a cancelled payment, 409 `AMOUNT_UNCHANGED` for the same amount.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, reason]
+              additionalProperties: false
+              properties:
+                amount: { type: integer, minimum: 1, description: Whole taka. }
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200':
+          description: The updated ledger.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLedger' }
 
   /api/v1/staff/clients/{profileId}/payments/{paymentId}/void:
     post:
@@ -1465,6 +1495,28 @@ paths:
                 properties:
                   matchedAt: { type: string, format: date-time }
 
+  /api/v1/staff/connections/{connectionId}/match/undo:
+    post:
+      tags: [Matches]
+      summary: Undo a match (admin, or the agent of both clients)
+      description: Both clients go back to active, a success story of the match is hidden, and the record stays marked undone with the reason. The same two clients can be matched again later. 409 `NOT_MATCHED`, 403 `MATCH_NEEDS_ADMIN`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '204': { description: Undone. }
+
   /api/v1/admin/success-stories/{storyId}/status:
     put:
       tags: [Matches]
@@ -1567,6 +1619,46 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PublicLegal' }
+
+  /api/v1/me/agreements:
+    get:
+      tags: [Legal]
+      summary: Whether I must agree to the agency's current terms and privacy policy
+      description: |
+        For a member or guardian. When the agency publishes a new version of either text, people who agreed to
+        an earlier one (or to none) have `required: true` and every other call is refused with 403
+        `AGREEMENT_REQUIRED` until they agree here. Staff always get `required: false`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Where the person stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgreementsStatus' }
+    post:
+      tags: [Legal]
+      summary: Agree to the current terms and privacy policy
+      description: Both boxes must be true. Records the versions shown now. Agreeing again changes nothing.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [acceptTerms, acceptPrivacy]
+              properties:
+                acceptTerms: { type: boolean, enum: [true] }
+                acceptPrivacy: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: Where the person stands now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgreementsStatus' }
 
   /api/v1/admin/legal:
     get:
@@ -1900,50 +1992,12 @@ paths:
         '404': { $ref: '#/components/responses/TenantNotFound' }
         '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
 
-  /api/v1/me/chats/{chatId}/chaperone:
-    post:
-      tags: [Chat]
-      summary: Invite my own agent into the conversation
-      description: |
-        Both people then see that the agent is in it. 409 `NO_AGENT` when nobody looks after the person.
-      security:
-        - bearerAuth: []
-      parameters:
-        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
-      responses:
-        '200':
-          description: Done.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChatSummary' }
-        '400': { $ref: '#/components/responses/Error400' }
-        '403': { $ref: '#/components/responses/Error403' }
-        '404': { $ref: '#/components/responses/TenantNotFound' }
-        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
-    delete:
-      tags: [Chat]
-      summary: Take my agent out of the conversation
-      security:
-        - bearerAuth: []
-      parameters:
-        - { name: chatId, in: path, required: true, schema: { type: string, format: uuid } }
-      responses:
-        '200':
-          description: Done.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChatSummary' }
-        '400': { $ref: '#/components/responses/Error400' }
-        '403': { $ref: '#/components/responses/Error403' }
-        '404': { $ref: '#/components/responses/TenantNotFound' }
-        '409': { description: 'Not allowed in the state of the conversation, or for this person: CHAT_NOT_ACTIVE, CHAT_NOT_AVAILABLE, CHAT_DISABLED, CHAT_NOT_ALLOWED, NO_AGENT.' }
-
   /api/v1/staff/clients/{profileId}/chats:
     get:
       tags: [Chat]
       summary: A client's conversations (staff)
       description: |
-        Admin, or the agent who looks after the client. That a conversation exists, how active it is and any open report; never the text. `canRead` says whether this staff member may open it (reported, or invited in).
+        Admin, or the agent who looks after the client. That a conversation exists, how active it is and any open report; never the text. `canRead` says whether it has an open report, so the text may be opened.
       security:
         - bearerAuth: []
       parameters:
@@ -1964,7 +2018,7 @@ paths:
       tags: [Chat]
       summary: Read a conversation (staff)
       description: |
-        Only when it has an open report, or this staff member was invited in; otherwise 403 `CHAT_NOT_SHARED`. The first page is written to the access log.
+        Only when it has an open report (there is no way to invite an agent in); otherwise 403 `CHAT_NOT_SHARED`. The first page is written to the access log.
       security:
         - bearerAuth: []
       parameters:
@@ -3135,6 +3189,136 @@ paths:
         '404':
           {
             description: 'PHOTO_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/photos:
+    get:
+      tags: [Client photos]
+      summary: A client's photos
+      description: Admins, and the agent the client is assigned to, for a client with or without a login. 404 PROFILE_NOT_FOUND when the client is not theirs.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The photos, in upload order, and the limit.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+    post:
+      tags: [Client photos]
+      summary: Add a photo for a client
+      description: |
+        Same body, limits and checks as a member's own upload. The photo waits for review like any other; a photo an
+        agent adds is reviewed by an admin (nobody reviews their own submission), a photo an admin adds can be
+        approved by the admin. The client sees it among their photos.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '201':
+          description: The photos, now including the new one.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409':
+          {
+            description: 'PHOTO_LIMIT_REACHED, or PROFILE_STATE_INVALID for a closed profile.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '413': { description: 'PAYLOAD_TOO_LARGE: over 5 MB.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '415': { description: 'UNSUPPORTED_MEDIA_TYPE or PHOTO_TYPE_UNSUPPORTED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: 'PHOTO_INVALID or PHOTO_TOO_SMALL.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/photos/{photoId}:
+    delete:
+      tags: [Client photos]
+      summary: Remove a client's photo
+      description: Immediate. A review still waiting on it is cancelled, and if it was the main photo the next approved one takes its place.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The photos that remain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND or PHOTO_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/photos/{photoId}/primary:
+    put:
+      tags: [Client photos]
+      summary: Choose a client's main photo
+      description: Only an approved photo can be the main one.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The photos, with the new main photo marked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND or PHOTO_NOT_FOUND.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+        '409': { description: 'PHOTO_NOT_APPROVED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/photos/{photoId}/image:
+    get:
+      tags: [Client photos]
+      summary: The picture of one of a client's photos
+      description: The image itself (WebP), requested with the access token. Staff see waiting photos too.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: size, in: query, schema: { type: string, enum: [thumb, full], default: full } }
+      responses:
+        '200':
+          description: The picture.
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND or PHOTO_NOT_FOUND.',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
   /api/v1/reviews:
@@ -4537,7 +4721,7 @@ paths:
           }
         '409':
           {
-            description: 'PROFILE_NOT_PUBLISHED: only a published client can have a list.',
+            description: 'PROFILE_NOT_PUBLISHED: only a published client can have a list. MATCHING_NOT_READY: the agreed registration amount is not recorded or the identity document is not verified (details.agreementRecorded, details.verified), unless an admin let the client through.',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
         '422':
@@ -4572,6 +4756,64 @@ paths:
         '404':
           {
             description: 'PROFILE_NOT_FOUND, also when an agent may not manage the client.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/readiness:
+    get:
+      tags: [Clients]
+      summary: Whether matching may start for a client
+      description: |
+        Staff only (an agent only for their own clients). Matching (find and release candidates) may start when the
+        agreed registration amount is recorded and the identity document is verified, in either order, or when an
+        admin let the client through. Clients that existed when the rule began were let through.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Where the client stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchingReadiness' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND, also when an agent may not manage the client.',
+            content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
+          }
+  /api/v1/staff/clients/{profileId}/readiness-override:
+    put:
+      tags: [Clients]
+      summary: Let a client through without the two steps
+      description: Admins only. A reason of at least 3 characters is required and stays on record (event candidates.ready_override).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200':
+          description: The client's state now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchingReadiness' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404':
+          {
+            description: 'PROFILE_NOT_FOUND.',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
   /api/v1/staff/clients/{profileId}/release-settings:
@@ -5063,7 +5305,7 @@ components:
     ChatSummary:
       type: object
       additionalProperties: false
-      required: [id, status, endReason, requestedBy, other, requestedAt, acceptedAt, endedAt, lastMessageAt, unread, preview, canSend, chaperones]
+      required: [id, status, endReason, requestedBy, other, requestedAt, acceptedAt, endedAt, lastMessageAt, unread, preview, canSend]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [requested, active, ended] }
@@ -5077,17 +5319,6 @@ components:
         unread: { type: integer }
         preview: { type: [string, 'null'] }
         canSend: { type: boolean, description: Active, chat on for the agency and both profiles published. }
-        chaperones:
-          type: array
-          description: Staff invited into the conversation. Both people see this.
-          items:
-            type: object
-            additionalProperties: false
-            required: [accountId, name, invitedByMe]
-            properties:
-              accountId: { type: string, format: uuid }
-              name: { type: string }
-              invitedByMe: { type: boolean }
     ChatList:
       type: object
       additionalProperties: false
@@ -5117,7 +5348,7 @@ components:
     StaffChatRow:
       type: object
       additionalProperties: false
-      required: [id, status, endReason, other, requestedAt, lastMessageAt, messageCount, openReport, canRead, invited]
+      required: [id, status, endReason, other, requestedAt, lastMessageAt, messageCount, openReport, canRead]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [requested, active, ended] }
@@ -5379,7 +5610,7 @@ components:
     PaymentRow:
       type: object
       additionalProperties: false
-      required: [id, stage, amount, paidOn, method, reference, note, connection, receivedBy, createdAt, invoice, voided]
+      required: [id, stage, amount, paidOn, method, reference, note, connection, receivedBy, createdAt, invoice, voided, amountChanges]
       properties:
         id: { type: string, format: uuid }
         stage: { type: string, enum: [registration, success] }
@@ -5421,6 +5652,19 @@ components:
               properties:
                 at: { type: string, format: date-time }
                 reason: { type: [string, 'null'] }
+        amountChanges:
+          type: array
+          description: Changes to the amount, oldest first. Only the office sees them; a client gets an empty list.
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to, reason, at, by]
+            properties:
+              from: { type: integer }
+              to: { type: integer }
+              reason: { type: string }
+              at: { type: string, format: date-time }
+              by: { type: string }
     PaymentStageSummary:
       type: object
       additionalProperties: false
@@ -5848,7 +6092,7 @@ components:
     PaymentLedger:
       type: object
       additionalProperties: false
-      required: [profile, stages, payments]
+      required: [profile, stages, total, payments]
       properties:
         profile:
           type: object
@@ -5865,6 +6109,9 @@ components:
           properties:
             registration: { $ref: '#/components/schemas/PaymentStageSummary' }
             success: { $ref: '#/components/schemas/PaymentStageSummary' }
+        total:
+          $ref: '#/components/schemas/PaymentStageSummary'
+          description: 'The whole fee: the agreed total (stage total), everything paid in both stages, and what is left.'
         payments:
           type: array
           description: Newest first, cancelled ones included.
@@ -5943,6 +6190,25 @@ components:
           maxItems: 12
           description: The stories an admin published (newest first), then any typed in by the operator.
           items: { $ref: '#/components/schemas/SuccessStory' }
+
+    AgreementsStatus:
+      type: object
+      additionalProperties: false
+      required: [required, terms, privacy]
+      properties:
+        required: { type: boolean }
+        terms:
+          type: object
+          required: [current, accepted]
+          properties:
+            current: { type: string, description: The version the agency shows now. }
+            accepted: { type: [string, 'null'], description: The version this person last agreed to. }
+        privacy:
+          type: object
+          required: [current, accepted]
+          properties:
+            current: { type: string }
+            accepted: { type: [string, 'null'] }
 
     LegalInput:
       type: object
@@ -6974,6 +7240,23 @@ components:
           familyStatusCode,
           hobbies,
         ]
+    MatchingReadiness:
+      type: object
+      additionalProperties: false
+      required: [ready, agreementRecorded, verified, override]
+      properties:
+        ready: { type: boolean, description: 'Both steps done, or an admin let the client through.' }
+        agreementRecorded: { type: boolean, description: 'The agreed registration amount is recorded.' }
+        verified: { type: boolean, description: 'The identity document is verified.' }
+        override:
+          nullable: true
+          type: object
+          additionalProperties: false
+          required: [at, reason, by]
+          properties:
+            at: { type: string, format: date-time }
+            reason: { type: string }
+            by: { type: string, nullable: true, description: 'Display name of the admin; null for clients let through when the rule began.' }
     ReleaseSettings:
       type: object
       additionalProperties: false

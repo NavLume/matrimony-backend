@@ -17,7 +17,7 @@ export const ACTIVITY_GROUPS = {
   payments: ['payment'],
   chats: ['chat'],
   guardians: ['guardian'],
-  site: ['site', 'legal'],
+  site: ['site', 'legal', 'agreements'],
 } as const;
 export type ActivityGroup = keyof typeof ACTIVITY_GROUPS;
 /** Everything except sign-ins, which are many and rarely what an admin looks for. */

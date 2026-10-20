@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { PaymentService, invoiceTypeOf, ledgerOf } from '../src/service/payment-service.js';
 import type { PaymentRow } from '../src/bo/payment.js';
 import type { PaymentUnit } from '../src/db/service/payment-db-service.js';
+import { amountChangeSchema } from '../src/bo/payment.js';
 import { AppError } from '../src/exception/app-error.js';
 import { agency, accountId, otherAgency } from './fixtures.js';
 
@@ -35,6 +36,7 @@ const row = (patch: Partial<PaymentRow> = {}): PaymentRow => ({
   createdAt: '2026-10-16T00:00:00.000Z',
   invoice: null,
   voided: null,
+  amountChanges: [],
   ...patch,
 });
 
@@ -62,6 +64,10 @@ function fixture() {
       return true;
     },
     voidPayment: async () => true,
+    changeAmount: async (_a: string, _id: string, amount: number) => {
+      stored[0]!.amount = amount;
+      return true;
+    },
     appendEvent: async (event: { type: string }) => {
       events.push(event.type);
     },
@@ -99,6 +105,25 @@ await test('the balance is the agreed amount less what was paid, and a cancelled
   );
   assert.deepEqual(ledger.stages.registration, { agreed: 5000, paid: 3500, balance: 1500 });
   assert.deepEqual(ledger.stages.success, { agreed: null, paid: 0, balance: null });
+});
+
+await test('the total fee is the agreed total less everything paid in both stages', () => {
+  const ledger = ledgerOf(
+    profile,
+    new Map([['total', 100000]]),
+    [
+      row({ stage: 'registration', amount: 30000 }),
+      row({ id: 'p2', stage: 'success', amount: 20000 }),
+      row({ id: 'p3', stage: 'success', amount: 5000, voided: { at: 'x', reason: 'twice' } }),
+    ],
+    true,
+  );
+  assert.deepEqual(ledger.total, { agreed: 100000, paid: 50000, balance: 50000 });
+  assert.deepEqual(ledgerOf(profile, new Map(), [], true).total, {
+    agreed: null,
+    paid: 0,
+    balance: null,
+  });
 });
 
 await test('a client is told a payment was cancelled but not why', () => {
@@ -197,4 +222,52 @@ await test('only an admin cancels a payment', async () => {
     code(404, 'PAYMENT_NOT_FOUND'),
   );
   assert.ok(otherAgency);
+});
+
+await test('an admin can change a recorded amount with a reason; nobody else, not a cancelled payment, not to the same amount', async () => {
+  const f = fixture();
+  const change = (amount: number, who = staff('admin', other)) =>
+    f.service.changeAmount(
+      who,
+      profile.id,
+      'p1',
+      amountChangeSchema.parse({ amount, reason: 'Typed wrong' }),
+      'c',
+    );
+  await assert.rejects(() => change(2500, staff()), code(403, 'ROLE_FORBIDDEN'));
+  await assert.rejects(() => change(2000), code(409, 'AMOUNT_UNCHANGED'));
+  await assert.rejects(
+    () =>
+      f.service.changeAmount(
+        staff('admin', other),
+        profile.id,
+        'missing',
+        amountChangeSchema.parse({ amount: 1, reason: 'Typed wrong' }),
+        'c',
+      ),
+    code(404, 'PAYMENT_NOT_FOUND'),
+  );
+  const ledger = await change(2500);
+  assert.equal(ledger.payments[0]?.amount, 2500);
+  assert.deepEqual(f.events.at(-1), 'payment.amount_changed');
+  f.stored[0]!.voided = { at: 'x', reason: 'twice' };
+  await assert.rejects(() => change(3000), code(409, 'PAYMENT_VOIDED'));
+});
+
+await test('the change history is for the office; a client sees only the amount as it now stands', () => {
+  const changed = row({
+    amountChanges: [{ from: 2000, to: 2500, reason: 'Typed wrong', at: 'x', by: 'Admin' }],
+  });
+  assert.equal(ledgerOf(profile, new Map(), [changed], true).payments[0]!.amountChanges.length, 1);
+  assert.deepEqual(ledgerOf(profile, new Map(), [changed], false).payments[0]!.amountChanges, []);
+});
+
+await test('a new amount is whole taka within range and needs a reason of a few words', () => {
+  assert.equal(amountChangeSchema.safeParse({ amount: 0, reason: 'abc' }).success, false);
+  assert.equal(amountChangeSchema.safeParse({ amount: 10.5, reason: 'abc' }).success, false);
+  assert.equal(amountChangeSchema.safeParse({ amount: 100, reason: 'a' }).success, false);
+  assert.equal(
+    amountChangeSchema.safeParse({ amount: 100, reason: 'Entered wrongly' }).success,
+    true,
+  );
 });

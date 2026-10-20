@@ -2,7 +2,7 @@ import type { Logger } from 'pino';
 import { PHOTO_VARIANTS, variantKey, type PhotoList, type PhotoVariant } from '../bo/photo.js';
 import { AppError } from '../exception/app-error.js';
 import type { ProcessedImage } from '../security/image-processor.js';
-import type { PhotoService } from '../service/photo-service.js';
+import type { PhotoService, PhotoTarget } from '../service/photo-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
 import type { FileStorage } from '../storage/service/file-storage.js';
 
@@ -30,16 +30,21 @@ export class PhotoProcess {
     private readonly logger: Logger,
   ) {}
 
-  list(actor: ProfileActor): Promise<PhotoList> {
-    return this.photos.list(actor);
+  list(actor: ProfileActor, target?: PhotoTarget): Promise<PhotoList> {
+    return this.photos.list(actor, target);
   }
 
-  makePrimary(actor: ProfileActor, photoId: string): Promise<PhotoList> {
-    return this.photos.makePrimary(actor, photoId);
+  makePrimary(actor: ProfileActor, photoId: string, target?: PhotoTarget): Promise<PhotoList> {
+    return this.photos.makePrimary(actor, photoId, target);
   }
 
-  async upload(actor: ProfileActor, bytes: Buffer, correlationId: string): Promise<PhotoList> {
-    const reservation = await this.photos.reserve(actor);
+  async upload(
+    actor: ProfileActor,
+    bytes: Buffer,
+    correlationId: string,
+    target?: PhotoTarget,
+  ): Promise<PhotoList> {
+    const reservation = await this.photos.reserve(actor, target);
     const image = await this.process(bytes);
     const files: [PhotoVariant, Buffer][] = [
       ['full', image.full],
@@ -53,22 +58,32 @@ export class PhotoProcess {
         await this.storage.put(key, data, 'image/webp');
         stored.push(key);
       }
-      return await this.photos.attach(actor, reservation, image.full.length, correlationId);
+      return await this.photos.attach(actor, reservation, image.full.length, correlationId, target);
     } catch (error) {
       await this.deleteQuietly(stored);
       throw error;
     }
   }
 
-  async remove(actor: ProfileActor, photoId: string, correlationId: string): Promise<PhotoList> {
-    const { list, storageKey } = await this.photos.remove(actor, photoId, correlationId);
+  async remove(
+    actor: ProfileActor,
+    photoId: string,
+    correlationId: string,
+    target?: PhotoTarget,
+  ): Promise<PhotoList> {
+    const { list, storageKey } = await this.photos.remove(actor, photoId, correlationId, target);
     await this.deleteQuietly(VARIANTS.map((variant) => variantKey(storageKey, variant)));
     return list;
   }
 
   /** The bytes of one size of the member's own photo. */
-  async image(actor: ProfileActor, photoId: string, variant: PhotoVariant): Promise<Buffer> {
-    const { storageKey } = await this.photos.locate(actor, photoId);
+  async image(
+    actor: ProfileActor,
+    photoId: string,
+    variant: PhotoVariant,
+    target?: PhotoTarget,
+  ): Promise<Buffer> {
+    const { storageKey } = await this.photos.locate(actor, photoId, target);
     const data = await this.storage.get(variantKey(storageKey, variant));
     if (!data) throw new AppError(404, 'PHOTO_NOT_FOUND');
     return data;

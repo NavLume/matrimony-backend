@@ -26,6 +26,7 @@ interface Stored extends PhotoFile {
 /** An in-memory stand-in for one transaction's worth of photo storage. */
 class FakeStore {
   profiles = new Map<string, { id: string; status: string }>(); // `${agency}/${owner}`
+  assigned = new Map<string, string | null>(); // profile id -> assigned agent
   photos: Stored[] = [];
   events: WorkflowEvent[] = [];
   failOnInsert = false;
@@ -65,6 +66,12 @@ class FakeStore {
   unit(): PhotoUnit {
     return {
       profileOf: async (agencyId, ownerId) => this.profiles.get(`${agencyId}/${ownerId}`) ?? null,
+      clientProfile: async (agencyId, profileId) => {
+        for (const [key, p] of this.profiles)
+          if (key.startsWith(`${agencyId}/`) && p.id === profileId)
+            return { ...p, assignedAgentId: this.assigned.get(p.id) ?? null };
+        return null;
+      },
       list: async (agencyId, profileId) =>
         this.visible(agencyId, profileId).map((p) => this.record(p)),
       find: async (agencyId, profileId, photoId) => {
@@ -186,6 +193,31 @@ await test('agents and admins have no photos of their own and are refused everyw
     await rejects(service.makePrimary(actor, id), 403, 'ROLE_FORBIDDEN');
     await rejects(service.locate(actor, id), 403, 'ROLE_FORBIDDEN');
   }
+});
+
+await test('staff manage the photos of the clients they look after, and no others', async () => {
+  const { service, photos, store, member, profile } = setup();
+  const agent: ProfileActor = { agencyId: agency, accountId: randomUUID(), role: 'agent' };
+  const other: ProfileActor = { ...agent, accountId: randomUUID() };
+  const admin: ProfileActor = { ...agent, accountId: randomUUID(), role: 'admin' };
+  store.assigned.set(profile.id, agent.accountId);
+  const target = { kind: 'client' as const, profileId: profile.id };
+
+  const list = await photos.upload(agent, await picture(), 'c', target);
+  assert.equal(list.photos.length, 1);
+  assert.equal(list.photos[0]!.state, 'waiting');
+  // the client sees the photo the agent added
+  assert.equal((await photos.list(member)).photos.length, 1);
+  assert.equal((await photos.list(admin, target)).photos.length, 1);
+
+  await rejects(photos.list(other, target), 404, 'PROFILE_NOT_FOUND');
+  await rejects(service.reserve(other, target), 404, 'PROFILE_NOT_FOUND');
+  // a member cannot use the staff way, and staff cannot use the member way
+  await rejects(service.list(member, target), 403, 'ROLE_FORBIDDEN');
+  await rejects(service.list(agent), 403, 'ROLE_FORBIDDEN');
+
+  const removed = await photos.remove(agent, list.photos[0]!.id, 'c', target);
+  assert.equal(removed.photos.length, 0);
 });
 
 await test('photos need a saved profile first', async () => {

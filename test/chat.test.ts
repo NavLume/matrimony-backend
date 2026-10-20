@@ -105,7 +105,6 @@ function fixture(options: { bStatus?: string; bOwner?: string | null; enabled?: 
         unread: 0,
         preview: null,
       })),
-    chaperones: async () => [],
     visibleFields: async () => null,
     unreadFrom: async () => 0,
     insertMessage: async (_a: string, m: { body: string }) => {
@@ -115,7 +114,6 @@ function fixture(options: { bStatus?: string; bOwner?: string | null; enabled?: 
     notify: async (_a: string, account: string, template: string) => {
       notices.push(`${template}:${account}`);
     },
-    isChaperone: async () => false,
     openReport: async () => null,
     appendEvent: async () => {},
   } as unknown as ChatUnit;
@@ -176,7 +174,7 @@ await test('a blocked chat cannot be asked for again, a declined one can', async
   await assert.rejects(f.service.request(rahim, 'i1', 'c'), code(409, 'CHAT_NOT_ALLOWED'));
 });
 
-await test('staff cannot read a conversation that was not reported and that they were not invited to', async () => {
+await test('staff cannot read a conversation that was not reported; there is no way to invite an agent in', async () => {
   const f = fixture();
   await f.service.request(rahim, 'i1', 'c');
   const staff = {
@@ -189,4 +187,7 @@ await test('staff cannot read a conversation that was not reported and that they
     code(403, 'CHAT_NOT_SHARED'),
   );
   await assert.rejects(f.service.list(staff), code(403, 'ROLE_FORBIDDEN'));
+  // The invitation of an agent into a chat no longer exists.
+  assert.equal('invite' in f.service, false);
+  assert.equal('uninvite' in f.service, false);
 });

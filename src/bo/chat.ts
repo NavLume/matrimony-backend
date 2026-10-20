@@ -5,8 +5,8 @@ import { z } from 'zod';
  *
  * - One asks to chat and the other accepts. Text only, up to 1000 characters a message.
  * - Phone numbers, emails and links are hidden in the text before it is stored.
- * - Private by default: staff read a conversation only after a report, or when one of the two people
- *   invited their own agent (a chaperone). Each reading is logged and both people see who is in it.
+ * - Private: staff read a conversation only after one of the two people reports it (decided with the owner
+ *   on 20 October 2026; there is no way to invite an agent in). Each reading is logged.
  * - It ends when either profile stops being published, or when a person ends it, blocks the other, or
  *   staff end it. Messages are erased 90 days after it ended.
  * - A client who has no login cannot chat; giving them a login makes them eligible.
@@ -94,12 +94,6 @@ export interface ChatPerson {
   fullName: string | null;
 }
 
-export interface ChatChaperone {
-  accountId: string;
-  name: string;
-  invitedByMe: boolean;
-}
-
 export interface ChatSummary {
   id: string;
   status: ChatStatus;
@@ -117,7 +111,6 @@ export interface ChatSummary {
   preview: string | null;
   /** Whether messages may be sent now (the chat is active and both profiles are published). */
   canSend: boolean;
-  chaperones: ChatChaperone[];
 }
 
 export interface ChatMessage {
@@ -145,9 +138,8 @@ export interface StaffChatRow {
   lastMessageAt: string | null;
   messageCount: number;
   openReport: { id: string; reason: string; createdAt: string; byClient: boolean } | null;
-  /** This staff member was invited into it, or it has an open report they may open. */
+  /** There is an open report, so the staff member may open the text. */
   canRead: boolean;
-  invited: boolean;
 }
 
 export interface StaffMessagePage {

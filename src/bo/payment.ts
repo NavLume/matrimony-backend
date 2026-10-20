@@ -15,6 +15,9 @@ const fail = (key: string) => ({ error: key });
 
 export const PAYMENT_STAGES = ['registration', 'success'] as const;
 export type PaymentStage = (typeof PAYMENT_STAGES)[number];
+/** What an agreement can be for: the whole fee (`total`), or, in older records, one stage. */
+export const AGREEMENT_STAGES = ['registration', 'success', 'total'] as const;
+export type AgreementStage = (typeof AGREEMENT_STAGES)[number];
 export const PAYMENT_METHODS = ['cash', 'bank', 'bkash', 'other'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
@@ -61,7 +64,7 @@ export const paymentInputSchema = z
 export type PaymentInput = z.output<typeof paymentInputSchema>;
 
 export const agreementInputSchema = z.object({ amount: amount(0) }).strict();
-export const stageParamSchema = z.enum(PAYMENT_STAGES, fail('invalidOption'));
+export const stageParamSchema = z.enum(AGREEMENT_STAGES, fail('invalidOption'));
 
 export const voidInputSchema = z
   .object({
@@ -84,6 +87,16 @@ export interface PaymentRow {
   invoice: { name: string; mime: InvoiceType; size: number } | null;
   /** When it was cancelled and why. The reason is for the office; a client sees null. */
   voided: { at: string; reason: string | null } | null;
+  /** Changes to the amount, oldest first. Only the office sees them (a client gets an empty list). */
+  amountChanges: AmountChange[];
+}
+
+export interface AmountChange {
+  from: number;
+  to: number;
+  reason: string;
+  at: string;
+  by: string;
 }
 
 export interface StageSummary {
@@ -96,5 +109,16 @@ export interface StageSummary {
 export interface PaymentLedger {
   profile: { id: string; memberCode: string; fullName: string };
   stages: Record<PaymentStage, StageSummary>;
+  /** The whole fee: the agreed total, everything paid (both stages) and what is left. */
+  total: StageSummary;
   payments: PaymentRow[];
 }
+
+/** A new amount for a recorded payment, with the reason it was changed. Admins only. */
+export const amountChangeSchema = z
+  .object({
+    amount: amount(1),
+    reason: z.string(fail('required')).trim().min(3, fail('tooShort')).max(300, fail('tooLong')),
+  })
+  .strict();
+export type AmountChangeInput = z.output<typeof amountChangeSchema>;

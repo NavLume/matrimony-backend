@@ -70,6 +70,14 @@ async function account(role: 'agent' | 'member', name: string, email: string, pa
     `INSERT INTO matrimony.account_credentials(agency_id, account_id, password_hash) VALUES ($1, $2, $3)`,
     [agencyId, id, await hasher.hash(password)],
   );
+  if (role === 'member')
+    // Members agreed to the terms when they "registered", so the seeded ones are not asked to again.
+    for (const purpose of ['terms', 'privacy'])
+      await owner.query(
+        `INSERT INTO matrimony.consent_events(agency_id, account_id, purpose, document_version, action)
+         VALUES ($1, $2, $3, 'draft-2026-10', 'accepted')`,
+        [agencyId, id, purpose],
+      );
   return id;
 }
 

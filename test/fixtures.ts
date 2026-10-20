@@ -79,6 +79,8 @@ export const unusedCandidates = {
   saveSettings: unused,
   release: unused,
   remove: unused,
+  readiness: unused,
+  overrideReadiness: unused,
 };
 
 /** A matches process that must not be reached, for tests about other routes. */

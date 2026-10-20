@@ -198,7 +198,8 @@ export class ReportRepository {
   ): Promise<ClientMoney[]> {
     const result = await tx.query(
       `SELECT p.id, p.member_code, p.full_name, ag.display_name AS agent_name,
-              coalesce((SELECT sum(g.amount) FROM matrimony.client_agreements g
+              coalesce((SELECT CASE WHEN bool_or(g.stage = 'total') THEN max(g.amount) FILTER (WHERE g.stage = 'total') ELSE sum(g.amount) END
+                         FROM matrimony.client_agreements g
                          WHERE g.agency_id = p.agency_id AND g.profile_id = p.id), 0)::bigint AS agreed,
               coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
                          WHERE c.agency_id = p.agency_id AND c.profile_id = p.id
@@ -227,7 +228,9 @@ export class ReportRepository {
   async moneyTotals(tx: Transaction, agencyId: string) {
     const result = await tx.query(
       `SELECT
-         (SELECT coalesce(sum(amount), 0) FROM matrimony.client_agreements WHERE agency_id = $1)::bigint AS agreed,
+         (SELECT coalesce(sum(x.agreed), 0) FROM (
+            SELECT CASE WHEN bool_or(stage = 'total') THEN max(amount) FILTER (WHERE stage = 'total') ELSE sum(amount) END AS agreed
+              FROM matrimony.client_agreements WHERE agency_id = $1 GROUP BY profile_id) x)::bigint AS agreed,
          (SELECT coalesce(sum(amount), 0) FROM matrimony.client_payments WHERE agency_id = $1 AND voided_at IS NULL)::bigint AS paid`,
       [agencyId],
     );
@@ -434,6 +437,7 @@ export class ReportRepository {
          LEFT JOIN matrimony.accounts sa ON sa.agency_id = s.agency_id AND sa.id = s.assigned_agent_id
          LEFT JOIN matrimony.accounts ra ON ra.agency_id = r.agency_id AND ra.id = r.assigned_agent_id
          LEFT JOIN matrimony.couple_matches cm ON cm.agency_id = i.agency_id AND cm.interest_id = i.id
+          AND cm.undone_at IS NULL
          LEFT JOIN matrimony.success_stories st ON st.agency_id = cm.agency_id AND st.match_id = cm.id
         WHERE i.agency_id = $1 AND i.status = 'accepted'
           AND ($2::timestamptz IS NULL OR (i.responded_at, i.id) < ($2::timestamptz, $3::uuid))

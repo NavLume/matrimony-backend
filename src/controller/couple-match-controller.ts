@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { markMatchedSchema, storyStatusSchema } from '../bo/couple-match.js';
+import { markMatchedSchema, storyStatusSchema, undoMatchSchema } from '../bo/couple-match.js';
 import type { CoupleMatchService } from '../service/couple-match-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
 import './context.js';
@@ -13,7 +13,7 @@ const storyParams = z.object({ storyId: z.uuid() });
 /** The matched step and the publishing of success stories (see bo/couple-match.ts). */
 export function registerCoupleMatchController(
   app: FastifyInstance,
-  matches: Pick<CoupleMatchService, 'markMatched' | 'setStoryStatus'>,
+  matches: Pick<CoupleMatchService, 'markMatched' | 'undoMatch' | 'setStoryStatus'>,
 ) {
   const actor = (req: {
     principal: { agencyId: string; id: string; role: ProfileActor['role'] } | null;
@@ -38,6 +38,20 @@ export function registerCoupleMatchController(
             req.id,
           ),
         ),
+  );
+
+  app.post(
+    '/api/v1/staff/connections/:connectionId/match/undo',
+    { config: { ...staffOnly, ...write } },
+    async (req, reply) => {
+      await matches.undoMatch(
+        actor(req),
+        connectionParams.parse(req.params).connectionId,
+        undoMatchSchema.parse(req.body),
+        req.id,
+      );
+      return reply.code(204).send();
+    },
   );
 
   app.put(

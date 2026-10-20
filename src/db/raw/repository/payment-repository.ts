@@ -1,4 +1,11 @@
-import type { InvoiceType, PaymentMethod, PaymentRow, PaymentStage } from '../../../bo/payment.js';
+import type {
+  AmountChange,
+  InvoiceType,
+  PaymentMethod,
+  PaymentRow,
+  AgreementStage,
+  PaymentStage,
+} from '../../../bo/payment.js';
 import type { Transaction } from '../../config/database.js';
 
 export interface PaymentProfile {
@@ -49,6 +56,7 @@ const paymentRow = (row: Row): PaymentRow => ({
   voided: row.voided_at
     ? { at: (row.voided_at as Date).toISOString(), reason: row.void_reason as string }
     : null,
+  amountChanges: [],
 });
 
 /** What the office recorded: agreements, payments and their invoice files. Never deletes a row. */
@@ -90,7 +98,7 @@ export class PaymentRepository {
       [agencyId, profileId],
     );
     return new Map(
-      (result.rows as Row[]).map((row) => [row.stage as PaymentStage, Number(row.amount)]),
+      (result.rows as Row[]).map((row) => [row.stage as AgreementStage, Number(row.amount)]),
     );
   }
 
@@ -98,7 +106,7 @@ export class PaymentRepository {
     tx: Transaction,
     agencyId: string,
     profileId: string,
-    stage: PaymentStage,
+    stage: AgreementStage,
     amount: number,
     by: string,
   ) {
@@ -118,7 +126,28 @@ export class PaymentRepository {
         ORDER BY p.paid_on DESC, p.created_at DESC, p.id`,
       [agencyId, profileId],
     );
-    return (result.rows as Row[]).map(paymentRow);
+    const payments = (result.rows as Row[]).map(paymentRow);
+    if (payments.length === 0) return payments;
+    const changes = await tx.query(
+      `SELECT c.payment_id, c.old_amount::bigint AS old_amount, c.new_amount::bigint AS new_amount,
+              c.reason, c.changed_at, a.display_name
+         FROM matrimony.payment_amount_changes c
+         JOIN matrimony.accounts a ON a.agency_id = c.agency_id AND a.id = c.changed_by
+        WHERE c.agency_id = $1 AND c.payment_id = ANY($2::uuid[])
+        ORDER BY c.changed_at, c.id`,
+      [agencyId, payments.map((p) => p.id)],
+    );
+    for (const row of changes.rows as Row[]) {
+      const change: AmountChange = {
+        from: Number(row.old_amount),
+        to: Number(row.new_amount),
+        reason: row.reason as string,
+        at: (row.changed_at as Date).toISOString(),
+        by: row.display_name as string,
+      };
+      payments.find((p) => p.id === row.payment_id)?.amountChanges.push(change);
+    }
+    return payments;
   }
 
   async payment(tx: Transaction, agencyId: string, profileId: string, id: string) {
@@ -207,5 +236,36 @@ export class PaymentRepository {
       [agencyId, id, by, reason],
     );
     return result.rows.length > 0;
+  }
+
+  /**
+   * Sets a new amount on a payment that has not been cancelled and keeps the old one in the change record.
+   * Returns false when the payment is cancelled, missing, or already has that amount.
+   */
+  async changeAmount(
+    tx: Transaction,
+    agencyId: string,
+    id: string,
+    amount: number,
+    by: string,
+    reason: string,
+  ): Promise<boolean> {
+    const found = await tx.query(
+      `SELECT amount::bigint AS amount FROM matrimony.client_payments
+        WHERE agency_id = $1 AND id = $2 AND voided_at IS NULL FOR UPDATE`,
+      [agencyId, id],
+    );
+    const row = found.rows[0] as Row | undefined;
+    if (!row || Number(row.amount) === amount) return false;
+    await tx.query(
+      `INSERT INTO matrimony.payment_amount_changes (agency_id, payment_id, old_amount, new_amount, reason, changed_by)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [agencyId, id, Number(row.amount), amount, reason, by],
+    );
+    await tx.query(
+      `UPDATE matrimony.client_payments SET amount = $3 WHERE agency_id = $1 AND id = $2`,
+      [agencyId, id, amount],
+    );
+    return true;
   }
 }

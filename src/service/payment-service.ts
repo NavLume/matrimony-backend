@@ -7,11 +7,12 @@ import {
   INVOICE_TYPES,
   MAX_INVOICE_BYTES,
   PAYMENT_STAGES,
+  type AgreementStage,
+  type AmountChangeInput,
   type InvoiceType,
   type PaymentInput,
   type PaymentLedger,
   type PaymentRow,
-  type PaymentStage,
 } from '../bo/payment.js';
 import type { PaymentProfile } from '../db/raw/repository/payment-repository.js';
 import type { PaymentDbService, PaymentUnit } from '../db/service/payment-db-service.js';
@@ -21,7 +22,11 @@ import type { ProfileActor } from './profile-service.js';
 
 type EventType = Extract<
   WorkflowEvent['type'],
-  'payment.recorded' | 'payment.agreement_set' | 'payment.invoice_added' | 'payment.voided'
+  | 'payment.recorded'
+  | 'payment.agreement_set'
+  | 'payment.invoice_added'
+  | 'payment.voided'
+  | 'payment.amount_changed'
 >;
 
 /** Whose payments: the signed-in member's own, or a client's, for staff who look after them. */
@@ -40,7 +45,7 @@ export function invoiceTypeOf(bytes: Buffer, declared: string): InvoiceType | nu
 /** The ledger of a client: what was agreed, what was paid, and what is left, for each stage. */
 export function ledgerOf(
   profile: Pick<PaymentProfile, 'id' | 'memberCode' | 'fullName'>,
-  agreements: ReadonlyMap<PaymentStage, number>,
+  agreements: ReadonlyMap<AgreementStage, number>,
   payments: readonly PaymentRow[],
   showReasons: boolean,
 ): PaymentLedger {
@@ -52,12 +57,26 @@ export function ledgerOf(
     const agreed = agreements.get(stage) ?? null;
     stages[stage] = { agreed, paid, balance: agreed === null ? null : agreed - paid };
   }
+  const paidAll = payments.filter((p) => !p.voided).reduce((sum, p) => sum + p.amount, 0);
+  const agreedTotal = agreements.get('total') ?? null;
   return {
     profile: { id: profile.id, memberCode: profile.memberCode, fullName: profile.fullName },
     stages,
+    total: {
+      agreed: agreedTotal,
+      paid: paidAll,
+      balance: agreedTotal === null ? null : agreedTotal - paidAll,
+    },
     // The reason a payment was cancelled is for the office; the client only sees that it was.
+    // The history of changes to an amount is for the office too; the client sees the amount as it now stands.
     payments: payments.map((p) =>
-      p.voided && !showReasons ? { ...p, voided: { at: p.voided.at, reason: null } } : p,
+      showReasons
+        ? p
+        : {
+            ...p,
+            amountChanges: [],
+            voided: p.voided ? { at: p.voided.at, reason: null } : null,
+          },
     ),
   };
 }
@@ -89,7 +108,7 @@ export class PaymentService {
   async setAgreement(
     actor: ProfileActor,
     profileId: string,
-    stage: PaymentStage,
+    stage: AgreementStage,
     amount: number,
     correlationId: string,
   ): Promise<PaymentLedger> {
@@ -223,6 +242,39 @@ export class PaymentService {
       if (!(await unit.voidPayment(actor.agencyId, paymentId, actor.accountId, reason)))
         throw new AppError(409, 'PAYMENT_ALREADY_VOIDED');
       await unit.appendEvent(this.event('payment.voided', actor, paymentId, correlationId));
+      return this.read(unit, actor, profile, true);
+    });
+  }
+
+  /**
+   * Changes the amount of a recorded payment, with a reason. Admins only. The earlier amount stays in the change
+   * record, a cancelled payment cannot be changed, and every total follows the new amount.
+   */
+  async changeAmount(
+    actor: ProfileActor,
+    profileId: string,
+    paymentId: string,
+    input: AmountChangeInput,
+    correlationId: string,
+  ): Promise<PaymentLedger> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const profile = await this.profileOf(unit, actor, { kind: 'client', profileId });
+      const found = await unit.payment(actor.agencyId, profile.id, paymentId);
+      if (!found) throw new AppError(404, 'PAYMENT_NOT_FOUND');
+      if (found.row.voided) throw new AppError(409, 'PAYMENT_VOIDED');
+      if (found.row.amount === input.amount) throw new AppError(409, 'AMOUNT_UNCHANGED');
+      if (
+        !(await unit.changeAmount(
+          actor.agencyId,
+          paymentId,
+          input.amount,
+          actor.accountId,
+          input.reason,
+        ))
+      )
+        throw new AppError(409, 'AMOUNT_UNCHANGED');
+      await unit.appendEvent(this.event('payment.amount_changed', actor, paymentId, correlationId));
       return this.read(unit, actor, profile, true);
     });
   }

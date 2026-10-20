@@ -68,6 +68,20 @@ export const candidateQueries = {
   ORDER BY c.unmet_count, c.met_count DESC, c.unknown_count, m.created_at DESC, c.candidate_profile_id
   LIMIT $4`,
 
+  // $1 agency, $2 client. Where the client stands on the two steps before matching starts.
+  readiness: `SELECT (m.verified_at IS NOT NULL) AS verified,
+   EXISTS (SELECT 1 FROM matrimony.client_agreements a
+            WHERE a.agency_id = m.agency_id AND a.profile_id = m.id AND a.stage = 'total') AS agreed,
+   m.matching_override_at, m.matching_override_reason, acc.display_name AS override_by
+ FROM matrimony.member_profiles m
+ LEFT JOIN matrimony.accounts acc ON acc.agency_id = m.agency_id AND acc.id = m.matching_override_by
+ WHERE m.agency_id = $1 AND m.id = $2`,
+
+  // $1 agency, $2 client, $3 who, $4 why.
+  setOverride: `UPDATE matrimony.member_profiles
+   SET matching_override_at = now(), matching_override_by = $3, matching_override_reason = $4
+ WHERE agency_id = $1 AND id = $2`,
+
   // $1 agency, $2 client.
   settings: `SELECT cap, visible_fields, allow_code_search FROM matrimony.client_release_settings
  WHERE agency_id = $1 AND client_profile_id = $2`,

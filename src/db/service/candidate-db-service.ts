@@ -1,4 +1,5 @@
 import type { CandidateItem, CandidateState, ProposalRow } from '../../bo/candidate.js';
+import type { MatchingReadiness } from '../../bo/readiness.js';
 import type { WorkflowEvent } from '../../bo/event.js';
 import type { ProfileRecord } from '../../bo/profile-state.js';
 import type { VisibleField } from '../../bo/release.js';
@@ -50,6 +51,8 @@ export interface CandidateUnit {
     ids: readonly string[],
     accountId: string,
   ): Promise<string[]>;
+  readiness(agencyId: string, clientId: string): Promise<MatchingReadiness>;
+  setOverride(agencyId: string, clientId: string, accountId: string, reason: string): Promise<void>;
   appendEvent(event: WorkflowEvent): Promise<void>;
 }
 
@@ -86,6 +89,9 @@ export class CandidateDbService {
         repo.markReleased(tx, agencyId, clientId, ids, accountId),
       markRemoved: (agencyId, clientId, ids, accountId) =>
         repo.markRemoved(tx, agencyId, clientId, ids, accountId),
+      readiness: (agencyId, clientId) => repo.readiness(tx, agencyId, clientId),
+      setOverride: (agencyId, clientId, accountId, reason) =>
+        repo.setOverride(tx, agencyId, clientId, accountId, reason),
       appendEvent: (event) => this.events.append(tx, event),
     };
   }

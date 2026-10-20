@@ -62,14 +62,28 @@ export const clientQueries = {
   handOver: `WITH moved AS (
     UPDATE matrimony.member_profiles SET assigned_agent_id = $3::uuid
      WHERE agency_id = $1 AND assigned_agent_id = $2 RETURNING id
+  ), recorded AS (
+    INSERT INTO matrimony.client_assignments (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)
+    SELECT $1, id, $2, $3::uuid, $4, 'handed_over' FROM moved RETURNING profile_id
+  ), told AS (
+    INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+    SELECT $1, $3::uuid, 'client-assigned:' || id::text || ':' || gen_random_uuid()::text, 'client.assigned',
+           jsonb_build_object('forProfileId', id, 'aboutProfileId', id)
+      FROM moved WHERE $3::uuid IS NOT NULL AND $3::uuid IS DISTINCT FROM $4::uuid
+    RETURNING 1
   )
-  INSERT INTO matrimony.client_assignments (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)
-  SELECT $1, id, $2, $3::uuid, $4, 'handed_over' FROM moved RETURNING profile_id`,
+  SELECT profile_id FROM recorded`,
 
-  // $1 agency, $2 profile, $3 from, $4 to, $5 who.
-  recordAssignment: `INSERT INTO matrimony.client_assignments
- (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)
- VALUES ($1, $2, $3, $4, $5, 'assigned')`,
+  // $1 agency, $2 profile, $3 from, $4 to, $5 who. The new agent is told, unless they did it themselves.
+  recordAssignment: `WITH recorded AS (
+    INSERT INTO matrimony.client_assignments
+     (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)
+     VALUES ($1, $2, $3, $4::uuid, $5, 'assigned')
+  )
+  INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+  SELECT $1, $4::uuid, 'client-assigned:' || $2::uuid::text || ':' || gen_random_uuid()::text, 'client.assigned',
+         jsonb_build_object('forProfileId', $2::uuid, 'aboutProfileId', $2::uuid)
+   WHERE $4::uuid IS NOT NULL AND $4::uuid IS DISTINCT FROM $5::uuid`,
 
   // $1 agency, $2 profile. Newest first.
   assignments: `SELECT x.id, x.created_at, x.reason,

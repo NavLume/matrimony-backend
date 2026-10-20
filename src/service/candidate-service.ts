@@ -10,6 +10,7 @@ import {
 } from '../bo/candidate.js';
 import type { WorkflowEvent } from '../bo/event.js';
 import { compareFit, pairFit } from '../bo/matching.js';
+import type { MatchingReadiness, ReadinessOverrideInput } from '../bo/readiness.js';
 import type { ProfileRecord } from '../bo/profile-state.js';
 import {
   DEFAULT_CAP,
@@ -51,6 +52,7 @@ export class CandidateService {
       const client = await unit.lockClient(actor.agencyId, profileId);
       if (!client || !canManage(actor, client)) throw new AppError(404, 'PROFILE_NOT_FOUND');
       if (client.status !== 'active') throw new AppError(409, 'PROFILE_NOT_PUBLISHED');
+      await this.mustBeReady(unit, actor.agencyId, client.id);
       if (!client.data.profile.gender) throw new AppError(422, 'CLIENT_GENDER_REQUIRED');
       return this.run(unit, actor.agencyId, client);
     });
@@ -112,6 +114,35 @@ export class CandidateService {
     });
   }
 
+  /** Whether matching may start for the client: the agreed amount recorded and the document verified. */
+  async readiness(actor: ProfileActor, profileId: string): Promise<MatchingReadiness> {
+    this.requireStaff(actor);
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const client = await unit.readClient(actor.agencyId, profileId);
+      if (!client || !canManage(actor, client)) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      return unit.readiness(actor.agencyId, client.id);
+    });
+  }
+
+  /** An admin lets a client through without the two steps, with a reason that stays on record. */
+  async overrideReadiness(
+    actor: ProfileActor,
+    profileId: string,
+    input: ReadinessOverrideInput,
+    correlationId: string,
+  ): Promise<MatchingReadiness> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const client = await unit.lockClient(actor.agencyId, profileId);
+      if (!client) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      await unit.setOverride(actor.agencyId, client.id, actor.accountId, input.reason);
+      await unit.appendEvent(
+        this.event('candidates.ready_override', actor, client.id, correlationId),
+      );
+      return unit.readiness(actor.agencyId, client.id);
+    });
+  }
+
   /** The client's cap and which fields they will see, with how full the window is. */
   async settings(actor: ProfileActor, profileId: string): Promise<ReleaseSettings> {
     this.requireStaff(actor);
@@ -156,6 +187,7 @@ export class CandidateService {
     this.requireStaff(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const client = await this.lockManaged(unit, actor, profileId);
+      await this.mustBeReady(unit, actor.agencyId, client.id);
       const { cap } = await this.settingsOf(unit, actor.agencyId, client.id);
       const room = cap - (await unit.releasedCount(actor.agencyId, client.id));
       const ready = await unit.releasable(actor.agencyId, client.id, input.candidateIds);
@@ -204,6 +236,15 @@ export class CandidateService {
     return client;
   }
 
+  private async mustBeReady(unit: CandidateUnit, agencyId: string, clientId: string) {
+    const state = await unit.readiness(agencyId, clientId);
+    if (!state.ready)
+      throw new AppError(409, 'MATCHING_NOT_READY', {
+        agreementRecorded: state.agreementRecorded,
+        verified: state.verified,
+      });
+  }
+
   private async settingsOf(
     unit: CandidateUnit,
     agencyId: string,
@@ -222,7 +263,10 @@ export class CandidateService {
   private event(
     type: Extract<
       WorkflowEvent['type'],
-      'candidates.released' | 'candidates.removed' | 'candidates.settings_changed'
+      | 'candidates.released'
+      | 'candidates.removed'
+      | 'candidates.settings_changed'
+      | 'candidates.ready_override'
     >,
     actor: ProfileActor,
     clientId: string,

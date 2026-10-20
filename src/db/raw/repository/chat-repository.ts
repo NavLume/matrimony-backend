@@ -236,60 +236,6 @@ export class ChatRepository {
     }));
   }
 
-  async chaperones(tx: Transaction, agencyId: string, conversationId: string) {
-    const result = await tx.query(
-      `SELECT k.account_id, a.display_name, k.invited_by
-         FROM matrimony.chat_chaperones k
-         JOIN matrimony.accounts a ON a.agency_id = k.agency_id AND a.id = k.account_id
-        WHERE k.agency_id = $1 AND k.conversation_id = $2 AND k.removed_at IS NULL
-        ORDER BY k.created_at`,
-      [agencyId, conversationId],
-    );
-    return (result.rows as Row[]).map((row) => ({
-      accountId: row.account_id as string,
-      name: row.display_name as string,
-      invitedBy: row.invited_by as string,
-    }));
-  }
-
-  async isChaperone(tx: Transaction, agencyId: string, conversationId: string, accountId: string) {
-    const result = await tx.query(
-      `SELECT 1 FROM matrimony.chat_chaperones
-        WHERE agency_id = $1 AND conversation_id = $2 AND account_id = $3 AND removed_at IS NULL`,
-      [agencyId, conversationId, accountId],
-    );
-    return result.rows.length > 0;
-  }
-
-  async addChaperone(
-    tx: Transaction,
-    agencyId: string,
-    conversationId: string,
-    accountId: string,
-    invitedBy: string,
-  ) {
-    await tx.query(
-      `INSERT INTO matrimony.chat_chaperones (agency_id, conversation_id, account_id, invited_by)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (agency_id, conversation_id, account_id)
-       DO UPDATE SET removed_at = NULL, created_at = now(), invited_by = EXCLUDED.invited_by`,
-      [agencyId, conversationId, accountId, invitedBy],
-    );
-  }
-
-  async removeChaperone(
-    tx: Transaction,
-    agencyId: string,
-    conversationId: string,
-    accountId: string,
-  ) {
-    await tx.query(
-      `UPDATE matrimony.chat_chaperones SET removed_at = now()
-        WHERE agency_id = $1 AND conversation_id = $2 AND account_id = $3 AND removed_at IS NULL`,
-      [agencyId, conversationId, accountId],
-    );
-  }
-
   async messages(
     tx: Transaction,
     agencyId: string,
@@ -416,7 +362,7 @@ export class ChatRepository {
     agencyId: string,
     conversationId: string,
     staff: string,
-    basis: 'report' | 'chaperone',
+    basis: 'report',
   ) {
     await tx.query(
       `INSERT INTO matrimony.chat_access_log (agency_id, conversation_id, staff_account_id, basis)
@@ -426,16 +372,13 @@ export class ChatRepository {
   }
 
   /** A client's conversations for staff: that they exist, with counts, never the text. */
-  async staffList(tx: Transaction, agencyId: string, profileId: string, staffAccount: string) {
+  async staffList(tx: Transaction, agencyId: string, profileId: string) {
     const result = await tx.query(
       `SELECT ${CONVERSATION},
               o.id AS o_id, o.member_code AS o_code, o.full_name AS o_name,
               (SELECT count(*) FROM matrimony.chat_messages m
                 WHERE m.agency_id = c.agency_id AND m.conversation_id = c.id)::int AS messages,
-              r.id AS report_id, r.reason AS report_reason, r.created_at AS report_at, r.reported_by,
-              EXISTS (SELECT 1 FROM matrimony.chat_chaperones k
-                       WHERE k.agency_id = c.agency_id AND k.conversation_id = c.id
-                         AND k.account_id = $3 AND k.removed_at IS NULL) AS invited
+              r.id AS report_id, r.reason AS report_reason, r.created_at AS report_at, r.reported_by
          FROM matrimony.chat_conversations c
          JOIN matrimony.member_profiles o ON o.agency_id = c.agency_id
           AND o.id = CASE WHEN c.profile_a = $2 THEN c.profile_b ELSE c.profile_a END
@@ -445,7 +388,7 @@ export class ChatRepository {
             ORDER BY x.created_at DESC LIMIT 1) r ON true
         WHERE c.agency_id = $1 AND (c.profile_a = $2 OR c.profile_b = $2)
         ORDER BY coalesce(c.last_message_at, c.requested_at) DESC, c.id`,
-      [agencyId, profileId, staffAccount],
+      [agencyId, profileId],
     );
     return (result.rows as Row[]).map((row) => ({
       ...conversation(row),
@@ -463,7 +406,6 @@ export class ChatRepository {
             reportedBy: row.reported_by as string,
           }
         : null,
-      invited: row.invited === true,
     }));
   }
 

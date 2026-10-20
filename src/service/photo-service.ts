@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { canManage } from '../bo/access.js';
 import type { WorkflowEvent } from '../bo/event.js';
 import { MAX_PHOTOS, type PhotoList, type PhotoReservation } from '../bo/photo.js';
 import type { PhotoDbService, PhotoUnit } from '../db/service/photo-db-service.js';
@@ -8,9 +9,18 @@ import type { ProfileActor } from './profile-service.js';
 type EventType = Extract<WorkflowEvent['type'], 'photo.uploaded' | 'photo.removed'>;
 
 /**
- * The rules for a member's photos.
+ * Whose photos: the signed-in member's own, or a client's, for the staff who look after the client (an admin:
+ * any; an agent: those assigned to them), whether the client has a login or not.
+ */
+export type PhotoTarget = { kind: 'own' } | { kind: 'client'; profileId: string };
+const OWN: PhotoTarget = { kind: 'own' };
+
+/**
+ * The rules for a client's photos.
  *
- * - Only a member has photos, and only on a profile they have already saved.
+ * - A member manages their own photos, on a profile they have already saved. Staff manage the photos of the
+ *   clients they look after, with or without a login: a photo an agent adds waits for review like any other,
+ *   and an agent's own upload is reviewed by an admin (nobody reviews their own submission).
  * - At most `MAX_PHOTOS` at a time. The check is repeated inside the transaction that holds the
  *   profile's row lock, so two uploads at once cannot both pass the same check.
  * - A new photo waits for a reviewer. Only an approved photo can be made the main photo.
@@ -25,10 +35,10 @@ export class PhotoService {
     private readonly newId: () => string = randomUUID,
   ) {}
 
-  async list(actor: ProfileActor): Promise<PhotoList> {
-    this.requireMember(actor);
+  async list(actor: ProfileActor, target: PhotoTarget = OWN): Promise<PhotoList> {
+    this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const profile = await unit.profileOf(actor.agencyId, actor.accountId, false);
+      const profile = await this.find(unit, actor, target, false);
       return {
         photos: profile ? await unit.list(actor.agencyId, profile.id) : [],
         limit: MAX_PHOTOS,
@@ -40,10 +50,10 @@ export class PhotoService {
    * Holds a place for an upload and says where its files will go. Fails early, so a member who is
    * over the limit does not wait for a large picture to be processed first.
    */
-  async reserve(actor: ProfileActor): Promise<PhotoReservation> {
-    this.requireMember(actor);
+  async reserve(actor: ProfileActor, target: PhotoTarget = OWN): Promise<PhotoReservation> {
+    this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const profile = await this.mustHaveProfile(unit, actor, false);
+      const profile = await this.mustHaveProfile(unit, actor, target, false);
       await this.requireRoom(unit, actor, profile.id);
       const photoId = this.newId();
       return {
@@ -61,10 +71,11 @@ export class PhotoService {
     reservation: PhotoReservation,
     byteSize: number,
     correlationId: string,
+    target: PhotoTarget = OWN,
   ): Promise<PhotoList> {
-    this.requireMember(actor);
+    this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const profile = await this.mustHaveProfile(unit, actor, true);
+      const profile = await this.mustHaveProfile(unit, actor, target, true);
       // The reservation belongs to the profile it was made for.
       if (profile.id !== reservation.profileId) throw new AppError(409, 'PROFILE_STATE_INVALID');
       await this.requireRoom(unit, actor, profile.id);
@@ -88,10 +99,11 @@ export class PhotoService {
     actor: ProfileActor,
     photoId: string,
     correlationId: string,
+    target: PhotoTarget = OWN,
   ): Promise<{ list: PhotoList; storageKey: string }> {
-    this.requireMember(actor);
+    this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const profile = await this.mustHaveProfile(unit, actor, true);
+      const profile = await this.mustHaveProfile(unit, actor, target, true);
       const photo = await unit.find(actor.agencyId, profile.id, photoId);
       if (!photo) throw new AppError(404, 'PHOTO_NOT_FOUND');
 
@@ -103,10 +115,14 @@ export class PhotoService {
     });
   }
 
-  async makePrimary(actor: ProfileActor, photoId: string): Promise<PhotoList> {
-    this.requireMember(actor);
+  async makePrimary(
+    actor: ProfileActor,
+    photoId: string,
+    target: PhotoTarget = OWN,
+  ): Promise<PhotoList> {
+    this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const profile = await this.mustHaveProfile(unit, actor, true);
+      const profile = await this.mustHaveProfile(unit, actor, target, true);
       const photo = await unit.find(actor.agencyId, profile.id, photoId);
       if (!photo) throw new AppError(404, 'PHOTO_NOT_FOUND');
       // Only a photo others can see may be the one shown first.
@@ -116,24 +132,44 @@ export class PhotoService {
     });
   }
 
-  /** Where the files of one of the member's own photos are. A member may see their waiting photos. */
-  async locate(actor: ProfileActor, photoId: string): Promise<{ storageKey: string }> {
-    this.requireMember(actor);
+  /** Where the files of one of the client's photos are. The client and their staff may see waiting photos. */
+  async locate(
+    actor: ProfileActor,
+    photoId: string,
+    target: PhotoTarget = OWN,
+  ): Promise<{ storageKey: string }> {
+    this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const profile = await this.mustHaveProfile(unit, actor, false);
+      const profile = await this.mustHaveProfile(unit, actor, target, false);
       const photo = await unit.find(actor.agencyId, profile.id, photoId);
       if (!photo) throw new AppError(404, 'PHOTO_NOT_FOUND');
       return { storageKey: photo.storageKey };
     });
   }
 
-  // Only members have photos of their own. Agents and admins work on clients' profiles elsewhere.
-  private requireMember(actor: ProfileActor) {
-    if (actor.role !== 'member') throw new AppError(403, 'ROLE_FORBIDDEN');
+  // A member's own photos are for members; a client's photos are for staff (anyone else is turned away).
+  private requireRole(actor: ProfileActor, target: PhotoTarget) {
+    const allowed = target.kind === 'own' ? actor.role === 'member' : actor.role !== 'member';
+    if (!allowed || (target.kind === 'client' && actor.role === 'guardian'))
+      throw new AppError(403, 'ROLE_FORBIDDEN');
   }
 
-  private async mustHaveProfile(unit: PhotoUnit, actor: ProfileActor, lock: boolean) {
-    const profile = await unit.profileOf(actor.agencyId, actor.accountId, lock);
+  /** The profile the actor works on, or null; staff who do not look after the client get "not found". */
+  private async find(unit: PhotoUnit, actor: ProfileActor, target: PhotoTarget, lock: boolean) {
+    if (target.kind === 'own') return unit.profileOf(actor.agencyId, actor.accountId, lock);
+    const profile = await unit.clientProfile(actor.agencyId, target.profileId, lock);
+    if (!profile || !canManage({ accountId: actor.accountId, role: actor.role }, profile))
+      throw new AppError(404, 'PROFILE_NOT_FOUND');
+    return profile;
+  }
+
+  private async mustHaveProfile(
+    unit: PhotoUnit,
+    actor: ProfileActor,
+    target: PhotoTarget,
+    lock: boolean,
+  ) {
+    const profile = await this.find(unit, actor, target, lock);
     if (!profile) throw new AppError(404, 'PROFILE_NOT_FOUND');
     // A closed profile is kept for the record and is no longer changed.
     if (profile.status === 'closed') throw new AppError(409, 'PROFILE_STATE_INVALID');

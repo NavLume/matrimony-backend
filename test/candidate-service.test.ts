@@ -77,6 +77,13 @@ function fake(client: ProfileRecord | null, pool: ProfileRecord[]) {
     releasable: async () => [],
     markReleased: async () => [],
     markRemoved: async () => [],
+    readiness: async () => ({
+      ready: true,
+      agreementRecorded: true,
+      verified: true,
+      override: null,
+    }),
+    setOverride: async () => {},
     appendEvent: async () => {},
   };
   const service = new CandidateService(

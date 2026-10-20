@@ -40,8 +40,7 @@ const DAY_MS = 24 * 3600 * 1000;
  * - Only members with a login chat, and only after an accepted proposal that both sides agree to chat on.
  * - A message goes through only while the conversation is active, the agency has chat on and both
  *   profiles are published.
- * - Staff never see the text unless the conversation was reported or one of the two people invited the
- *   staff member in. Every reading is logged.
+ * - Staff never see the text unless one of the two people reported the conversation. Every reading is logged.
  */
 export class ChatService {
   constructor(
@@ -61,8 +60,7 @@ export class ChatService {
       const rows = await unit.listFor(actor.agencyId, own.id);
       const showNames = await this.showNames(unit, actor.agencyId, own.id);
       const items: ChatSummary[] = [];
-      for (const row of rows)
-        items.push(await this.summary(unit, actor, own, row, enabled, showNames));
+      for (const row of rows) items.push(this.summary(own, row, enabled, showNames));
       return { enabled, items };
     });
   }
@@ -282,40 +280,6 @@ export class ChatService {
     });
   }
 
-  /** Invites the person's own agent into the conversation. Both people then see that the agent is in it. */
-  async invite(actor: ProfileActor, chatId: string, correlationId: string): Promise<ChatSummary> {
-    this.requireMember(actor);
-    return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await this.mine(unit, actor);
-      const conversation = await this.participantIn(unit, actor, own, chatId, false);
-      if (conversation.status === 'ended') throw new AppError(409, 'CHAT_NOT_ACTIVE');
-      if (!own.assignedAgentId) throw new AppError(409, 'NO_AGENT');
-      await unit.addChaperone(actor.agencyId, chatId, own.assignedAgentId, own.id);
-      const otherId =
-        conversation.profileA === own.id ? conversation.profileB : conversation.profileA;
-      await unit.notify(
-        actor.agencyId,
-        own.assignedAgentId,
-        'chat.invited',
-        { conversationId: chatId, forProfileId: own.id, aboutProfileId: otherId },
-        `chat-invited:${chatId}:${this.newId()}`,
-      );
-      await unit.appendEvent(this.event('chat.invited', actor, chatId, correlationId));
-      return this.summaryOf(unit, actor, own, chatId);
-    });
-  }
-
-  async uninvite(actor: ProfileActor, chatId: string): Promise<ChatSummary> {
-    this.requireMember(actor);
-    return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const own = await this.mine(unit, actor);
-      await this.participantIn(unit, actor, own, chatId, false);
-      if (own.assignedAgentId)
-        await unit.removeChaperone(actor.agencyId, chatId, own.assignedAgentId);
-      return this.summaryOf(unit, actor, own, chatId);
-    });
-  }
-
   // ------------------------------------------------------------------ staff
 
   /** A client's conversations: that they exist and how active, never the text. */
@@ -323,7 +287,7 @@ export class ChatService {
     this.requireStaff(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const profile = await this.managed(unit, actor, profileId);
-      const rows = await unit.staffList(actor.agencyId, profile.id, actor.accountId);
+      const rows = await unit.staffList(actor.agencyId, profile.id);
       return rows.map((row) => ({
         id: row.id,
         status: row.status,
@@ -338,13 +302,12 @@ export class ChatService {
           createdAt: row.report.createdAt,
           byClient: row.report.reportedBy === profile.id,
         },
-        canRead: row.report !== null || row.invited,
-        invited: row.invited,
+        canRead: row.report !== null,
       }));
     });
   }
 
-  /** The text of a conversation, for staff who may read it: it was reported, or they were invited in. */
+  /** The text of a conversation, for staff who look after one of the two people, once it has been reported. */
   async staffMessages(
     actor: ProfileActor,
     chatId: string,
@@ -357,15 +320,9 @@ export class ChatService {
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const { conversation, a, b } = await this.staffView(unit, actor, chatId);
       const report = await unit.openReport(actor.agencyId, chatId);
-      const invited = await unit.isChaperone(actor.agencyId, chatId, actor.accountId);
-      if (!report && !invited) throw new AppError(403, 'CHAT_NOT_SHARED');
+      if (!report) throw new AppError(403, 'CHAT_NOT_SHARED');
       if (!after) {
-        await unit.logAccess(
-          actor.agencyId,
-          chatId,
-          actor.accountId,
-          report ? 'report' : 'chaperone',
-        );
+        await unit.logAccess(actor.agencyId, chatId, actor.accountId, 'report');
         await unit.appendEvent(this.event('chat.staff_read', actor, chatId, correlationId));
       }
       const rows = await unit.messages(actor.agencyId, chatId, {
@@ -484,8 +441,7 @@ export class ChatService {
     const a = (await unit.profileById(actor.agencyId, conversation.profileA))!;
     const b = (await unit.profileById(actor.agencyId, conversation.profileB))!;
     const actorLite = { accountId: actor.accountId, role: actor.role };
-    const invited = await unit.isChaperone(actor.agencyId, chatId, actor.accountId);
-    if (!canManage(actorLite, a) && !canManage(actorLite, b) && !invited)
+    if (!canManage(actorLite, a) && !canManage(actorLite, b))
       throw new AppError(404, 'CHAT_NOT_FOUND');
     return { conversation, a, b };
   }
@@ -500,18 +456,15 @@ export class ChatService {
     const enabled = await unit.chatEnabled(actor.agencyId);
     const showNames = await this.showNames(unit, actor.agencyId, own.id);
     const listed = (await unit.listFor(actor.agencyId, own.id)).find((row) => row.id === chatId)!;
-    return this.summary(unit, actor, own, listed, enabled, showNames);
+    return this.summary(own, listed, enabled, showNames);
   }
 
-  private async summary(
-    unit: ChatUnit,
-    actor: ProfileActor,
+  private summary(
     own: ChatProfile,
     row: ListedConversation,
     enabled: boolean,
     showNames: boolean,
-  ): Promise<ChatSummary> {
-    const chaperones = await unit.chaperones(actor.agencyId, row.id);
+  ): ChatSummary {
     return {
       id: row.id,
       status: row.status,
@@ -533,11 +486,6 @@ export class ChatService {
         row.status === 'active' &&
         own.status === 'active' &&
         row.other.status === 'active',
-      chaperones: chaperones.map((c) => ({
-        accountId: c.accountId,
-        name: c.name,
-        invitedByMe: c.invitedBy === own.id,
-      })),
     };
   }
 

@@ -40,6 +40,8 @@ type Start = {
   /** Candidate states, and whether each candidate is still published. */
   states?: Record<string, string>;
   unpublished?: string[];
+  /** Where the client stands before matching; ready unless a test says otherwise. */
+  readiness?: { agreementRecorded: boolean; verified: boolean; override?: boolean };
   settings?: { cap: number; visibleFields: string[]; allowCodeSearch?: boolean };
 };
 
@@ -78,6 +80,17 @@ function fake(start: Start = {}) {
       );
       for (const id of moved) states.set(id, 'removed');
       return moved;
+    },
+    readiness: async () => {
+      const r = start.readiness ?? { agreementRecorded: true, verified: true };
+      const override = r.override ? { at: today.toISOString(), reason: 'Test', by: null } : null;
+      return { ...r, override, ready: (r.agreementRecorded && r.verified) || override !== null };
+    },
+    setOverride: async () => {
+      start.readiness = {
+        ...(start.readiness ?? { agreementRecorded: false, verified: false }),
+        override: true,
+      };
     },
     appendEvent: async (event: { type: string }) => {
       events.push(event.type);
@@ -211,4 +224,62 @@ await test('only staff who manage the client change what it sees', async () => {
     () => service.remove(stranger, client.id, one, 'c'),
   ])
     await assert.rejects(act(), refused(404));
+});
+
+await test('matching starts only when the agreed amount is recorded and the document verified', async () => {
+  const [a] = ids(1) as [string];
+  const one = { candidateIds: [a] };
+  for (const readiness of [
+    { agreementRecorded: false, verified: true },
+    { agreementRecorded: true, verified: false },
+    { agreementRecorded: false, verified: false },
+  ]) {
+    const { service, states } = fake({ states: { [a]: 'proposed' }, readiness });
+    await assert.rejects(service.generate(agent, client.id), refused(409, 'MATCHING_NOT_READY'));
+    await assert.rejects(
+      service.release(agent, client.id, one, 'c'),
+      refused(409, 'MATCHING_NOT_READY'),
+    );
+    assert.equal(states.get(a), 'proposed');
+    // Removing a candidate and reading are not matching work.
+    assert.equal((await service.remove(agent, client.id, one, 'c')).done.length, 1);
+  }
+  const ready = fake({ states: { [a]: 'proposed' } });
+  assert.deepEqual((await ready.service.release(agent, client.id, one, 'c')).done, [a]);
+});
+
+await test('only an admin lets a client through, with a reason, and it is recorded', async () => {
+  const [a] = ids(1) as [string];
+  const t = fake({
+    states: { [a]: 'proposed' },
+    readiness: { agreementRecorded: false, verified: false },
+  });
+  const admin: ProfileActor = { ...agent, role: 'admin' };
+  await assert.rejects(
+    t.service.overrideReadiness(agent, client.id, { reason: 'Known family' }, 'c'),
+    refused(403),
+  );
+  await assert.rejects(
+    t.service.release(agent, client.id, { candidateIds: [a] }, 'c'),
+    refused(409, 'MATCHING_NOT_READY'),
+  );
+  const state = await t.service.overrideReadiness(
+    admin,
+    client.id,
+    { reason: 'Known family' },
+    'c',
+  );
+  assert.equal(state.ready, true);
+  assert.deepEqual(t.events, ['candidates.ready_override']);
+  assert.deepEqual((await t.service.release(agent, client.id, { candidateIds: [a] }, 'c')).done, [
+    a,
+  ]);
+});
+
+await test('staff can read where a client stands, and only for their own clients', async () => {
+  const t = fake({ readiness: { agreementRecorded: true, verified: false } });
+  const state = await t.service.readiness(agent, client.id);
+  assert.deepEqual([state.ready, state.agreementRecorded, state.verified], [false, true, false]);
+  await assert.rejects(t.service.readiness(member, client.id), refused(403));
+  await assert.rejects(t.service.readiness(stranger, client.id), refused(404));
 });

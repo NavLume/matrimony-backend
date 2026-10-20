@@ -131,6 +131,18 @@ async function setup(role: 'admin' | 'agent' | 'member' = 'agent') {
       }),
       release: record('candidates.release', { done: [], skipped: [] }),
       remove: record('candidates.remove', { done: [], skipped: [] }),
+      readiness: record('candidates.readiness', {
+        ready: false,
+        agreementRecorded: true,
+        verified: false,
+        override: null,
+      }),
+      overrideReadiness: record('candidates.overrideReadiness', {
+        ready: true,
+        agreementRecorded: false,
+        verified: false,
+        override: { at: '2026-10-20T00:00:00.000Z', reason: 'Known family', by: 'Admin' },
+      }),
     },
     matches: unusedMatches,
     connections: unusedConnections,
@@ -206,6 +218,8 @@ const ROUTES: [string, string, unknown, ('admin' | 'agent')[]][] = [
   ['POST', `/api/v1/staff/clients/${ID}/candidates/generate`, undefined, ['admin', 'agent']],
   ['GET', `/api/v1/staff/clients/${ID}/candidates`, undefined, ['admin', 'agent']],
   ['GET', `/api/v1/staff/clients/${ID}/release-settings`, undefined, ['admin', 'agent']],
+  ['GET', `/api/v1/staff/clients/${ID}/readiness`, undefined, ['admin', 'agent']],
+  ['PUT', `/api/v1/staff/clients/${ID}/readiness-override`, { reason: 'Known family' }, ['admin']],
   [
     'PUT',
     `/api/v1/staff/clients/${ID}/release-settings`,

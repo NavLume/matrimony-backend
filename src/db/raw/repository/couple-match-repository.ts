@@ -54,7 +54,7 @@ export class CoupleMatchRepository {
 
   async existing(tx: Transaction, agencyId: string, interestId: string): Promise<boolean> {
     const result = await tx.query(
-      `SELECT 1 FROM matrimony.couple_matches WHERE agency_id = $1 AND interest_id = $2`,
+      `SELECT 1 FROM matrimony.couple_matches WHERE agency_id = $1 AND interest_id = $2 AND undone_at IS NULL`,
       [agencyId, interestId],
     );
     return result.rows.length > 0;
@@ -134,7 +134,7 @@ export class CoupleMatchRepository {
       `SELECT st.id, st.status, (st.consent_a_at IS NOT NULL AND st.consent_b_at IS NOT NULL) AS both_ok
          FROM matrimony.success_stories st
          JOIN matrimony.couple_matches m ON m.agency_id = st.agency_id AND m.id = st.match_id
-        WHERE st.agency_id = $1 AND m.interest_id = $2`,
+        WHERE st.agency_id = $1 AND m.interest_id = $2 AND m.undone_at IS NULL`,
       [agencyId, interestId],
     );
     const row = result.rows[0] as Row | undefined;
@@ -170,5 +170,49 @@ export class CoupleMatchRepository {
       [agencyId, storyId, status],
     );
     return { changed: true, consentBoth };
+  }
+
+  /** The match standing for a connection, if there is one. */
+  async standingMatch(tx: Transaction, agencyId: string, interestId: string) {
+    const result = await tx.query(
+      `SELECT id FROM matrimony.couple_matches
+        WHERE agency_id = $1 AND interest_id = $2 AND undone_at IS NULL FOR UPDATE`,
+      [agencyId, interestId],
+    );
+    const row = result.rows[0] as Row | undefined;
+    return row ? (row.id as string) : null;
+  }
+
+  /** Marks the match undone, with who did it and why. The record stays. */
+  async undoMatch(
+    tx: Transaction,
+    agencyId: string,
+    matchId: string,
+    by: string,
+    reason: string,
+  ): Promise<void> {
+    await tx.query(
+      `UPDATE matrimony.couple_matches SET undone_at = now(), undone_by = $3, undo_reason = $4
+        WHERE agency_id = $1 AND id = $2 AND undone_at IS NULL`,
+      [agencyId, matchId, by, reason],
+    );
+  }
+
+  /** A client who was matched goes back to active; any other status (changed by hand since) is left alone. */
+  async reopenProfile(tx: Transaction, agencyId: string, profileId: string): Promise<void> {
+    await tx.query(
+      `UPDATE matrimony.member_profiles SET status = 'active'
+        WHERE agency_id = $1 AND id = $2 AND status = 'matched'`,
+      [agencyId, profileId],
+    );
+  }
+
+  /** The success story of a match is hidden, whatever it was (a published one stops showing at once). */
+  async hideStoryOfMatch(tx: Transaction, agencyId: string, matchId: string): Promise<void> {
+    await tx.query(
+      `UPDATE matrimony.success_stories SET status = 'hidden', updated_at = now()
+        WHERE agency_id = $1 AND match_id = $2 AND status <> 'hidden'`,
+      [agencyId, matchId],
+    );
   }
 }

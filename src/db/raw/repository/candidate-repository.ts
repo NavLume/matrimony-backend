@@ -1,3 +1,4 @@
+import type { MatchingReadiness } from '../../../bo/readiness.js';
 import type { CandidateItem, CandidateState, ProposalRow } from '../../../bo/candidate.js';
 import type { ProfileRecord } from '../../../bo/profile-state.js';
 import type { VisibleField } from '../../../bo/release.js';
@@ -154,6 +155,44 @@ export class CandidateRepository {
     // A client who signs in is told that new profiles are waiting for them.
     await notifyReleased(tx, agencyId, clientId, moved.length);
     return moved;
+  }
+
+  async readiness(tx: Transaction, agencyId: string, clientId: string): Promise<MatchingReadiness> {
+    const result = await tx.query(candidateQueries.readiness, [agencyId, clientId]);
+    const row = result.rows[0] as
+      | {
+          verified: boolean;
+          agreed: boolean;
+          matching_override_at: Date | null;
+          matching_override_reason: string | null;
+          override_by: string | null;
+        }
+      | undefined;
+    const override = row?.matching_override_at
+      ? {
+          at: row.matching_override_at.toISOString(),
+          reason: row.matching_override_reason ?? '',
+          by: row.override_by,
+        }
+      : null;
+    const verified = row?.verified === true;
+    const agreementRecorded = row?.agreed === true;
+    return {
+      ready: (verified && agreementRecorded) || override !== null,
+      agreementRecorded,
+      verified,
+      override,
+    };
+  }
+
+  async setOverride(
+    tx: Transaction,
+    agencyId: string,
+    clientId: string,
+    accountId: string,
+    reason: string,
+  ): Promise<void> {
+    await tx.query(candidateQueries.setOverride, [agencyId, clientId, accountId, reason]);
   }
 
   async markRemoved(

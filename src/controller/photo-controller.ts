@@ -8,10 +8,15 @@ import type { ProfileActor } from '../service/profile-service.js';
 import './context.js';
 
 const memberOnly = { roles: ['member' as const] };
+const staffOnly = { roles: ['admin' as const, 'agent' as const] };
+const clientParams = z.object({ profileId: z.uuid(), photoId: z.uuid().optional() });
 const params = z.object({ photoId: z.uuid() });
 const imageQuery = z.object({ size: z.enum(['full', 'thumb']).default('full') });
 
-/** A member's own photos. Only members have any, so every route is member-only. */
+/**
+ * A member's own photos (member-only routes) and a client's photos for the staff who look after them (admin or
+ * agent), whether the client has a login or not.
+ */
 export function registerPhotoController(
   app: FastifyInstance,
   photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image'>,
@@ -67,6 +72,61 @@ export function registerPhotoController(
       const { size } = imageQuery.parse(req.query);
       const bytes = await photos.image(actor(req), photoId, size);
       // Private to this member's browser, which may keep it: a photo's picture never changes.
+      return reply
+        .header('content-type', 'image/webp')
+        .header('cache-control', 'private, max-age=3600')
+        .send(bytes);
+    },
+  );
+
+  // ---- a client's photos, for staff -------------------------------------------------------------
+  const client = (req: { params: unknown }) => ({
+    kind: 'client' as const,
+    profileId: clientParams.parse(req.params).profileId,
+  });
+
+  app.get('/api/v1/staff/clients/:profileId/photos', { config: staffOnly }, async (req) =>
+    photoListResponse(await photos.list(actor(req), client(req))),
+  );
+
+  app.post(
+    '/api/v1/staff/clients/:profileId/photos',
+    {
+      config: { ...staffOnly, rateLimit: { max: 30, timeWindow: 60000 } },
+      bodyLimit: MAX_UPLOAD_BYTES,
+    },
+    async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE');
+      const list = await photos.upload(actor(req), req.body, req.id, client(req));
+      return reply.code(201).send(photoListResponse(list));
+    },
+  );
+
+  app.put(
+    '/api/v1/staff/clients/:profileId/photos/:photoId/primary',
+    { config: staffOnly },
+    async (req) =>
+      photoListResponse(
+        await photos.makePrimary(actor(req), params.parse(req.params).photoId, client(req)),
+      ),
+  );
+
+  app.delete(
+    '/api/v1/staff/clients/:profileId/photos/:photoId',
+    { config: staffOnly },
+    async (req) =>
+      photoListResponse(
+        await photos.remove(actor(req), params.parse(req.params).photoId, req.id, client(req)),
+      ),
+  );
+
+  app.get(
+    '/api/v1/staff/clients/:profileId/photos/:photoId/image',
+    { config: staffOnly },
+    async (req, reply) => {
+      const { photoId } = params.parse(req.params);
+      const { size } = imageQuery.parse(req.query);
+      const bytes = await photos.image(actor(req), photoId, size, client(req));
       return reply
         .header('content-type', 'image/webp')
         .header('cache-control', 'private, max-age=3600')

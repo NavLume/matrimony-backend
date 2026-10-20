@@ -16,6 +16,12 @@ export interface PhotoUnit {
     ownerId: string,
     lock: boolean,
   ): Promise<{ id: string; status: string } | null>;
+  /** A client's profile by id, with who looks after it (for staff). Null when there is none. */
+  clientProfile(
+    agencyId: string,
+    profileId: string,
+    lock: boolean,
+  ): Promise<{ id: string; status: string; assignedAgentId: string | null } | null>;
   list(agencyId: string, profileId: string): Promise<PhotoRecord[]>;
   find(agencyId: string, profileId: string, photoId: string): Promise<PhotoFile | null>;
   count(agencyId: string, profileId: string): Promise<number>;
@@ -50,6 +56,8 @@ export class PhotoDbService {
     const repo = this.repository;
     return {
       profileOf: (agencyId, ownerId, lock) => repo.profileOf(tx, agencyId, ownerId, lock),
+      clientProfile: (agencyId, profileId, lock) =>
+        repo.clientProfile(tx, agencyId, profileId, lock),
       list: (agencyId, profileId) => repo.list(tx, agencyId, profileId),
       find: (agencyId, profileId, photoId) => repo.find(tx, agencyId, profileId, photoId),
       count: (agencyId, profileId) => repo.count(tx, agencyId, profileId),

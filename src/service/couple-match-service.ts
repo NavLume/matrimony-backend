@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { canManage } from '../bo/access.js';
-import type { MarkMatchedInput } from '../bo/couple-match.js';
+import type { MarkMatchedInput, UndoMatchInput } from '../bo/couple-match.js';
 import type { WorkflowEvent } from '../bo/event.js';
 import type { MatchProfile } from '../db/raw/repository/couple-match-repository.js';
 import type { CoupleMatchDbService } from '../db/service/couple-match-db-service.js';
@@ -9,7 +9,7 @@ import type { ProfileActor } from './profile-service.js';
 
 type EventType = Extract<
   WorkflowEvent['type'],
-  'match.recorded' | 'story.published' | 'story.hidden'
+  'match.recorded' | 'match.undone' | 'story.published' | 'story.hidden'
 >;
 
 /**
@@ -85,6 +85,38 @@ export class CoupleMatchService {
       }
       await unit.appendEvent(this.event('match.recorded', actor, matchId, correlationId));
       return { matchedAt: this.now().toISOString() };
+    });
+  }
+
+  /**
+   * Undoes a match, by the same people who may mark one (decided on 20 October 2026: anything can happen after
+   * a match). Both clients go back to active, a success story is hidden, and the record stays with the
+   * reason. Waiting proposals that were withdrawn when the match was marked stay withdrawn, and the success
+   * fees agreed then are left for the admin to adjust in the payments.
+   */
+  async undoMatch(
+    actor: ProfileActor,
+    connectionId: string,
+    input: UndoMatchInput,
+    correlationId: string,
+  ): Promise<void> {
+    if (actor.role !== 'admin' && actor.role !== 'agent') throw new AppError(403, 'ROLE_FORBIDDEN');
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const interest = await unit.interest(actor.agencyId, connectionId);
+      if (!interest) throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      const [first, second] = [interest.aId, interest.bId].sort();
+      const lockedFirst = await unit.profile(actor.agencyId, first!);
+      const lockedSecond = await unit.profile(actor.agencyId, second!);
+      const a = interest.aId === first ? lockedFirst : lockedSecond;
+      const b = interest.aId === first ? lockedSecond : lockedFirst;
+      if (!a || !b) throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      this.allowed(actor, a, b);
+      const matchId = await unit.standingMatch(actor.agencyId, connectionId);
+      if (!matchId) throw new AppError(409, 'NOT_MATCHED');
+      await unit.undoMatch(actor.agencyId, matchId, actor.accountId, input.reason);
+      for (const profile of [a, b]) await unit.reopenProfile(actor.agencyId, profile.id);
+      await unit.hideStoryOfMatch(actor.agencyId, matchId);
+      await unit.appendEvent(this.event('match.undone', actor, matchId, correlationId));
     });
   }
 
