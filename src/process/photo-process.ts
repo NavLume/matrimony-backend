@@ -1,5 +1,11 @@
 import type { Logger } from 'pino';
-import { PHOTO_VARIANTS, variantKey, type PhotoList, type PhotoVariant } from '../bo/photo.js';
+import {
+  PHOTO_VARIANTS,
+  variantKey,
+  type PhotoList,
+  type PhotoPrivacy,
+  type PhotoVariant,
+} from '../bo/photo.js';
 import { AppError } from '../exception/app-error.js';
 import type { ProcessedImage } from '../security/image-processor.js';
 import type { PhotoService, PhotoTarget } from '../service/photo-service.js';
@@ -23,7 +29,7 @@ export class PhotoProcess {
   constructor(
     private readonly photos: Pick<
       PhotoService,
-      'list' | 'reserve' | 'attach' | 'remove' | 'makePrimary' | 'locate'
+      'list' | 'reserve' | 'attach' | 'remove' | 'makePrimary' | 'locate' | 'setPrivacy'
     >,
     private readonly storage: FileStorage,
     private readonly process: (input: Buffer) => Promise<ProcessedImage>,
@@ -36,6 +42,15 @@ export class PhotoProcess {
 
   makePrimary(actor: ProfileActor, photoId: string, target?: PhotoTarget): Promise<PhotoList> {
     return this.photos.makePrimary(actor, photoId, target);
+  }
+
+  setPrivacy(
+    actor: ProfileActor,
+    privacy: PhotoPrivacy,
+    correlationId: string,
+    target?: PhotoTarget,
+  ): Promise<PhotoList> {
+    return this.photos.setPrivacy(actor, privacy, correlationId, target);
   }
 
   async upload(

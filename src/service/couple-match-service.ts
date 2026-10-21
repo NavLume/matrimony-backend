@@ -9,7 +9,7 @@ import type { ProfileActor } from './profile-service.js';
 
 type EventType = Extract<
   WorkflowEvent['type'],
-  'match.recorded' | 'match.undone' | 'story.published' | 'story.hidden'
+  'match.recorded' | 'match.undone' | 'story.published' | 'story.hidden' | 'story.removed'
 >;
 
 /**
@@ -140,6 +140,25 @@ export class CoupleMatchService {
           correlationId,
         ),
       );
+    });
+  }
+
+  /**
+   * Removes a success story's names and words for good. Admins only, with a reason. A client cannot do this in the
+   * app: they ask the agency. 404 STORY_NOT_FOUND, 409 STORY_ALREADY_REMOVED.
+   */
+  async removeStory(
+    actor: ProfileActor,
+    storyId: string,
+    reason: string,
+    correlationId: string,
+  ): Promise<void> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const result = await unit.removeStory(actor.agencyId, storyId, actor.accountId, reason);
+      if (result === 'missing') throw new AppError(404, 'STORY_NOT_FOUND');
+      if (result === 'already') throw new AppError(409, 'STORY_ALREADY_REMOVED');
+      await unit.appendEvent(this.event('story.removed', actor, storyId, correlationId));
     });
   }
 

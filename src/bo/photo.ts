@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * A member's photos. A photo is uploaded, then reviewed; only an approved photo is ever shown
  * to anyone but its owner. These limits are development defaults to confirm with the client.
@@ -29,9 +31,20 @@ export interface PhotoRecord {
   reviewerNotes: string | null;
 }
 
+/**
+ * Who sees the picture clearly: everyone released the profile to (`clear`), or only people with an accepted
+ * proposal, the others getting a blurred picture (`blurred`).
+ */
+export const PHOTO_PRIVACY = ['clear', 'blurred'] as const;
+export type PhotoPrivacy = (typeof PHOTO_PRIVACY)[number];
+export const photoPrivacySchema = z
+  .object({ privacy: z.enum(PHOTO_PRIVACY, { error: 'invalidOption' }) })
+  .strict();
+
 export interface PhotoList {
   photos: PhotoRecord[];
   limit: number;
+  privacy: PhotoPrivacy;
 }
 
 /** What the workflow needs to know about a stored photo. Never sent to the client. */

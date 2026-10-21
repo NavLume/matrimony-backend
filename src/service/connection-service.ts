@@ -15,6 +15,7 @@ import {
   type SendResult,
   type StaffConnectionRow,
 } from '../bo/connection.js';
+import type { DeclineReason } from '../bo/decline.js';
 import type { WorkflowEvent } from '../bo/event.js';
 import { DEFAULT_VISIBLE_FIELDS, type VisibleField } from '../bo/release.js';
 import { decodeCursor, encodeCursor } from '../bo/review.js';
@@ -146,11 +147,12 @@ export class ConnectionService {
     connectionId: string,
     accept: boolean,
     correlationId: string,
+    reason?: DeclineReason,
   ): Promise<void> {
     this.requireMember(actor);
     await this.db.inTransaction(actor.agencyId, async (unit) => {
       const own = await this.publishedOwn(unit, actor);
-      await this.decide(unit, actor, own.id, connectionId, accept, correlationId);
+      await this.decide(unit, actor, own.id, connectionId, accept, correlationId, reason);
     });
   }
 
@@ -307,11 +309,12 @@ export class ConnectionService {
     connectionId: string,
     accept: boolean,
     correlationId: string,
+    reason?: DeclineReason,
   ): Promise<void> {
     this.requireStaff(actor);
     await this.db.inTransaction(actor.agencyId, async (unit) => {
       await this.managed(unit, actor, clientId, false);
-      await this.decide(unit, actor, clientId, connectionId, accept, correlationId);
+      await this.decide(unit, actor, clientId, connectionId, accept, correlationId, reason);
     });
   }
 
@@ -497,6 +500,7 @@ export class ConnectionService {
     connectionId: string,
     accept: boolean,
     correlationId: string,
+    reason?: DeclineReason,
   ) {
     const { connection, profiles } = await this.lockedParty(
       unit,
@@ -512,6 +516,7 @@ export class ConnectionService {
         connection.id,
         accept ? 'accepted' : 'declined',
         actor.accountId,
+        accept ? null : (reason ?? null),
       ))
     ) {
       throw new AppError(409, 'CONNECTION_NOT_PENDING');

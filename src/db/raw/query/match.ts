@@ -9,7 +9,11 @@ const SELECTION: Record<VisibleField, string> = {
   fullName: 'm.full_name',
   age: `to_char(m.date_of_birth, 'YYYY-MM-DD') AS date_of_birth`,
   photo: `EXISTS (SELECT 1 FROM matrimony.profile_photos ph
-     WHERE ph.agency_id = m.agency_id AND ph.profile_id = m.id AND ph.status = 'published') AS has_photo`,
+     WHERE ph.agency_id = m.agency_id AND ph.profile_id = m.id AND ph.status = 'published') AS has_photo,
+     (m.photo_privacy = 'blurred' AND NOT EXISTS (SELECT 1 FROM matrimony.interests ac
+        WHERE ac.agency_id = m.agency_id AND ac.status = 'accepted'
+          AND ((ac.sender_profile_id = $2 AND ac.recipient_profile_id = m.id)
+            OR (ac.sender_profile_id = m.id AND ac.recipient_profile_id = $2)))) AS photo_blurred`,
   aboutMe: 'm.about_me',
   professionCode: 'm.profession_code',
   occupationCode: 'm.occupation_code',
@@ -77,7 +81,7 @@ export const matchQueries = {
        x.id AS connection_id, x.status AS connection_status,
        (x.sender_profile_id = c.client_profile_id) AS connection_sent,
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared,
-       (m.verified_at IS NOT NULL) AS verified${selectionFor(visible)}
+       (m.verified_at IS NOT NULL) AS verified, m.verified_checks${selectionFor(visible)}
   ${RELEASED}
     AND ($3::text IS NULL OR m.member_code = $3::text)
     AND ($4::int IS NULL OR m.date_of_birth <= (CURRENT_DATE - make_interval(years => $4::int)))
@@ -101,7 +105,7 @@ export const matchQueries = {
        x.id AS connection_id, x.status AS connection_status,
        (x.sender_profile_id = $2) AS connection_sent,
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared,
-       (m.verified_at IS NOT NULL) AS verified${selectionFor(visible)}
+       (m.verified_at IS NOT NULL) AS verified, m.verified_checks${selectionFor(visible)}
   FROM matrimony.member_profiles m
   LEFT JOIN matrimony.interests x ON x.agency_id = m.agency_id
      AND ((x.sender_profile_id = $2 AND x.recipient_profile_id = m.id)

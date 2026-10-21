@@ -23,6 +23,10 @@ export const photoQueries = {
   findClientProfile: `SELECT id, status, assigned_agent_id FROM matrimony.member_profiles
  WHERE agency_id = $1 AND id = $2`,
 
+  // The profile's photo privacy ($1 agency, $2 profile) and the change of it ($3 the new value).
+  privacy: `SELECT photo_privacy FROM matrimony.member_profiles WHERE agency_id = $1 AND id = $2`,
+  setPrivacy: `UPDATE matrimony.member_profiles SET photo_privacy = $3 WHERE agency_id = $1 AND id = $2`,
+
   list: `SELECT ${PHOTO_COLUMNS} ${WITH_REVIEW}
  WHERE p.agency_id = $1 AND p.profile_id = $2 AND p.status <> 'removed'
  ORDER BY p.sort_order, p.created_at`,

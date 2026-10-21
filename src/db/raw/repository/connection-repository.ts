@@ -34,6 +34,8 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   candidates_released: 'candidates.released',
   client_assigned: 'client.assigned',
   client_update: 'client.update',
+  concern_reported: 'concern.reported',
+  concern_resolved: 'concern.resolved',
   chat_requested: 'chat.requested',
   chat_accepted: 'chat.accepted',
   chat_message: 'chat.message',
@@ -292,8 +294,15 @@ export class ConnectionRepository {
     id: string,
     status: 'accepted' | 'declined',
     accountId: string,
+    reason: string | null = null,
   ): Promise<boolean> {
-    const result = await tx.query(connectionQueries.respond, [agencyId, id, status, accountId]);
+    const result = await tx.query(connectionQueries.respond, [
+      agencyId,
+      id,
+      status,
+      accountId,
+      status === 'declined' ? reason : null,
+    ]);
     return result.rows.length > 0;
   }
 

@@ -423,6 +423,7 @@ export class ReportRepository {
               ${money('r', 'success', 'agreed')} AS b_suc_agreed, ${money('r', 'success', 'paid')} AS b_suc_paid,
               cm.matched_at, st.id AS story_id, st.status AS story_status,
               (st.consent_a_at IS NOT NULL AND st.consent_b_at IS NOT NULL) AS story_ok,
+              (st.removed_at IS NOT NULL) AS story_removed,
               coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
                          WHERE c.agency_id = i.agency_id AND c.interest_id = i.id AND c.voided_at IS NULL), 0)::bigint AS for_this,
               (SELECT count(*) FROM matrimony.meetings m WHERE m.agency_id = i.agency_id AND m.interest_id = i.id
@@ -491,6 +492,7 @@ export class ReportRepository {
               id: row.story_id as string,
               status: row.story_status as 'draft' | 'published' | 'hidden',
               consentBoth: row.story_ok === true,
+              removed: row.story_removed === true,
             }
           : null,
         meetings: {

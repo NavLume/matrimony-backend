@@ -1,4 +1,4 @@
-import type { PhotoFile, PhotoRecord } from '../../../bo/photo.js';
+import type { PhotoFile, PhotoPrivacy, PhotoRecord } from '../../../bo/photo.js';
 import type { Transaction } from '../../config/database.js';
 import { profileRef } from '../../entity/photo.js';
 import { mapPhoto, mapPhotoFile } from '../mapper/photo.js';
@@ -27,6 +27,16 @@ export class PhotoRepository {
     return row
       ? { id: row.id, status: row.status, assignedAgentId: row.assigned_agent_id ?? null }
       : null;
+  }
+
+  async privacy(tx: Transaction, agencyId: string, profileId: string): Promise<PhotoPrivacy> {
+    const result = await tx.query(photoQueries.privacy, [agencyId, profileId]);
+    return ((result.rows[0] as { photo_privacy: string } | undefined)?.photo_privacy ??
+      'clear') as PhotoPrivacy;
+  }
+
+  async setPrivacy(tx: Transaction, agencyId: string, profileId: string, privacy: PhotoPrivacy) {
+    await tx.query(photoQueries.setPrivacy, [agencyId, profileId, privacy]);
   }
 
   async list(tx: Transaction, agencyId: string, profileId: string): Promise<PhotoRecord[]> {

@@ -11,5 +11,6 @@ export function photoListResponse(list: PhotoList) {
       reviewerNotes: photo.reviewerNotes,
     })),
     limit: list.limit,
+    privacy: list.privacy,
   };
 }

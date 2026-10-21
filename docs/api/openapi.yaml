@@ -587,17 +587,60 @@ paths:
     post:
       tags: [Verification]
       summary: Approve the waiting request
-      description: The profile now carries the Verified mark. 409 `REVIEW_OWN_SUBMISSION` for someone deciding their own submission (an admin may).
+      description: |
+        The profile now carries the Verified mark. `identity` (name and date of birth against the document) is always
+        recorded; the body lists the optional checks that were really made. 409 `REVIEW_OWN_SUBMISSION` for someone
+        deciding their own submission (an admin may).
       security:
         - bearerAuth: []
       parameters:
         - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                checks:
+                  type: array
+                  items: { type: string, enum: [photo, marital_status] }
       responses:
         '200':
           description: The state.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VerificationState' }
+
+  /api/v1/staff/clients/{profileId}/verification/checks:
+    put:
+      tags: [Verification]
+      summary: Change the optional checks of a verified profile
+      description: Staff who look after the client. For example, adding `marital_status` after seeing a document in the office. The event log keeps who changed it. 409 `NOT_VERIFIED`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [checks]
+              properties:
+                checks:
+                  type: array
+                  items: { type: string, enum: [photo, marital_status] }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationState' }
+        '409': { description: 'NOT_VERIFIED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/staff/clients/{profileId}/verification/reject:
     post:
@@ -660,6 +703,399 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/MemberMeeting' }
 
+  /api/v1/me/concerns:
+    get:
+      tags: [Concerns]
+      summary: My concerns
+      description: Members. The concerns the member sent, newest first, with their state and the outcome the agency wrote. Nobody else sees them except an admin.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The member's own concerns.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyConcernList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+    post:
+      tags: [Concerns]
+      summary: Tell the agency about a concern, privately
+      description: |
+        Members, 10 per hour. About a profile (`about: profile` with its `profileId`; 404 `PROFILE_NOT_FOUND` for one that
+        does not exist or is the member's own), the agency's staff, or something else. An admin reads it; an agent too
+        when it is about a profile of a client they look after (without who reported it), and the reporter's own agent when
+        the reporter ticked `shareWithMyAgent` (with who reported it; never for a concern about the agency's staff). Never shown to the family or a guardian. Every active admin gets an inbox line.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConcernInput' }
+      responses:
+        '201':
+          description: The member's concerns, including the new one.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyConcernList' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/concerns:
+    get:
+      tags: [Concerns]
+      summary: The concerns members sent
+      description: |
+        Admins read every concern, with who reported it. An agent reads only the concerns about a profile of a client they look
+        after, without who reported them (`reporter` is null); a concern about the agency's staff or about something else goes
+        to admins alone. Open ones oldest first; resolved ones newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, resolved], default: open } }
+      responses:
+        '200':
+          description: The concerns in that state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConcernList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/concerns/{concernId}/resolve:
+    post:
+      tags: [Concerns]
+      summary: Record what was done about a concern
+      description: Admins, and an agent for a concern they may read. The note is read by the reporter, who gets an inbox line. 404 `CONCERN_NOT_FOUND` when it is not open, or is not one the agent may read.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: concernId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: The open concerns that remain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConcernList' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'CONCERN_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/concerns:
+    post:
+      tags: [Concerns]
+      summary: Record a concern for a client who has no login
+      description: |
+        A client with no login cannot tell the platform a worry, so staff record it after the client phoned or visited. An admin
+        may record any concern; the client's own agent only one about another member's profile (`memberCode` required, 403
+        `CONCERN_ADMIN_ONLY` otherwise). It is never shared with the agent as a reporter's choice; the client cannot read the
+        outcome, staff tell them. 404 `PROFILE_NOT_FOUND` when the client is not theirs or the member code is unknown or the
+        client's own; 409 `CLIENT_HAS_LOGIN` when the client can report for themselves.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordConcernInput' }
+      responses:
+        '201':
+          description: The open concerns, with the new one.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConcernList' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'CLIENT_HAS_LOGIN.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/me/consents:
+    get:
+      tags: [Privacy]
+      summary: What the member agreed to
+      description: Every agreement recorded for the member (the terms, the privacy policy, representing someone else), with the version of the text and when. Members only.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The log, oldest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/data-export:
+    get:
+      tags: [Privacy]
+      summary: A copy of the member's own data
+      description: |
+        Everything the agency holds about the member, as JSON: account, profile, contact, partner preferences, the
+        metadata of photos, CV and identity document (never the files), guardians, proposals and meetings (the other
+        side by member code only), amounts and payments, service terms, their own concerns and chat messages, and the
+        consent log. Staff's private notes are not included. Not cached. 5 an hour; each copy is recorded as the
+        event `account.data_exported`. Members only.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The copy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataExport' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND (the member has no profile yet).', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/consents:
+    get:
+      tags: [Privacy]
+      summary: The consent log of a client with no login
+      description: An admin, or the client's own agent. 404 `PROFILE_NOT_FOUND` for a client that is not theirs; 409 `CLIENT_HAS_LOGIN` when the client can read their own.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The log, oldest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'CLIENT_HAS_LOGIN.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/data-export:
+    get:
+      tags: [Privacy]
+      summary: A copy of a client's data, for a client with no login
+      description: Same content as the member's copy, for staff to hand to a client who has no login. An admin, or the client's own agent. 20 an hour; recorded as the event `client.data_exported`. Errors as for the consent log.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The copy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataExport' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'CLIENT_HAS_LOGIN.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/erasure:
+    get:
+      tags: [Privacy]
+      summary: Where the erasure of a client with no login stands
+      description: An admin, or the client's own agent. `status` is none, scheduled (with `erasesOn`) or erased. The reason and who asked are kept after the erasure. 404 `PROFILE_NOT_FOUND`; 409 `CLIENT_HAS_LOGIN`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErasureState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'CLIENT_HAS_LOGIN.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/erase:
+    post:
+      tags: [Privacy]
+      summary: Ask for the erasure of a client who has no login
+      description: |
+        Admins only. The client's member code must be typed and a reason given (kept with the request). The profile is
+        hidden at once, open requests are withdrawn, and after 7 days an hourly job erases the profile, contacts,
+        preferences, photos, CV, identity documents, guardians, staff notes and follow-ups, meeting and request notes and
+        any success story, unless an admin cancels. Payments, consent records and safety concerns are kept (migration
+        052). 400 `CODE_MISMATCH`, 404 `PROFILE_NOT_FOUND`, 409 `CLIENT_HAS_LOGIN` or `ERASURE_NOT_POSSIBLE` (already
+        scheduled or erased). Events `client.erasure_scheduled` and, at the end, `client.erased`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [memberCode, reason]
+              properties:
+                memberCode: { type: string, minLength: 3, maxLength: 20, description: The client's member code, typed to confirm. }
+                reason: { type: string, minLength: 5, maxLength: 300 }
+      responses:
+        '202':
+          description: Scheduled.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [erasesOn]
+                properties:
+                  erasesOn: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'CLIENT_HAS_LOGIN or ERASURE_NOT_POSSIBLE.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/erase/cancel:
+    post:
+      tags: [Privacy]
+      summary: Cancel a scheduled erasure
+      description: Admins only. Brings the client back as they were. 409 `NO_ERASURE_SCHEDULED`. Event `client.erasure_cancelled`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Cancelled. }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409': { description: 'NO_ERASURE_SCHEDULED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/payments/{paymentId}/delete:
+    post:
+      tags: [Payments]
+      summary: Delete a payment record
+      description: |
+        Admins only. Removes the payment, the history of its amount and the invoice file, for a reason of at least 5
+        characters. A short record stays (amount, stage, date, method, why, who; no name). 404 `PAYMENT_NOT_FOUND`.
+        Event `payment.deleted`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 5, maxLength: 300 }
+      responses:
+        '200':
+          description: The client's ledger after the deletion.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLedger' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PAYMENT_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/decline-patterns:
+    get:
+      tags: [Declines]
+      summary: What a client said no to
+      description: |
+        Counts, by reason, the proposals this client declined and the meetings after which they were not interested, so
+        the agent can tighten the candidates released to them. An admin, or the client's own agent. A request the agent
+        rejected during review was never put to the client and is not counted. 404 `PROFILE_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The patterns, most common first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeclinePatterns' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/admin/reports/decline-patterns:
+    get:
+      tags: [Declines]
+      summary: What clients of the whole agency said no to
+      description: Admins only. The same counts for every client together.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The patterns, most common first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeclinePatterns' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/admin/settings:
+    get:
+      tags: [Settings]
+      summary: The agency's own settings
+      description: Admins only. After how many days each kind of waiting item counts as overdue on the agenda. A value never set reads as its default (2, 5, 3 and 7 days).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The agency's settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgencySettings' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+    put:
+      tags: [Settings]
+      summary: Change the agency's own settings
+      description: Admins only. Every limit is a whole number of days from 1 to 60. The change is recorded (event settings.updated).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgencySettings' }
+      responses:
+        '200':
+          description: The agency's settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgencySettings' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/attention:
+    get:
+      tags: [Agenda]
+      summary: What has waited too long
+      description: |
+        Staff. Things that have waited past the agency's limits (its settings; by default 2, 5, 3 and 7 days), oldest first, with who they are about: a profile, photo, CV or
+        identity document waiting more than 2 days (`review_waiting`), a request waiting for the agent's approval more
+        than 2 days (`request_in_review`), an approved request unanswered for more than 5 days
+        (`request_unanswered`), a published client with an agent and no profile released after 3 days
+        (`no_candidates`), and an accepted request with no meeting or match after 7 days (`no_meeting`). An agent sees
+        their own clients; an admin sees everyone and a workload line for each agent. At most 300 items.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The overdue items and, for an admin, the workload.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attention' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
   /api/v1/staff/agenda:
     get:
       tags: [Meetings]
@@ -805,6 +1241,10 @@ paths:
               properties:
                 verdict: { type: string, enum: [interested, undecided, not_interested] }
                 note: { type: string, maxLength: 500 }
+                reason:
+                  type: string
+                  enum: [religion, age, location, education_work, family, no_chemistry, not_ready, other, prefer_not_to_say]
+                  description: Why, only when the verdict is not_interested (400 otherwise). Optional and private to the agency.
       responses:
         '200':
           description: The meeting.
@@ -1225,6 +1665,137 @@ paths:
         '404': { $ref: '#/components/responses/TenantNotFound' }
         '422': { description: The proposal is not an accepted one of this client (`CONNECTION_NOT_ACCEPTED`). }
 
+  /api/v1/me/service-terms:
+    get:
+      tags: [Service terms]
+      summary: The terms of my service
+      description: Members. What the fee covers, the introductions promised (if any) and the refund rule, as the agency recorded them, and whether the member confirmed them. The history is empty for a member.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The newest version, or none yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceTermsState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/me/service-terms/confirm:
+    post:
+      tags: [Service terms]
+      summary: Confirm the newest terms
+      description: The member confirms the newest version they were shown. 404 `TERMS_NOT_FOUND` when none is recorded, 409 `TERMS_ALREADY_CONFIRMED`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The terms, now confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceTermsState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND or TERMS_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'TERMS_ALREADY_CONFIRMED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/service-terms:
+    get:
+      tags: [Service terms]
+      summary: A client's service terms and their history
+      description: Admins, and the agent the client is assigned to. Every version is listed, newest first. 404 `PROFILE_NOT_FOUND` when the client is not theirs.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The newest version and the history.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceTermsState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    put:
+      tags: [Service terms]
+      summary: Record the terms of a client's service
+      description: Adds a new version (an earlier one is kept as it was). The client's earlier confirmation does not carry over; the client is told in the inbox and asked to confirm again.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceTermsInput' }
+      responses:
+        '200':
+          description: The state with the new version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceTermsState' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/service-terms/confirm:
+    post:
+      tags: [Service terms]
+      summary: Record that the client agreed to the terms in the office
+      description: Staff who look after the client. Confirms the newest version, marked as confirmed in the office (not by the client in the app). 404 `TERMS_NOT_FOUND`, 409 `TERMS_ALREADY_CONFIRMED`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The terms, now confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceTermsState' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND or TERMS_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'TERMS_ALREADY_CONFIRMED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/me/journey:
+    get:
+      tags: [Journey]
+      summary: My journey
+      description: |
+        A member's own search in one place: what the agency did for them, with dates (profile review, verification,
+        agent, profiles released, proposals, answers, contact shared, meetings, match, the terms of the service) and
+        what each side is waiting for. Another person is shown by member code until they accepted a proposal.
+        Newest first, at most 150 lines.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The journey.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Journey' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND: no profile yet.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/journey:
+    get:
+      tags: [Journey]
+      summary: A client's journey
+      description: Admins, and the agent the client is assigned to. The same page the client sees, with names. 404 `PROFILE_NOT_FOUND` when the client is not theirs.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The journey.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Journey' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /api/v1/staff/clients/{profileId}/agreements/{stage}:
     put:
       tags: [Payments]
@@ -1538,6 +2109,37 @@ paths:
                 status: { type: string, enum: [published, hidden] }
       responses:
         '204': { description: Done. }
+  /api/v1/admin/success-stories/{storyId}/remove:
+    post:
+      tags: [Matches]
+      summary: Remove a success story's names and words for good (admin)
+      description: |
+        A published story stays when the couple's profiles are erased: nobody can tick a box to remove it. A person who
+        wants theirs gone asks the agency, and only an admin can do it, with a reason of at least 5 characters. The names
+        and the words are deleted (hiding keeps them), the couple's consents are cleared so it can never be published
+        again, and who removed it, when and why are kept. 404 `STORY_NOT_FOUND`, 409 `STORY_ALREADY_REMOVED`. Event
+        `story.removed`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 5, maxLength: 300 }
+      responses:
+        '204': { description: Removed. }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'STORY_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'STORY_ALREADY_REMOVED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/admin/branding:
     put:
@@ -1785,7 +2387,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - { name: group, in: query, required: false, schema: { type: string, enum: [signins, people, profiles, proposals, meetings, payments, chats, guardians, site] } }
+        - { name: group, in: query, required: false, schema: { type: string, enum: [signins, people, profiles, proposals, meetings, payments, chats, guardians, site, safety] } }
         - { name: q, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 60 } }
         - { name: from, in: query, required: false, schema: { type: string, format: date } }
         - { name: to, in: query, required: false, schema: { type: string, format: date } }
@@ -3112,6 +3714,62 @@ paths:
             description: 'PHOTO_INVALID (not a readable picture) or PHOTO_TOO_SMALL (shortest side under 200 px).',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
+  /api/v1/me/profile/photos-privacy:
+    put:
+      tags: [My photos]
+      summary: Choose who sees my photos clearly
+      description: |
+        `blurred` means other members see the photos blurred (a small, soft picture made by the server, never the clear
+        one) until a proposal between them is accepted. `clear` shows them as released. Photos shown clearly carry the
+        viewer's member code as a watermark.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [privacy]
+              properties:
+                privacy: { type: string, enum: [clear, blurred] }
+      responses:
+        '200':
+          description: The photos, with the choice.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/clients/{profileId}/photos-privacy:
+    put:
+      tags: [Client photos]
+      summary: Choose who sees a client's photos clearly
+      description: Admins and the client's agent, for a client with or without a login. Same meaning as for a member's own photos.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [privacy]
+              properties:
+                privacy: { type: string, enum: [clear, blurred] }
+      responses:
+        '200':
+          description: The photos, with the choice.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /api/v1/me/profile/photos/{photoId}:
     delete:
       tags: [My photos]
@@ -5685,9 +6343,13 @@ components:
           anyOf:
             - type: object
               additionalProperties: false
-              required: [at]
+              required: [at, checks]
               properties:
                 at: { type: string, format: date-time }
+                checks:
+                  type: array
+                  description: What stands behind the mark. Always includes identity.
+                  items: { type: string, enum: [identity, photo, marital_status] }
             - type: 'null'
         request:
           anyOf:
@@ -5745,10 +6407,11 @@ components:
           anyOf:
             - type: object
               additionalProperties: false
-              required: [verdict, note, recordedAt]
+              required: [verdict, note, reason, recordedAt]
               properties:
                 verdict: { type: string, enum: [interested, undecided, not_interested] }
                 note: { type: [string, 'null'] }
+                reason: { type: [string, 'null'], enum: [religion, age, location, education_work, family, no_chemistry, not_ready, other, prefer_not_to_say, null] }
                 recordedAt: { type: string, format: date-time }
             - type: 'null'
     MeetingRow:
@@ -5988,11 +6651,12 @@ components:
           anyOf:
             - type: object
               additionalProperties: false
-              required: [id, status, consentBoth]
+              required: [id, status, consentBoth, removed]
               properties:
                 id: { type: string, format: uuid }
                 status: { type: string, enum: [draft, published, hidden] }
                 consentBoth: { type: boolean }
+                removed: { type: boolean, description: An admin removed its names and words; it can never be published again. }
             - type: 'null'
         meetings:
           type: object
@@ -6089,6 +6753,360 @@ components:
           type: array
           items: { $ref: '#/components/schemas/ActivityItem' }
         next: { type: [string, 'null'] }
+    ServiceTermsInput:
+      type: object
+      additionalProperties: false
+      required: [coverage, refundRule]
+      properties:
+        coverage: { type: string, minLength: 3, maxLength: 2000, description: What the fee covers. }
+        introductions: { type: [integer, 'null'], minimum: 1, maximum: 1000, description: How many introductions are promised, or null for no number. }
+        refundRule: { type: string, minLength: 3, maxLength: 1000 }
+    ServiceTerms:
+      type: object
+      additionalProperties: false
+      required: [version, coverage, introductions, refundRule, recordedBy, recordedAt, acknowledged]
+      properties:
+        version: { type: integer }
+        coverage: { type: string }
+        introductions: { type: [integer, 'null'] }
+        refundRule: { type: string }
+        recordedBy: { type: string, description: Display name of who recorded it. }
+        recordedAt: { type: string, format: date-time }
+        acknowledged:
+          description: The confirmation, or null when not confirmed.
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [at, by, how]
+              properties:
+                at: { type: string, format: date-time }
+                by: { type: string }
+                how: { type: string, enum: [client, office], description: 'client = in the app by the client; office = recorded by staff.' }
+            - type: 'null'
+    ServiceTermsState:
+      type: object
+      additionalProperties: false
+      required: [profile, current, history]
+      properties:
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        current:
+          description: The newest version, or null when none is recorded.
+          anyOf:
+            - { $ref: '#/components/schemas/ServiceTerms' }
+            - type: 'null'
+        history:
+          type: array
+          description: Every version, newest first. Empty for a member.
+          items: { $ref: '#/components/schemas/ServiceTerms' }
+    JourneyPerson:
+      type: object
+      additionalProperties: false
+      required: [memberCode, fullName]
+      properties:
+        memberCode: { type: string }
+        fullName: { type: [string, 'null'], description: Null until the person accepted a proposal (always shown to staff). }
+    JourneyEvent:
+      type: object
+      additionalProperties: false
+      required: [at, kind, with, count, detail]
+      properties:
+        at: { type: string, format: date-time }
+        kind:
+          type: string
+          enum: [profile_submitted, profile_approved, profile_rejected, verification_sent, verification_approved, verification_rejected, agent_assigned, candidates_released, proposal_sent, proposal_forwarded, proposal_not_forwarded, proposal_declined_by_them, proposal_received, proposal_declined_by_me, proposal_accepted, proposal_withdrawn, contact_shared_by_me, contact_shared_by_them, meeting_scheduled, meeting_done, matched, unmatched, terms_recorded, terms_confirmed]
+        with:
+          anyOf:
+            - { $ref: '#/components/schemas/JourneyPerson' }
+            - type: 'null'
+        count: { type: [integer, 'null'], description: How many profiles, for a release. }
+        detail: { type: [string, 'null'], description: 'An extra word: the agent name, the kind of meeting, or the version of the terms.' }
+    JourneyWait:
+      type: object
+      additionalProperties: false
+      required: [kind, since, with]
+      properties:
+        kind:
+          type: string
+          enum: [profile_review, verification, proposal_review, meeting_outcome, answer_request, confirm_terms, their_answer]
+        since: { type: string, format: date-time }
+        with:
+          anyOf:
+            - { $ref: '#/components/schemas/JourneyPerson' }
+            - type: 'null'
+    Journey:
+      type: object
+      additionalProperties: false
+      required: [profile, summary, waiting, events]
+      properties:
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName, status]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+            status: { type: string }
+        summary:
+          type: object
+          additionalProperties: false
+          required: [released, proposalsSent, proposalsReceived, accepted, meetings]
+          properties:
+            released: { type: integer }
+            proposalsSent: { type: integer }
+            proposalsReceived: { type: integer }
+            accepted: { type: integer }
+            meetings: { type: integer }
+        waiting:
+          type: object
+          additionalProperties: false
+          required: [onAgency, onYou, onOthers]
+          properties:
+            onAgency: { type: array, items: { $ref: '#/components/schemas/JourneyWait' } }
+            onYou: { type: array, items: { $ref: '#/components/schemas/JourneyWait' } }
+            onOthers: { type: array, items: { $ref: '#/components/schemas/JourneyWait' } }
+        events:
+          type: array
+          description: Newest first, at most 150.
+          items: { $ref: '#/components/schemas/JourneyEvent' }
+    AttentionPerson:
+      type: object
+      additionalProperties: false
+      required: [memberCode, fullName]
+      properties:
+        memberCode: { type: string }
+        fullName: { type: string }
+    AttentionItem:
+      type: object
+      additionalProperties: false
+      required: [kind, since, client, with, agent]
+      properties:
+        kind: { type: string, enum: [review_waiting, request_in_review, request_unanswered, no_candidates, no_meeting] }
+        since: { type: string, format: date-time }
+        client:
+          type: object
+          additionalProperties: false
+          required: [id, memberCode, fullName]
+          properties:
+            id: { type: string, format: uuid }
+            memberCode: { type: string }
+            fullName: { type: string }
+        with:
+          anyOf:
+            - { $ref: '#/components/schemas/AttentionPerson' }
+            - type: 'null'
+        agent:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [id, displayName]
+              properties:
+                id: { type: string, format: uuid }
+                displayName: { type: string }
+            - type: 'null'
+    AgentWorkload:
+      type: object
+      additionalProperties: false
+      required: [agentId, displayName, clients, overdue, oldestDays]
+      properties:
+        agentId: { type: string, format: uuid }
+        displayName: { type: string }
+        clients: { type: integer, description: Published clients they look after. }
+        overdue: { type: integer }
+        oldestDays: { type: [integer, 'null'], description: Whole days the oldest overdue item has waited. }
+    Attention:
+      type: object
+      additionalProperties: false
+      required: [items, workload]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AttentionItem' } }
+        workload: { type: array, description: One line per agent, for an admin. Empty for an agent., items: { $ref: '#/components/schemas/AgentWorkload' } }
+    ConcernInput:
+      type: object
+      additionalProperties: false
+      required: [about, category, message]
+      properties:
+        about: { type: string, enum: [profile, agency, other] }
+        profileId: { type: string, format: uuid, description: Required when about is profile, not allowed otherwise. }
+        category: { type: string, enum: [fake_profile, harassment, asks_for_money, photo_misuse, dowry, staff_conduct, other] }
+        message: { type: string, minLength: 5, maxLength: 1500 }
+        shareWithMyAgent: { type: boolean, default: false, description: "Let the reporter's own agent read it too, and see who reported it. Private by default. Not allowed (400) when about is agency." }
+    RecordConcernInput:
+      type: object
+      additionalProperties: false
+      required: [about, category, message, toldBy]
+      properties:
+        about: { type: string, enum: [profile, agency, other] }
+        memberCode: { type: string, minLength: 3, maxLength: 20, description: Required when about is profile, not allowed otherwise. }
+        category: { type: string, enum: [fake_profile, harassment, asks_for_money, photo_misuse, dowry, staff_conduct, other] }
+        message: { type: string, minLength: 5, maxLength: 1500 }
+        toldBy: { type: string, enum: [phone, visit, family, other], description: How the client told it. }
+    MyConcern:
+      type: object
+      additionalProperties: false
+      required: [id, about, aboutCode, category, message, sharedWithAgent, status, createdAt, resolvedAt, outcomeNote]
+      properties:
+        id: { type: string, format: uuid }
+        about: { type: string, enum: [profile, agency, other] }
+        aboutCode: { type: [string, 'null'], description: The member code of the profile it is about. }
+        category: { type: string, enum: [fake_profile, harassment, asks_for_money, photo_misuse, dowry, staff_conduct, other] }
+        message: { type: string }
+        sharedWithAgent: { type: boolean, description: The reporter let their own agent read it. }
+        status: { type: string, enum: [open, resolved] }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        outcomeNote: { type: [string, 'null'], description: What the agency did. Never says who handled it. }
+    MyConcernList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/MyConcern' } }
+    ConcernRow:
+      allOf:
+        - { $ref: '#/components/schemas/MyConcern' }
+        - type: object
+          required: [reporter, aboutProfile, resolvedBy, recorded]
+          properties:
+            reporter:
+              description: Who reported it. Null for an agent, unless the reporter shared the concern with their own agent.
+              anyOf:
+                - type: object
+                  additionalProperties: false
+                  required: [name, memberCode]
+                  properties:
+                    name: { type: string }
+                    memberCode: { type: [string, 'null'] }
+                - type: 'null'
+            aboutProfile:
+              anyOf:
+                - type: object
+                  additionalProperties: false
+                  required: [id, memberCode, fullName]
+                  properties:
+                    id: { type: string, format: uuid }
+                    memberCode: { type: string }
+                    fullName: { type: string }
+                - type: 'null'
+            resolvedBy: { type: [string, 'null'] }
+            recorded:
+              description: Set when staff recorded it for a client with no login (then `reporter` names that client).
+              anyOf:
+                - type: object
+                  additionalProperties: false
+                  required: [forClient, by, toldBy]
+                  properties:
+                    forClient:
+                      type: object
+                      additionalProperties: false
+                      required: [id, memberCode, fullName]
+                      properties:
+                        id: { type: string, format: uuid }
+                        memberCode: { type: string }
+                        fullName: { type: string }
+                    by: { type: string, description: The staff member who recorded it. }
+                    toldBy: { type: string, enum: [phone, visit, family, other] }
+                - type: 'null'
+    ConcernList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ConcernRow' } }
+    ConsentEntry:
+      type: object
+      additionalProperties: false
+      required: [purpose, documentVersion, action, createdAt]
+      properties:
+        purpose: { type: string, enum: [terms, privacy, profile_representation] }
+        documentVersion: { type: string }
+        action: { type: string, enum: [accepted, withdrawn] }
+        createdAt: { type: string, format: date-time }
+    ConsentList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ConsentEntry' } }
+    DataExport:
+      type: object
+      description: A copy of a person's data. The sections are plain JSON; their fields follow the stored records and may grow.
+      required: [generatedAt, subject, notes, account, profile, contact, partnerPreferences, photos, cv, verification, guardians, proposals, meetings, agreedAmounts, payments, serviceTerms, concerns, messages, consents]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        subject:
+          type: object
+          additionalProperties: false
+          required: [memberCode, name, kind]
+          properties:
+            memberCode: { type: string }
+            name: { type: string }
+            kind: { type: string, enum: [member, client_without_login] }
+        notes: { type: array, items: { type: string } }
+        account: { type: [object, 'null'], additionalProperties: true }
+        profile: { type: [object, 'null'], additionalProperties: true }
+        contact: { type: [object, 'null'], additionalProperties: true }
+        partnerPreferences: { type: [object, 'null'], additionalProperties: true }
+        photos: { type: array, items: { type: object, additionalProperties: true } }
+        cv: { type: array, items: { type: object, additionalProperties: true } }
+        verification: { type: array, items: { type: object, additionalProperties: true } }
+        guardians: { type: array, items: { type: object, additionalProperties: true } }
+        proposals: { type: array, items: { type: object, additionalProperties: true } }
+        meetings: { type: array, items: { type: object, additionalProperties: true } }
+        agreedAmounts: { type: array, items: { type: object, additionalProperties: true } }
+        payments: { type: array, items: { type: object, additionalProperties: true } }
+        serviceTerms: { type: array, items: { type: object, additionalProperties: true } }
+        concerns: { type: array, items: { type: object, additionalProperties: true } }
+        messages: { type: array, items: { type: object, additionalProperties: true } }
+        consents: { type: array, items: { $ref: '#/components/schemas/ConsentEntry' } }
+    ErasureState:
+      type: object
+      additionalProperties: false
+      required: [status, erasesOn, reason, requestedBy, erasedAt]
+      properties:
+        status: { type: string, enum: [none, scheduled, erased] }
+        erasesOn: { type: [string, 'null'], format: date-time, description: When a scheduled erasure will happen. }
+        reason: { type: [string, 'null'] }
+        requestedBy: { type: [string, 'null'], description: The admin who asked. }
+        erasedAt: { type: [string, 'null'], format: date-time }
+    DeclinePatterns:
+      type: object
+      additionalProperties: false
+      required: [total, items]
+      properties:
+        total: { type: integer, description: All no's counted. }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [reason, proposals, meetings]
+            properties:
+              reason: { type: string, enum: [religion, age, location, education_work, family, no_chemistry, not_ready, other, prefer_not_to_say, not_given], description: not_given means no reason was recorded. }
+              proposals: { type: integer, description: Proposals declined with this reason. }
+              meetings: { type: integer, description: Meetings after which the client was not interested, with this reason. }
+    AttentionLimits:
+      type: object
+      additionalProperties: false
+      required: [reviewDays, unansweredDays, noCandidatesDays, noMeetingDays]
+      properties:
+        reviewDays: { type: integer, minimum: 1, maximum: 60, description: 'A profile, photo, CV, identity document or request waiting for a decision. Default 2.' }
+        unansweredDays: { type: integer, minimum: 1, maximum: 60, description: 'An approved request the person asked has not answered. Default 5.' }
+        noCandidatesDays: { type: integer, minimum: 1, maximum: 60, description: 'A published client with an agent and no profile released. Default 3.' }
+        noMeetingDays: { type: integer, minimum: 1, maximum: 60, description: 'An accepted request with no meeting arranged and no match. Default 7.' }
+    AgencySettings:
+      type: object
+      additionalProperties: false
+      required: [attention]
+      properties:
+        attention: { $ref: '#/components/schemas/AttentionLimits' }
     PaymentLedger:
       type: object
       additionalProperties: false
@@ -6379,7 +7397,7 @@ components:
       enum: [male, female]
     MaritalStatus:
       type: string
-      enum: [never_married, divorced, widowed]
+      enum: [never_married, divorce_pending, divorced, widowed]
     Complexion:
       type: string
       enum: [very_fair, fair, medium, olive, dark]
@@ -6987,13 +8005,14 @@ components:
           { type: [string, 'null'], description: The reviewer's note when the photo was rejected. }
     PhotoList:
       type: object
-      required: [photos, limit]
+      required: [photos, limit, privacy]
       properties:
         photos:
           type: array
           description: In the order the member uploaded them. Removed photos are not listed.
           items: { $ref: '#/components/schemas/Photo' }
         limit: { type: integer, description: How many photos a member may have at once. }
+        privacy: { type: string, enum: [clear, blurred], description: 'Who sees the photos clearly: everyone they are released to (clear), or only people with an accepted proposal, the others getting a blurred picture (blurred).' }
 
     StaffRef:
       type: object
@@ -7188,6 +8207,10 @@ components:
         candidateId: { type: string, format: uuid }
         memberCode: { type: string }
         verified: { type: boolean, description: The profile carries the Verified mark. Always present. }
+        verifiedChecks:
+          type: array
+          description: 'What stands behind the mark: identity (name and date of birth against a document), photo (matches the person), marital_status (checked with a document). Everything else is only what the person said.'
+          items: { type: string, enum: [identity, photo, marital_status] }
         fullName: { type: string }
         age: { type: [integer, 'null'] }
         professionCode: { type: [string, 'null'] }
@@ -7318,9 +8341,14 @@ components:
         candidateId: { type: string, format: uuid }
         memberCode: { type: string }
         verified: { type: boolean, description: The profile carries the Verified mark. Always present. }
+        verifiedChecks:
+          type: array
+          description: 'What stands behind the mark: identity (name and date of birth against a document), photo (matches the person), marital_status (checked with a document). Everything else is only what the person said.'
+          items: { type: string, enum: [identity, photo, marital_status] }
         fullName: { type: string }
         age: { type: [integer, 'null'] }
         hasPhoto: { type: boolean }
+        photoBlurred: { type: boolean, description: 'The owner chose blurred photos and no proposal between the two is accepted: the picture is sent blurred.' }
         aboutMe: { type: [string, 'null'] }
         professionCode: { anyOf: [{ $ref: '#/components/schemas/Profession' }, { type: 'null' }] }
         occupationCode: { anyOf: [{ $ref: '#/components/schemas/Occupation' }, { type: 'null' }] }
@@ -7402,6 +8430,10 @@ components:
       required: [response]
       properties:
         response: { type: string, enum: [accept, decline] }
+        reason:
+          type: string
+          enum: [religion, age, location, education_work, family, no_chemistry, not_ready, other, prefer_not_to_say]
+          description: Why, only with a decline (400 with an accept). Optional and private to the agency; the other family never sees it.
     ConnectionResult:
       type: object
       additionalProperties: false
@@ -7543,6 +8575,8 @@ components:
                 candidates_released,
                 client_assigned,
                 client_update,
+                concern_reported,
+                concern_resolved,
                 chat_requested,
                 chat_accepted,
                 chat_message,

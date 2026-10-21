@@ -45,6 +45,7 @@ function setup(profile: Partial<VerificationProfile> = {}) {
       assignedAgentId: SALMA,
       ownerAccountId: MEMBER,
       verifiedAt: null,
+      verifiedChecks: [],
       ...profile,
     } as VerificationProfile,
     requests: [] as StoredRequest[],
@@ -90,8 +91,18 @@ function setup(profile: Partial<VerificationProfile> = {}) {
       const found = state.requests.find((r) => r.row.id === id);
       if (found) found.fileRemoved = true;
     },
-    setVerified: async (_a: string, _id: string, by: string | null) => {
+    setVerified: async (
+      _a: string,
+      _id: string,
+      by: string | null,
+      checks: readonly string[] = [],
+    ) => {
       state.profile.verifiedAt = by ? '2026-10-20T10:05:00.000Z' : null;
+      state.profile.verifiedChecks = by ? ['identity', ...checks] : [];
+    },
+    setRequestChecks: async () => {},
+    setChecks: async (_a: string, _id: string, checks: readonly string[]) => {
+      state.profile.verifiedChecks = ['identity', ...checks];
     },
     tellReviewers: async () => void state.told.push('reviewers'),
     tellDecided: async (_a: string, _p: string, _to: string, _by: string, outcome: string) =>
@@ -192,7 +203,7 @@ await test('only one request waits at a time, and a verified profile cannot send
 await test('approving sets the mark, tells the sender and deletes the document', async () => {
   const { service, state, files } = setup();
   await service.submit(actor('member', MEMBER), { kind: 'own' }, 'nid', pic, 'image/png', 'r');
-  const result = await service.approve(actor('agent', SALMA), CLIENT, 'r2');
+  const result = await service.approve(actor('agent', SALMA), CLIENT, [], 'r2');
   assert.ok(result.verified);
   assert.equal(files.size, 0);
   assert.equal(state.requests[0]?.fileRemoved, true);
@@ -235,11 +246,11 @@ await test('an agent decides only for clients they look after, and never their o
     'r',
   );
   await assert.rejects(
-    () => other.service.approve(actor('agent', SALMA), CLIENT, 'r'),
+    () => other.service.approve(actor('agent', SALMA), CLIENT, [], 'r'),
     code(404, 'PROFILE_NOT_FOUND'),
   );
   await assert.rejects(
-    () => other.service.approve(actor('member', MEMBER), CLIENT, 'r'),
+    () => other.service.approve(actor('member', MEMBER), CLIENT, [], 'r'),
     code(403, 'ROLE_FORBIDDEN'),
   );
 
@@ -254,10 +265,10 @@ await test('an agent decides only for clients they look after, and never their o
     'r',
   );
   await assert.rejects(
-    () => own.service.approve(actor('agent', SALMA), CLIENT, 'r'),
+    () => own.service.approve(actor('agent', SALMA), CLIENT, [], 'r'),
     code(409, 'REVIEW_OWN_SUBMISSION'),
   );
-  const byAdmin = await own.service.approve(actor('admin', ADMIN), CLIENT, 'r');
+  const byAdmin = await own.service.approve(actor('admin', ADMIN), CLIENT, [], 'r');
   assert.ok(byAdmin.verified);
 });
 
@@ -283,7 +294,7 @@ await test('opening the document is recorded, only while it waits, and only for 
     () => service.file(actor('agent', KAMAL), CLIENT, 'r'),
     code(404, 'PROFILE_NOT_FOUND'),
   );
-  await service.approve(actor('agent', SALMA), CLIENT, 'r3');
+  await service.approve(actor('agent', SALMA), CLIENT, [], 'r3');
   await assert.rejects(
     () => service.file(actor('agent', SALMA), CLIENT, 'r4'),
     code(404, 'VERIFICATION_NOT_FOUND'),
@@ -308,4 +319,46 @@ await test('members cannot see the waiting list', async () => {
   const { service } = setup();
   await assert.rejects(() => service.waiting(actor('member', MEMBER)), code(403, 'ROLE_FORBIDDEN'));
   assert.deepEqual(await service.waiting(actor('agent', SALMA)), []);
+});
+
+await test('an approval records the checks that were made, and identity is always one of them', async () => {
+  const { service, state } = setup();
+  await service.submit(actor('member', MEMBER), { kind: 'own' }, 'nid', pic, 'image/png', 'r1');
+  const approved = await service.approve(
+    actor('agent', SALMA),
+    CLIENT,
+    ['photo', 'photo', 'marital_status'],
+    'r2',
+  );
+  assert.deepEqual(approved.verified?.checks, ['identity', 'photo', 'marital_status']);
+  assert.deepEqual(state.profile.verifiedChecks, ['identity', 'photo', 'marital_status']);
+});
+
+await test('an approval with no extra checks says only identity was checked', async () => {
+  const { service } = setup();
+  await service.submit(actor('member', MEMBER), { kind: 'own' }, 'nid', pic, 'image/png', 'r1');
+  const approved = await service.approve(actor('agent', SALMA), CLIENT, [], 'r2');
+  assert.deepEqual(approved.verified?.checks, ['identity']);
+});
+
+await test('staff can add a check to a verified profile later, and cannot on one that is not verified', async () => {
+  const verified = setup({ verifiedAt: '2026-10-01T00:00:00.000Z', verifiedChecks: ['identity'] });
+  const state = await verified.service.updateChecks(
+    actor('agent', SALMA),
+    CLIENT,
+    ['marital_status'],
+    'r',
+  );
+  assert.deepEqual(state.verified?.checks, ['identity', 'marital_status']);
+  assert.deepEqual(verified.state.events.at(-1)?.type, 'verification.checks_changed');
+
+  const plain = setup();
+  await assert.rejects(
+    () => plain.service.updateChecks(actor('agent', SALMA), CLIENT, ['photo'], 'r'),
+    code(409, 'NOT_VERIFIED'),
+  );
+  await assert.rejects(
+    () => verified.service.updateChecks(actor('member', MEMBER), CLIENT, ['photo'], 'r'),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
 });

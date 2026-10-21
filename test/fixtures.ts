@@ -41,6 +41,7 @@ export const unusedPhotos = {
   upload: unused,
   remove: unused,
   makePrimary: unused,
+  setPrivacy: unused,
   image: unused,
 };
 

@@ -312,7 +312,7 @@ export class MeetingRepository {
   ): Promise<Map<string, MeetingFeedback>> {
     if (meetingIds.length === 0) return new Map();
     const result = await tx.query(
-      `SELECT meeting_id, profile_id, verdict, note, recorded_at
+      `SELECT meeting_id, profile_id, verdict, note, reason, recorded_at
          FROM matrimony.meeting_feedback WHERE agency_id = $1 AND meeting_id = ANY($2::uuid[])`,
       [agencyId, meetingIds],
     );
@@ -322,6 +322,7 @@ export class MeetingRepository {
         {
           verdict: row.verdict as Verdict,
           note: (row.note as string | null) ?? null,
+          reason: (row.reason as MeetingFeedback['reason']) ?? null,
           recordedAt: (row.recorded_at as Date).toISOString(),
         },
       ]),
@@ -337,12 +338,20 @@ export class MeetingRepository {
     recordedBy: string,
   ): Promise<void> {
     await tx.query(
-      `INSERT INTO matrimony.meeting_feedback (agency_id, meeting_id, profile_id, verdict, note, recorded_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO matrimony.meeting_feedback (agency_id, meeting_id, profile_id, verdict, note, reason, recorded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (agency_id, meeting_id, profile_id)
-       DO UPDATE SET verdict = EXCLUDED.verdict, note = EXCLUDED.note,
+       DO UPDATE SET verdict = EXCLUDED.verdict, note = EXCLUDED.note, reason = EXCLUDED.reason,
                      recorded_by = EXCLUDED.recorded_by, recorded_at = now()`,
-      [agencyId, meetingId, profileId, input.verdict, input.note ?? null, recordedBy],
+      [
+        agencyId,
+        meetingId,
+        profileId,
+        input.verdict,
+        input.note ?? null,
+        input.reason ?? null,
+        recordedBy,
+      ],
     );
   }
 

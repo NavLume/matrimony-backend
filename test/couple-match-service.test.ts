@@ -74,6 +74,8 @@ function setup(
     hideStoryOfMatch: async (_a: string, matchId: string) => void calls.push(`hide:${matchId}`),
     setStoryStatus: async (_a: string, id: string) =>
       id === ID(400) ? { changed: true } : id === ID(401) ? { changed: false } : null,
+    removeStory: async (_a: string, id: string) =>
+      id === ID(400) ? 'removed' : id === ID(402) ? 'already' : 'missing',
     appendEvent: async (event: WorkflowEvent) => void events.push(event),
   };
   const db = {
@@ -228,6 +230,28 @@ await test('only an admin publishes or hides a story, and it needs both clients 
   assert.deepEqual(
     events.map((e) => e.type),
     ['story.published', 'story.hidden'],
+  );
+});
+
+await test('only an admin removes a story for good, with a reason, and it is recorded', async () => {
+  const { service, events } = setup();
+  await assert.rejects(
+    () => service.removeStory(actor('agent', SALMA), ID(400), 'The family asked', 'r'),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
+  await assert.rejects(
+    () => service.removeStory(actor('admin', ADMIN), ID(999), 'The family asked', 'r'),
+    code(404, 'STORY_NOT_FOUND'),
+  );
+  await assert.rejects(
+    () => service.removeStory(actor('admin', ADMIN), ID(402), 'The family asked', 'r'),
+    code(409, 'STORY_ALREADY_REMOVED'),
+  );
+  assert.equal(events.length, 0);
+  await service.removeStory(actor('admin', ADMIN), ID(400), 'The family asked', 'r');
+  assert.deepEqual(
+    events.map((e) => e.type),
+    ['story.removed'],
   );
 });
 

@@ -25,6 +25,7 @@ export type OwnerUpdate =
   | 'photo_added'
   | 'photo_removed'
   | 'cv_removed'
+  | 'service_terms_recorded'
   | 'review_cancelled'
   | 'agent_assigned';
 
@@ -124,6 +125,8 @@ async function toldBy(tx: Transaction, event: WorkflowEvent): Promise<Told[]> {
           ]
         : [];
     }
+    case 'service_terms.recorded':
+      return [{ profileId: subjectId, what: 'service_terms_recorded' }];
     case 'cv.removed': {
       const row = await one(
         tx,

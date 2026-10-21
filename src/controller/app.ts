@@ -39,6 +39,13 @@ import type { ClientLoginProcess } from '../process/client-login-process.js';
 import type { AccountDeletionProcess } from '../process/account-deletion-process.js';
 import type { PushProcess } from '../process/push-process.js';
 import { registerPaymentController } from './payment-controller.js';
+import { registerServiceTermsController } from './service-terms-controller.js';
+import { registerJourneyController } from './journey-controller.js';
+import { registerAttentionController } from './attention-controller.js';
+import { registerPrivacyController } from './privacy-controller.js';
+import { registerDeclineController } from './decline-controller.js';
+import { registerConcernController } from './concern-controller.js';
+import { registerSettingsController } from './settings-controller.js';
 import { registerMeetingController } from './meeting-controller.js';
 import { registerVerificationController } from './verification-controller.js';
 import { registerReportController } from './report-controller.js';
@@ -169,6 +176,13 @@ export interface AppDependencies {
   push?: Pick<PushProcess, 'register' | 'unregister'>;
   /** Undefined in tests that do not need it. */
   payments?: Parameters<typeof registerPaymentController>[1];
+  serviceTerms?: Parameters<typeof registerServiceTermsController>[1];
+  journey?: Parameters<typeof registerJourneyController>[1];
+  attention?: Parameters<typeof registerAttentionController>[1];
+  concerns?: Parameters<typeof registerConcernController>[1];
+  privacy?: Parameters<typeof registerPrivacyController>[1];
+  declines?: Parameters<typeof registerDeclineController>[1];
+  settings?: Parameters<typeof registerSettingsController>[1];
   verification?: Parameters<typeof registerVerificationController>[1];
   meetings?: Parameters<typeof registerMeetingController>[1];
   /** Undefined in tests that do not need it. */
@@ -178,7 +192,7 @@ export interface AppDependencies {
   /** Undefined in tests that do not need it. */
   mobile?: Pick<MobileService, 'agencyByCode' | 'versionStatus'>;
   identities: Pick<IdentityService, 'tenant'>;
-  photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image'>;
+  photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image' | 'setPrivacy'>;
   /** Live notifications: who to hear about and the unread count to send. */
   live: NotificationLive;
   cvs: Pick<
@@ -345,6 +359,13 @@ export async function buildApp(deps: AppDependencies) {
   if (deps.agreements) registerAgreementController(app, deps.agreements);
   if (deps.mobile) registerMobileController(app, deps.mobile);
   if (deps.payments) registerPaymentController(app, deps.payments);
+  if (deps.serviceTerms) registerServiceTermsController(app, deps.serviceTerms);
+  if (deps.journey) registerJourneyController(app, deps.journey);
+  if (deps.attention) registerAttentionController(app, deps.attention);
+  if (deps.concerns) registerConcernController(app, deps.concerns);
+  if (deps.privacy) registerPrivacyController(app, deps.privacy);
+  if (deps.declines) registerDeclineController(app, deps.declines);
+  if (deps.settings) registerSettingsController(app, deps.settings);
   if (deps.verification) registerVerificationController(app, deps.verification);
   if (deps.meetings) registerMeetingController(app, deps.meetings);
   if (deps.reports) registerReportController(app, deps.reports);

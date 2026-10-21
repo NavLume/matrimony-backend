@@ -171,15 +171,39 @@ export class MatchRepository {
   }
 
   /** The storage key of a profile's photo, or null when there is none or the client may not look at it. */
-  async viewablePhotoKey(
+  /**
+   * The photo another member may look at: where it is, whether it must be blurred (the owner chose that and no
+   * proposal between the two is accepted), and the viewer's member code for the watermark.
+   */
+  async viewablePhoto(
     tx: Transaction,
     agencyId: string,
     clientId: string,
     candidateId: string,
-  ): Promise<string | null> {
+  ): Promise<{ storageKey: string; blurred: boolean; viewerCode: string } | null> {
     if (!(await this.viewable(tx, agencyId, clientId, candidateId))) return null;
     const photo = await tx.query(matchQueries.photo, [agencyId, candidateId]);
-    return (photo.rows[0] as { storage_key: string } | undefined)?.storage_key ?? null;
+    const storageKey = (photo.rows[0] as { storage_key: string } | undefined)?.storage_key;
+    if (!storageKey) return null;
+    const rule = await tx.query(
+      `SELECT c.photo_privacy, v.member_code AS viewer_code,
+              EXISTS (SELECT 1 FROM matrimony.interests x
+                       WHERE x.agency_id = c.agency_id AND x.status = 'accepted'
+                         AND ((x.sender_profile_id = $2 AND x.recipient_profile_id = $3)
+                           OR (x.sender_profile_id = $3 AND x.recipient_profile_id = $2))) AS connected
+         FROM matrimony.member_profiles c
+         JOIN matrimony.member_profiles v ON v.agency_id = c.agency_id AND v.id = $2
+        WHERE c.agency_id = $1 AND c.id = $3`,
+      [agencyId, clientId, candidateId],
+    );
+    const row = rule.rows[0] as
+      { photo_privacy: string; viewer_code: string; connected: boolean } | undefined;
+    if (!row) return null;
+    return {
+      storageKey,
+      blurred: row.photo_privacy === 'blurred' && !row.connected,
+      viewerCode: row.viewer_code,
+    };
   }
 
   /** Builds the item from the row, copying only the fields that were allowed and selected. */
@@ -203,6 +227,7 @@ export class MatchRepository {
       memberCode: row.member_code as string,
       position: (row.position as string | undefined) ?? '',
       verified: row.verified === true,
+      verifiedChecks: (row.verified_checks as string[] | null) ?? [],
       connection: link && { id: link.id, status: link.status, direction: link.direction },
     };
     const has = (field: VisibleField) => visible.includes(field);
@@ -211,7 +236,11 @@ export class MatchRepository {
       const born = row.date_of_birth as string | null;
       item.age = born ? ageOn(born, today) : null;
     }
-    if (has('photo')) item.hasPhoto = row.has_photo === true;
+    if (has('photo')) {
+      item.hasPhoto = row.has_photo === true;
+      // The picture is sent blurred until a proposal between the two is accepted.
+      item.photoBlurred = row.photo_blurred === true;
+    }
     if (has('aboutMe')) item.aboutMe = row.about_me as string | null;
     if (has('professionCode')) item.professionCode = row.profession_code as string | null;
     if (has('occupationCode')) item.occupationCode = row.occupation_code as string | null;

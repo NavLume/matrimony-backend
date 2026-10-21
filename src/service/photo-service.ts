@@ -1,12 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { canManage } from '../bo/access.js';
 import type { WorkflowEvent } from '../bo/event.js';
-import { MAX_PHOTOS, type PhotoList, type PhotoReservation } from '../bo/photo.js';
+import {
+  MAX_PHOTOS,
+  type PhotoList,
+  type PhotoPrivacy,
+  type PhotoReservation,
+} from '../bo/photo.js';
 import type { PhotoDbService, PhotoUnit } from '../db/service/photo-db-service.js';
 import { AppError } from '../exception/app-error.js';
 import type { ProfileActor } from './profile-service.js';
 
-type EventType = Extract<WorkflowEvent['type'], 'photo.uploaded' | 'photo.removed'>;
+type EventType = Extract<
+  WorkflowEvent['type'],
+  'photo.uploaded' | 'photo.removed' | 'photo.privacy_changed'
+>;
 
 /**
  * Whose photos: the signed-in member's own, or a client's, for the staff who look after the client (an admin:
@@ -39,10 +47,9 @@ export class PhotoService {
     this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const profile = await this.find(unit, actor, target, false);
-      return {
-        photos: profile ? await unit.list(actor.agencyId, profile.id) : [],
-        limit: MAX_PHOTOS,
-      };
+      return profile
+        ? this.listOf(unit, actor, profile.id)
+        : { photos: [], limit: MAX_PHOTOS, privacy: 'clear' as const };
     });
   }
 
@@ -132,6 +139,22 @@ export class PhotoService {
     });
   }
 
+  /** Who sees the photos clearly: everyone released the profile to, or only people with an accepted proposal. */
+  async setPrivacy(
+    actor: ProfileActor,
+    privacy: PhotoPrivacy,
+    correlationId: string,
+    target: PhotoTarget = OWN,
+  ): Promise<PhotoList> {
+    this.requireRole(actor, target);
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const profile = await this.mustHaveProfile(unit, actor, target, true);
+      await unit.setPrivacy(actor.agencyId, profile.id, privacy);
+      await unit.appendEvent(this.event('photo.privacy_changed', actor, profile.id, correlationId));
+      return this.listOf(unit, actor, profile.id);
+    });
+  }
+
   /** Where the files of one of the client's photos are. The client and their staff may see waiting photos. */
   async locate(
     actor: ProfileActor,
@@ -187,7 +210,11 @@ export class PhotoService {
     actor: ProfileActor,
     profileId: string,
   ): Promise<PhotoList> {
-    return { photos: await unit.list(actor.agencyId, profileId), limit: MAX_PHOTOS };
+    return {
+      photos: await unit.list(actor.agencyId, profileId),
+      limit: MAX_PHOTOS,
+      privacy: await unit.privacy(actor.agencyId, profileId),
+    };
   }
 
   private event(

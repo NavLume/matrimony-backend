@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { MAX_UPLOAD_BYTES, UPLOAD_TYPES } from '../bo/photo.js';
+import { MAX_UPLOAD_BYTES, UPLOAD_TYPES, photoPrivacySchema } from '../bo/photo.js';
 import { AppError } from '../exception/app-error.js';
 import { photoListResponse } from '../factory/photo-response.js';
 import type { PhotoProcess } from '../process/photo-process.js';
@@ -19,7 +19,7 @@ const imageQuery = z.object({ size: z.enum(['full', 'thumb']).default('full') })
  */
 export function registerPhotoController(
   app: FastifyInstance,
-  photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image'>,
+  photos: Pick<PhotoProcess, 'list' | 'upload' | 'remove' | 'makePrimary' | 'image' | 'setPrivacy'>,
 ) {
   const actor = (req: {
     principal: { agencyId: string; id: string; role: ProfileActor['role'] } | null;
@@ -54,6 +54,12 @@ export function registerPhotoController(
       const list = await photos.upload(actor(req), req.body, req.id);
       return reply.code(201).send(photoListResponse(list));
     },
+  );
+
+  app.put('/api/v1/me/profile/photos-privacy', { config: memberOnly }, async (req) =>
+    photoListResponse(
+      await photos.setPrivacy(actor(req), photoPrivacySchema.parse(req.body).privacy, req.id),
+    ),
   );
 
   app.put('/api/v1/me/profile/photos/:photoId/primary', { config: memberOnly }, async (req) =>
@@ -100,6 +106,17 @@ export function registerPhotoController(
       const list = await photos.upload(actor(req), req.body, req.id, client(req));
       return reply.code(201).send(photoListResponse(list));
     },
+  );
+
+  app.put('/api/v1/staff/clients/:profileId/photos-privacy', { config: staffOnly }, async (req) =>
+    photoListResponse(
+      await photos.setPrivacy(
+        actor(req),
+        photoPrivacySchema.parse(req.body).privacy,
+        req.id,
+        client(req),
+      ),
+    ),
   );
 
   app.put(

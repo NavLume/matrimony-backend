@@ -83,11 +83,13 @@ export function registerConnectionController(
     '/api/v1/me/connections/:connectionId/respond',
     { config: memberOnly },
     async (req, reply) => {
+      const body = respondSchema.parse(req.body);
       await connections.respond(
         actor(req),
         connectionId(req),
-        respondSchema.parse(req.body).response === 'accept',
+        body.response === 'accept',
         req.id,
+        body.reason,
       );
       return reply.code(204).send();
     },
@@ -170,12 +172,14 @@ export function registerConnectionController(
     { config: staffOnly },
     async (req, reply) => {
       const ids = clientParams.parse(req.params);
+      const body = respondSchema.parse(req.body);
       await connections.staffRespond(
         actor(req),
         ids.profileId,
         ids.connectionId,
-        respondSchema.parse(req.body).response === 'accept',
+        body.response === 'accept',
         req.id,
+        body.reason,
       );
       return reply.code(204).send();
     },

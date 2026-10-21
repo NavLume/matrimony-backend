@@ -1,6 +1,12 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { MAX_DOCUMENT_BYTES, documentTypeSchema, rejectInputSchema } from '../bo/verification.js';
+import {
+  MAX_DOCUMENT_BYTES,
+  approveInputSchema,
+  checksInputSchema,
+  documentTypeSchema,
+  rejectInputSchema,
+} from '../bo/verification.js';
 import { AppError } from '../exception/app-error.js';
 import type { ProfileActor } from '../service/profile-service.js';
 import type { VerificationService } from '../service/verification-service.js';
@@ -32,7 +38,15 @@ export function registerVerificationController(
   app: FastifyInstance,
   verification: Pick<
     VerificationService,
-    'state' | 'submit' | 'withdraw' | 'approve' | 'reject' | 'revoke' | 'file' | 'waiting'
+    | 'state'
+    | 'submit'
+    | 'withdraw'
+    | 'approve'
+    | 'updateChecks'
+    | 'reject'
+    | 'revoke'
+    | 'file'
+    | 'waiting'
   >,
 ) {
   const actor = (req: {
@@ -121,7 +135,23 @@ export function registerVerificationController(
     '/api/v1/staff/clients/:profileId/verification/approve',
     { config: staffOnly },
     async (req) =>
-      verification.approve(actor(req), clientParams.parse(req.params).profileId, req.id),
+      verification.approve(
+        actor(req),
+        clientParams.parse(req.params).profileId,
+        approveInputSchema.parse(req.body ?? {}).checks,
+        req.id,
+      ),
+  );
+  app.put(
+    '/api/v1/staff/clients/:profileId/verification/checks',
+    { config: staffOnly },
+    async (req) =>
+      verification.updateChecks(
+        actor(req),
+        clientParams.parse(req.params).profileId,
+        checksInputSchema.parse(req.body).checks,
+        req.id,
+      ),
   );
   app.post(
     '/api/v1/staff/clients/:profileId/verification/reject',

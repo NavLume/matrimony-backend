@@ -15,6 +15,7 @@ export interface VerificationProfile {
   assignedAgentId: string | null;
   ownerAccountId: string | null;
   verifiedAt: string | null;
+  verifiedChecks: string[];
 }
 
 export interface StoredRequest {
@@ -27,7 +28,7 @@ export interface StoredRequest {
 
 type Row = Record<string, unknown>;
 
-const PROFILE_COLUMNS = `id, member_code, full_name, status, assigned_agent_id, owner_account_id, verified_at`;
+const PROFILE_COLUMNS = `id, member_code, full_name, status, assigned_agent_id, owner_account_id, verified_at, verified_checks`;
 
 const profileOf = (row: Row | undefined): VerificationProfile | null =>
   row
@@ -39,6 +40,7 @@ const profileOf = (row: Row | undefined): VerificationProfile | null =>
         assignedAgentId: (row.assigned_agent_id as string | null) ?? null,
         ownerAccountId: (row.owner_account_id as string | null) ?? null,
         verifiedAt: row.verified_at ? (row.verified_at as Date).toISOString() : null,
+        verifiedChecks: (row.verified_checks as string[] | null) ?? [],
       }
     : null;
 
@@ -166,18 +168,51 @@ export class VerificationRepository {
     );
   }
 
-  /** Puts the mark on a profile, or takes it off (null). */
+  /**
+   * Puts the mark on a profile with the checks that were made (identity is always one of them), or takes it
+   * off (`by` null, which also clears the checks).
+   */
   async setVerified(
     tx: Transaction,
     agencyId: string,
     profileId: string,
     by: string | null,
+    checks: readonly string[] = [],
   ): Promise<void> {
+    const all = by === null ? [] : ['identity', ...checks.filter((check) => check !== 'identity')];
     await tx.query(
       `UPDATE matrimony.member_profiles
-          SET verified_at = CASE WHEN $3::uuid IS NULL THEN NULL ELSE now() END, verified_by = $3
+          SET verified_at = CASE WHEN $3::uuid IS NULL THEN NULL ELSE now() END, verified_by = $3,
+              verified_checks = $4::text[]
         WHERE agency_id = $1 AND id = $2`,
-      [agencyId, profileId, by],
+      [agencyId, profileId, by, all],
+    );
+  }
+
+  /** Records the checks on the request that was just decided, for the history. */
+  async setRequestChecks(
+    tx: Transaction,
+    agencyId: string,
+    requestId: string,
+    checks: readonly string[],
+  ): Promise<void> {
+    await tx.query(
+      `UPDATE matrimony.profile_verifications SET checks = $3::text[] WHERE agency_id = $1 AND id = $2`,
+      [agencyId, requestId, ['identity', ...checks]],
+    );
+  }
+
+  /** Changes the optional checks of a verified profile (identity stays). */
+  async setChecks(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+    checks: readonly string[],
+  ): Promise<void> {
+    await tx.query(
+      `UPDATE matrimony.member_profiles SET verified_checks = $3::text[]
+        WHERE agency_id = $1 AND id = $2 AND verified_at IS NOT NULL`,
+      [agencyId, profileId, ['identity', ...checks]],
     );
   }
 

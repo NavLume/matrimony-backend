@@ -1,5 +1,5 @@
 import type { WorkflowEvent } from '../../bo/event.js';
-import type { PhotoFile, PhotoRecord } from '../../bo/photo.js';
+import type { PhotoFile, PhotoPrivacy, PhotoRecord } from '../../bo/photo.js';
 import type { Database, Transaction } from '../config/database.js';
 import type { EventRepository } from '../raw/repository/event-repository.js';
 import type { PhotoRepository } from '../raw/repository/photo-repository.js';
@@ -23,6 +23,9 @@ export interface PhotoUnit {
     lock: boolean,
   ): Promise<{ id: string; status: string; assignedAgentId: string | null } | null>;
   list(agencyId: string, profileId: string): Promise<PhotoRecord[]>;
+  /** Who sees this profile's photos clearly. */
+  privacy(agencyId: string, profileId: string): Promise<PhotoPrivacy>;
+  setPrivacy(agencyId: string, profileId: string, privacy: PhotoPrivacy): Promise<void>;
   find(agencyId: string, profileId: string, photoId: string): Promise<PhotoFile | null>;
   count(agencyId: string, profileId: string): Promise<number>;
   /** Adds the photo as waiting for review. */
@@ -59,6 +62,9 @@ export class PhotoDbService {
       clientProfile: (agencyId, profileId, lock) =>
         repo.clientProfile(tx, agencyId, profileId, lock),
       list: (agencyId, profileId) => repo.list(tx, agencyId, profileId),
+      privacy: (agencyId, profileId) => repo.privacy(tx, agencyId, profileId),
+      setPrivacy: (agencyId, profileId, privacy) =>
+        repo.setPrivacy(tx, agencyId, profileId, privacy),
       find: (agencyId, profileId, photoId) => repo.find(tx, agencyId, profileId, photoId),
       count: (agencyId, profileId) => repo.count(tx, agencyId, profileId),
       insert: (agencyId, profileId, photoId, key, size, by) =>

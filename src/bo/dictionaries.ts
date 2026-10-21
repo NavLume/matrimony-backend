@@ -9,7 +9,12 @@
  * These are development defaults chosen by the engineers, to be confirmed with the client.
  */
 export const GENDERS = ['male', 'female'] as const;
-export const MARITAL_STATUSES = ['never_married', 'divorced', 'widowed'] as const;
+export const MARITAL_STATUSES = [
+  'never_married',
+  'divorce_pending',
+  'divorced',
+  'widowed',
+] as const;
 export const COMPLEXIONS = ['very_fair', 'fair', 'medium', 'olive', 'dark'] as const;
 export const BLOOD_GROUPS = [
   'a_pos',

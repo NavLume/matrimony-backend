@@ -37,6 +37,7 @@ const page: MatchPage = {
       memberCode: 'M0000001',
       position: '2026-10-10T08:00:00.000000Z',
       verified: false,
+      verifiedChecks: [],
       connection: null,
       fullName: 'Ayesha',
       age: 27,
@@ -131,6 +132,7 @@ await test('the response has the allowed fields and never the internal cursor po
     candidateId: ID,
     memberCode: 'M0000001',
     verified: false,
+    verifiedChecks: [],
     connection: null,
     fullName: 'Ayesha',
     age: 27,
@@ -180,7 +182,7 @@ await test('a photo takes an id and a size, and is private to the browser', asyn
   const res = await call(`/api/v1/me/matches/${ID}/photo`);
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['content-type'], 'image/webp');
-  assert.equal(res.headers['cache-control'], 'private, max-age=3600');
+  assert.equal(res.headers['cache-control'], 'private, max-age=60');
   assert.deepEqual(calls[0]?.args, [ID, 'thumb']);
   await call(`/api/v1/me/matches/${ID}/photo?size=full`);
   assert.deepEqual(calls[1]?.args, [ID, 'full']);

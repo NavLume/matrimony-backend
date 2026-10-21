@@ -33,7 +33,11 @@ export interface MatchUnit {
     today: Date,
   ): Promise<{ item: MatchItem; link: ConnectionLink | null } | null>;
   sharedContact(agencyId: string, clientId: string, otherId: string): Promise<SharedContact | null>;
-  viewablePhotoKey(agencyId: string, clientId: string, candidateId: string): Promise<string | null>;
+  viewablePhoto(
+    agencyId: string,
+    clientId: string,
+    candidateId: string,
+  ): Promise<{ storageKey: string; blurred: boolean; viewerCode: string } | null>;
 }
 
 export class MatchDbService {
@@ -60,8 +64,8 @@ export class MatchDbService {
         this.matches.person(tx, agencyId, clientId, candidateId, visible, today),
       sharedContact: (agencyId, clientId, otherId) =>
         this.matches.sharedContact(tx, agencyId, clientId, otherId),
-      viewablePhotoKey: (agencyId, clientId, candidateId) =>
-        this.matches.viewablePhotoKey(tx, agencyId, clientId, candidateId),
+      viewablePhoto: (agencyId, clientId, candidateId) =>
+        this.matches.viewablePhoto(tx, agencyId, clientId, candidateId),
     };
   }
 }

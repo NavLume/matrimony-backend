@@ -27,6 +27,7 @@ interface Stored extends PhotoFile {
 class FakeStore {
   profiles = new Map<string, { id: string; status: string }>(); // `${agency}/${owner}`
   assigned = new Map<string, string | null>(); // profile id -> assigned agent
+  privacy = new Map<string, 'clear' | 'blurred'>(); // profile id -> who sees the photos clearly
   photos: Stored[] = [];
   events: WorkflowEvent[] = [];
   failOnInsert = false;
@@ -85,6 +86,8 @@ class FakeStore {
             }
           : null;
       },
+      privacy: async (_a, profileId) => this.privacy.get(profileId) ?? 'clear',
+      setPrivacy: async (_a, profileId, value) => void this.privacy.set(profileId, value),
       count: async (agencyId, profileId) => this.visible(agencyId, profileId).length,
       insert: async (agencyId, profileId, photoId, storageKey) => {
         if (this.failOnInsert) throw new Error('database down');
@@ -179,7 +182,7 @@ const rejects = (promise: Promise<unknown>, status: number, code: string) =>
 
 await test('a member with no photos sees an empty list and the limit', async () => {
   const { photos, member } = setup();
-  assert.deepEqual(await photos.list(member), { photos: [], limit: MAX_PHOTOS });
+  assert.deepEqual(await photos.list(member), { photos: [], limit: MAX_PHOTOS, privacy: 'clear' });
 });
 
 await test('agents and admins have no photos of their own and are refused everywhere', async () => {
@@ -225,7 +228,7 @@ await test('photos need a saved profile first', async () => {
   const service = new PhotoService(store.db);
   const member: ProfileActor = { agencyId: agency, accountId: randomUUID(), role: 'member' };
   await rejects(service.reserve(member), 404, 'PROFILE_NOT_FOUND');
-  assert.deepEqual(await service.list(member), { photos: [], limit: MAX_PHOTOS });
+  assert.deepEqual(await service.list(member), { photos: [], limit: MAX_PHOTOS, privacy: 'clear' });
 });
 
 await test('an uploaded photo is stored in both sizes and waits for review', async () => {
@@ -423,4 +426,25 @@ await test('agencies are kept apart', async () => {
   assert.deepEqual((await photos.list(elsewhere)).photos, []);
   await rejects(photos.upload(elsewhere, await picture(), 'c'), 404, 'PROFILE_NOT_FOUND');
   assert.equal(store.photos.length, 1);
+});
+
+await test('the owner chooses who sees the photos clearly, and the list says what was chosen', async () => {
+  const { service, store, member, profile } = setup();
+  assert.equal((await service.list(member)).privacy, 'clear');
+  const changed = await service.setPrivacy(member, 'blurred', 'c');
+  assert.equal(changed.privacy, 'blurred');
+  assert.equal(store.privacy.get(profile.id), 'blurred');
+  assert.equal(store.events.at(-1)?.type, 'photo.privacy_changed');
+});
+
+await test('staff set it for the clients they look after, and nobody else’s', async () => {
+  const { service, store, member, profile } = setup();
+  const agent: ProfileActor = { agencyId: agency, accountId: randomUUID(), role: 'agent' };
+  const other: ProfileActor = { ...agent, accountId: randomUUID() };
+  store.assigned.set(profile.id, agent.accountId);
+  const target = { kind: 'client' as const, profileId: profile.id };
+  assert.equal((await service.setPrivacy(agent, 'blurred', 'c', target)).privacy, 'blurred');
+  await rejects(service.setPrivacy(other, 'clear', 'c', target), 404, 'PROFILE_NOT_FOUND');
+  await rejects(service.setPrivacy(member, 'clear', 'c', target), 403, 'ROLE_FORBIDDEN');
+  await rejects(service.setPrivacy(agent, 'clear', 'c'), 403, 'ROLE_FORBIDDEN');
 });

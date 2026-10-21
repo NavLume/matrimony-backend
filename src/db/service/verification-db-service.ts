@@ -50,6 +50,8 @@ export class VerificationDbService {
       decide: (...a) => repo.decide(tx, ...a),
       markFileRemoved: (...a) => repo.markFileRemoved(tx, ...a),
       setVerified: (...a) => repo.setVerified(tx, ...a),
+      setRequestChecks: (...a) => repo.setRequestChecks(tx, ...a),
+      setChecks: (...a) => repo.setChecks(tx, ...a),
       waiting: (...a) => repo.waiting(tx, ...a),
       tellReviewers: (agencyId, profileId, submitterId) =>
         notifyReviewers(tx, agencyId, profileId, submitterId, 'verification'),

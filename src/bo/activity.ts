@@ -14,10 +14,11 @@ export const ACTIVITY_GROUPS = {
   profiles: ['profile', 'cv', 'photo', 'verification', 'candidates'],
   proposals: ['interest', 'match', 'story'],
   meetings: ['meeting', 'note', 'followup'],
-  payments: ['payment'],
+  payments: ['payment', 'service_terms'],
+  safety: ['concern'],
   chats: ['chat'],
   guardians: ['guardian'],
-  site: ['site', 'legal', 'agreements'],
+  site: ['site', 'legal', 'agreements', 'settings'],
 } as const;
 export type ActivityGroup = keyof typeof ACTIVITY_GROUPS;
 /** Everything except sign-ins, which are many and rarely what an admin looks for. */

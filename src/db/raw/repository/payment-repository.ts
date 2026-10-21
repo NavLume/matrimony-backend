@@ -226,6 +226,27 @@ export class PaymentRepository {
     return result.rows.length > 0;
   }
 
+  /**
+   * Deletes a payment and the history of its amount, keeping a short record of what was deleted and why (migration
+   * 053). Returns the invoice's file key (null when there was none) so the file can be deleted too, or undefined
+   * when there is no such payment for that client.
+   */
+  async deletePayment(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+    id: string,
+    by: string,
+    reason: string,
+  ): Promise<{ invoiceKey: string | null } | undefined> {
+    const result = await tx.query(
+      'SELECT deleted_invoice_key FROM matrimony.delete_payment($1, $2, $3, $4, $5)',
+      [agencyId, profileId, id, by, reason],
+    );
+    const row = result.rows[0] as { deleted_invoice_key: string | null } | undefined;
+    return row ? { invoiceKey: row.deleted_invoice_key } : undefined;
+  }
+
   /** Cancels a payment, once. The row stays. */
   async voidPayment(tx: Transaction, agencyId: string, id: string, by: string, reason: string) {
     const result = await tx.query(

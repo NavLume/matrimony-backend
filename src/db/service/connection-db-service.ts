@@ -83,6 +83,7 @@ export interface ConnectionUnit {
     id: string,
     status: 'accepted' | 'declined',
     accountId: string,
+    reason?: string | null,
   ): Promise<boolean>;
   withdraw(agencyId: string, id: string, fromId: string): Promise<boolean>;
   share(agencyId: string, id: string, profileId: string, side: 'from' | 'to'): Promise<boolean>;
@@ -158,7 +159,8 @@ export class ConnectionDbService {
       dueReminders: (agencyId, now, first, then, limit) =>
         c.dueReminders(tx, agencyId, now, first, then, limit),
       markReminded: (agencyId, id, now) => c.markReminded(tx, agencyId, id, now),
-      respond: (agencyId, id, status, accountId) => c.respond(tx, agencyId, id, status, accountId),
+      respond: (agencyId, id, status, accountId, reason) =>
+        c.respond(tx, agencyId, id, status, accountId, reason ?? null),
       withdraw: (agencyId, id, fromId) => c.withdraw(tx, agencyId, id, fromId),
       share: (agencyId, id, profileId, side) => c.share(tx, agencyId, id, profileId, side),
       notify: (agencyId, recipientId, kind, connectionId, forProfileId, aboutProfileId, eventKey) =>

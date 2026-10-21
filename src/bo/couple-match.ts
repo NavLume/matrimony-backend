@@ -73,11 +73,23 @@ export const storyStatusSchema = z
   .object({ status: z.enum(['published', 'hidden'], fail('invalidOption')) })
   .strict();
 
+/**
+ * Removing a story's names and words (admins only): a reason is required and kept. Nobody else can remove one, and
+ * a client cannot ask for it in the app: they ask the agency, which keeps the promise made when they agreed.
+ */
+export const removeStorySchema = z
+  .object({
+    reason: z.string(fail('required')).trim().min(5, fail('tooShort')).max(300, fail('tooLong')),
+  })
+  .strict();
+
 export interface StoryState {
   id: string;
   status: 'draft' | 'published' | 'hidden';
   /** Both clients agreed, so it may be published. */
   consentBoth: boolean;
+  /** An admin removed its names and words; it can never be published again. */
+  removed: boolean;
 }
 
 /** Undoing a match needs a reason, which is kept with the record (the record itself is never deleted). */

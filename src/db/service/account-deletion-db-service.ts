@@ -15,6 +15,21 @@ export class AccountDeletionDbService {
   cancel(agencyId: string, accountId: string) {
     return this.db.transaction(agencyId, (tx) => this.repository.cancel(tx, agencyId, accountId));
   }
+  scheduleClient(agencyId: string, profileId: string, actorId: string, reason: string) {
+    return this.db.transaction(agencyId, (tx) =>
+      this.repository.scheduleClient(tx, agencyId, profileId, actorId, reason),
+    );
+  }
+  cancelClient(agencyId: string, profileId: string) {
+    return this.db.transaction(agencyId, (tx) =>
+      this.repository.cancelClient(tx, agencyId, profileId),
+    );
+  }
+  eraseDueClients(agencyId: string, before: Date, limit: number) {
+    return this.db.transaction(agencyId, (tx) =>
+      this.repository.eraseDueClients(tx, agencyId, before, limit),
+    );
+  }
   eraseDue(agencyId: string, before: Date, limit: number) {
     return this.db.transaction(agencyId, (tx) =>
       this.repository.eraseDue(tx, agencyId, before, limit),

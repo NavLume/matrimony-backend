@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { declineReasonSchema } from './decline.js';
 import type { MatchItem } from './matches.js';
 
 /**
@@ -109,6 +110,8 @@ export const NOTIFICATION_GROUP_KINDS: Record<
     'candidates_released',
     'client_assigned',
     'client_update',
+    'concern_reported',
+    'concern_resolved',
     'staff_joined',
     'meeting_update',
     'guardian_request',
@@ -153,8 +156,16 @@ export const reviewQueueQuerySchema = z
   .strict();
 export type ReviewQueueQuery = z.output<typeof reviewQueueQuerySchema>;
 export const respondSchema = z
-  .object({ response: z.enum(['accept', 'decline'], fail('invalidOption')) })
-  .strict();
+  .object({
+    response: z.enum(['accept', 'decline'], fail('invalidOption')),
+    /** Why, when declining. Optional and private to the agency (see bo/decline.ts). */
+    reason: declineReasonSchema.optional(),
+  })
+  .strict()
+  .refine((value) => value.reason === undefined || value.response === 'decline', {
+    path: ['reason'],
+    message: 'invalid',
+  });
 
 /** A profile as the connection code needs it. */
 export interface ProfileLite {
@@ -240,6 +251,10 @@ export type NotificationKind =
   | 'client_assigned'
   /** A client with a login: something staff did that they must know about (the line says what in `what`). */
   | 'client_update'
+  /** A member sent a private concern (an admin is told). */
+  | 'concern_reported'
+  /** The agency handled the member's concern (the reporter is told). */
+  | 'concern_resolved'
   /** The other side of an accepted proposal asked to chat. */
   | 'chat_requested'
   /** They agreed to chat. */

@@ -64,6 +64,8 @@ function fixture() {
       return true;
     },
     voidPayment: async () => true,
+    deletePayment: async (_a: string, _p: string, id: string) =>
+      id === 'p1' ? { invoiceKey } : undefined,
     changeAmount: async (_a: string, _id: string, amount: number) => {
       stored[0]!.amount = amount;
       return true;
@@ -87,7 +89,14 @@ function fixture() {
     () => new Date('2026-10-17T10:00:00.000Z'),
     () => 'p2',
   );
-  return { service, inserted, events, files, stored };
+  return {
+    service,
+    inserted,
+    events,
+    files,
+    stored,
+    setKey: (key: string | null) => (invoiceKey = key),
+  };
 }
 
 const pdf = Buffer.from('%PDF-1.4 test');
@@ -222,6 +231,36 @@ await test('only an admin cancels a payment', async () => {
     code(404, 'PAYMENT_NOT_FOUND'),
   );
   assert.ok(otherAgency);
+});
+
+await test('only an admin deletes a payment record, with a reason, and its invoice file goes too', async () => {
+  const f = fixture();
+  f.files.set('invoice-key', pdf);
+  f.setKey('invoice-key');
+  await assert.rejects(
+    f.service.deletePayment(staff(), profile.id, 'p1', 'the books were wrong', 'c'),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
+  assert.equal(f.files.has('invoice-key'), true);
+  await f.service.deletePayment(
+    staff('admin', other),
+    profile.id,
+    'p1',
+    'the books were wrong',
+    'c',
+  );
+  assert.deepEqual(f.events, ['payment.deleted']);
+  assert.equal(f.files.has('invoice-key'), false);
+  await assert.rejects(
+    f.service.deletePayment(
+      staff('admin', other),
+      profile.id,
+      'missing',
+      'the books were wrong',
+      'c',
+    ),
+    code(404, 'PAYMENT_NOT_FOUND'),
+  );
 });
 
 await test('an admin can change a recorded amount with a reason; nobody else, not a cancelled payment, not to the same amount', async () => {

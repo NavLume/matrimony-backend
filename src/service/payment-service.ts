@@ -26,6 +26,7 @@ type EventType = Extract<
   | 'payment.agreement_set'
   | 'payment.invoice_added'
   | 'payment.voided'
+  | 'payment.deleted'
   | 'payment.amount_changed'
 >;
 
@@ -244,6 +245,48 @@ export class PaymentService {
       await unit.appendEvent(this.event('payment.voided', actor, paymentId, correlationId));
       return this.read(unit, actor, profile, true);
     });
+  }
+
+  /**
+   * Deletes a payment record, with a reason. Admins only. The agency keeps an erased client's payments until its
+   * admin decides to delete them, and this is how. It removes the payment, the history of its amount and the
+   * invoice file; what remains is a short record (amount, stage, date, why, who) so the books can be explained.
+   * 404 PAYMENT_NOT_FOUND.
+   */
+  async deletePayment(
+    actor: ProfileActor,
+    profileId: string,
+    paymentId: string,
+    reason: string,
+    correlationId: string,
+  ): Promise<PaymentLedger> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    const { ledger, invoiceKey } = await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const profile = await this.profileOf(unit, actor, { kind: 'client', profileId });
+      const deleted = await unit.deletePayment(
+        actor.agencyId,
+        profile.id,
+        paymentId,
+        actor.accountId,
+        reason,
+      );
+      if (!deleted) throw new AppError(404, 'PAYMENT_NOT_FOUND');
+      await unit.appendEvent(this.event('payment.deleted', actor, paymentId, correlationId));
+      return {
+        ledger: await this.read(unit, actor, profile, true),
+        invoiceKey: deleted.invoiceKey,
+      };
+    });
+    // The file goes after the record is gone, so a failure here leaves a stray file, never a record without one.
+    if (invoiceKey)
+      await this.storage.delete(invoiceKey).catch(() => {
+        // Only the code is logged: a storage error can carry the bucket or the path.
+        this.logger.error(
+          { code: 'INVOICE_FILE_DELETE_FAILED' },
+          'Could not delete an invoice file',
+        );
+      });
+    return ledger;
   }
 
   /**

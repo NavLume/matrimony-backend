@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { declineReasonSchema, type DeclineReason } from './decline.js';
 
 /**
  * Meetings, private notes and follow-ups (17 October 2026).
@@ -56,8 +57,17 @@ export type MeetingPatch = z.output<typeof meetingPatchSchema>;
 export const suggestInputSchema = z.object({ scheduledAt: when }).strict();
 
 export const feedbackInputSchema = z
-  .object({ verdict: z.enum(VERDICTS, fail('invalidOption')), note: text(500) })
-  .strict();
+  .object({
+    verdict: z.enum(VERDICTS, fail('invalidOption')),
+    note: text(500),
+    /** Why, when the verdict is not interested. Optional and private to the agency (see bo/decline.ts). */
+    reason: declineReasonSchema.optional(),
+  })
+  .strict()
+  .refine((value) => value.reason === undefined || value.verdict === 'not_interested', {
+    path: ['reason'],
+    message: 'invalid',
+  });
 export type FeedbackInput = z.output<typeof feedbackInputSchema>;
 
 export const noteInputSchema = z
@@ -77,6 +87,8 @@ export type FollowUpInput = z.output<typeof followUpInputSchema>;
 export interface MeetingFeedback {
   verdict: Verdict;
   note: string | null;
+  /** Why the client was not interested, from the pick-list, when it was given. */
+  reason: DeclineReason | null;
   recordedAt: string;
 }
 

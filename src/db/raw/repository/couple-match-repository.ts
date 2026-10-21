@@ -172,6 +172,36 @@ export class CoupleMatchRepository {
     return { changed: true, consentBoth };
   }
 
+  /**
+   * Removes a story's names and words for good (the row stays, empty and hidden, with who, when and why), and clears
+   * the couple's consents so it can never be published again. 'missing' when there is no such story.
+   */
+  async removeStory(
+    tx: Transaction,
+    agencyId: string,
+    storyId: string,
+    by: string,
+    reason: string,
+  ): Promise<'removed' | 'missing' | 'already'> {
+    const found = await tx.query(
+      `SELECT removed_at IS NOT NULL AS removed FROM matrimony.success_stories
+        WHERE agency_id = $1 AND id = $2 FOR UPDATE`,
+      [agencyId, storyId],
+    );
+    const row = found.rows[0] as Row | undefined;
+    if (!row) return 'missing';
+    if (row.removed === true) return 'already';
+    await tx.query(
+      `UPDATE matrimony.success_stories
+          SET names = '{}'::jsonb, story = NULL, story_year = NULL, status = 'hidden',
+              consent_a_at = NULL, consent_b_at = NULL, consent_by = NULL, published_at = NULL,
+              removed_at = now(), removed_by = $3, removed_reason = $4, updated_at = now()
+        WHERE agency_id = $1 AND id = $2`,
+      [agencyId, storyId, by, reason],
+    );
+    return 'removed';
+  }
+
   /** The match standing for a connection, if there is one. */
   async standingMatch(tx: Transaction, agencyId: string, interestId: string) {
     const result = await tx.query(

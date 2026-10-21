@@ -8,6 +8,13 @@ export interface DeletionAccount {
   erased: boolean;
 }
 
+/** A file to delete after an erasure: a photo has size variants, a file is one object. A null key is only 'this account was erased'. */
+export interface ErasedRow {
+  account_id: string;
+  file_key: string | null;
+  file_kind: 'photo' | 'file' | null;
+}
+
 interface AccountRow {
   role: DeletionAccount['role'];
   email: string | null;
@@ -56,9 +63,41 @@ export class AccountDeletionRepository {
   }
   async eraseDue(tx: Transaction, agencyId: string, before: Date, limit: number) {
     const result = await tx.query(
-      'SELECT erased_account_id AS account_id, erased_storage_key AS storage_key FROM matrimony.erase_due_members($1, $2, $3)',
+      `SELECT erased_account_id AS account_id, erased_file_key AS file_key, erased_file_kind AS file_kind
+         FROM matrimony.erase_due_members($1, $2, $3)`,
       [agencyId, before.toISOString(), limit],
     );
-    return result.rows as { account_id: string; storage_key: string }[];
+    return result.rows as ErasedRow[];
+  }
+  /** Schedules the erasure of a client with no login. Null when the profile is not eligible or is already scheduled. */
+  async scheduleClient(
+    tx: Transaction,
+    agencyId: string,
+    profileId: string,
+    actorId: string,
+    reason: string,
+  ) {
+    const result = await tx.query(
+      'SELECT matrimony.schedule_client_erasure($1, $2, $3, $4) AS scheduled',
+      [agencyId, profileId, actorId, reason],
+    );
+    const value = (result.rows[0] as { scheduled: Date | null } | undefined)?.scheduled;
+    return value ? new Date(value) : null;
+  }
+  async cancelClient(tx: Transaction, agencyId: string, profileId: string) {
+    const result = await tx.query('SELECT matrimony.cancel_client_erasure($1, $2) AS done', [
+      agencyId,
+      profileId,
+    ]);
+    return (result.rows[0] as { done: boolean } | undefined)?.done === true;
+  }
+  /** The clients whose waiting time is over, erased now. A row with no file marks one profile. */
+  async eraseDueClients(tx: Transaction, agencyId: string, before: Date, limit: number) {
+    const result = await tx.query(
+      `SELECT erased_profile_id AS profile_id, erased_file_key AS file_key, erased_file_kind AS file_kind
+         FROM matrimony.erase_due_clients($1, $2, $3)`,
+      [agencyId, before.toISOString(), limit],
+    );
+    return result.rows as (Omit<ErasedRow, 'account_id'> & { profile_id: string })[];
   }
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   MAX_INVOICE_BYTES,
   agreementInputSchema,
+  deletePaymentSchema,
   paymentInputSchema,
   stageParamSchema,
   amountChangeSchema,
@@ -50,6 +51,7 @@ export function registerPaymentController(
     | 'attachInvoice'
     | 'invoiceFile'
     | 'voidPayment'
+    | 'deletePayment'
     | 'changeAmount'
     | 'changeAmount'
   >,
@@ -162,6 +164,21 @@ export function registerPaymentController(
         params.profileId,
         params.paymentId,
         voidInputSchema.parse(req.body).reason,
+        req.id,
+      );
+    },
+  );
+
+  app.post(
+    '/api/v1/staff/clients/:profileId/payments/:paymentId/delete',
+    { config: adminOnly },
+    async (req) => {
+      const params = paymentParams.parse(req.params);
+      return payments.deletePayment(
+        actor(req),
+        params.profileId,
+        params.paymentId,
+        deletePaymentSchema.parse(req.body).reason,
         req.id,
       );
     },

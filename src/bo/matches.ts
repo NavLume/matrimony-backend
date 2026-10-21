@@ -186,10 +186,14 @@ export interface MatchItem {
   position: string;
   /** The profile carries the Verified mark. Always shown: it is trust information, not a personal detail. */
   verified: boolean;
+  /** What was checked behind the mark: identity (always), photo, marital_status. Empty when not verified. */
+  verifiedChecks: string[];
   connection: ConnectionSummary | null;
   fullName?: string;
   age?: number | null;
   hasPhoto?: boolean;
+  /** The owner chose blurred photos and no proposal between the two is accepted yet: the picture is sent blurred. */
+  photoBlurred?: boolean;
   aboutMe?: string | null;
   professionCode?: string | null;
   occupationCode?: string | null;

@@ -22,6 +22,27 @@ import { AccountAccessProcess } from './process/account-access-process.js';
 import { StaffInvitationProcess } from './process/staff-invitation-process.js';
 import { ClientLoginProcess } from './process/client-login-process.js';
 import { PaymentService } from './service/payment-service.js';
+import { ServiceTermsService } from './service/service-terms-service.js';
+import { JourneyService } from './service/journey-service.js';
+import { AttentionService } from './service/attention-service.js';
+import { ConcernService } from './service/concern-service.js';
+import { PrivacyService } from './service/privacy-service.js';
+import { DeclineService } from './service/decline-service.js';
+import { DeclineDbService } from './db/service/decline-db-service.js';
+import { DeclineRepository } from './db/raw/repository/decline-repository.js';
+import { PrivacyDbService } from './db/service/privacy-db-service.js';
+import { PrivacyRepository } from './db/raw/repository/privacy-repository.js';
+import { SettingsService } from './service/settings-service.js';
+import { SettingsDbService } from './db/service/settings-db-service.js';
+import { SettingsRepository } from './db/raw/repository/settings-repository.js';
+import { ConcernDbService } from './db/service/concern-db-service.js';
+import { ConcernRepository } from './db/raw/repository/concern-repository.js';
+import { AttentionDbService } from './db/service/attention-db-service.js';
+import { AttentionRepository } from './db/raw/repository/attention-repository.js';
+import { JourneyDbService } from './db/service/journey-db-service.js';
+import { JourneyRepository } from './db/raw/repository/journey-repository.js';
+import { ServiceTermsDbService } from './db/service/service-terms-db-service.js';
+import { ServiceTermsRepository } from './db/raw/repository/service-terms-repository.js';
 import { AgreementService } from './service/agreement-service.js';
 import { AgreementDbService } from './db/service/agreement-db-service.js';
 import { AgreementRepository } from './db/raw/repository/agreement-repository.js';
@@ -355,6 +376,22 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         new PaymentDbService(db, new PaymentRepository(), new EventRepository()),
         storage,
         logger,
+      ),
+      settings: new SettingsService(
+        new SettingsDbService(db, new SettingsRepository(), new EventRepository()),
+      ),
+      declines: new DeclineService(new DeclineDbService(db, new DeclineRepository())),
+      privacy: new PrivacyService(
+        new PrivacyDbService(db, new PrivacyRepository(), new EventRepository()),
+        deletions,
+      ),
+      concerns: new ConcernService(
+        new ConcernDbService(db, new ConcernRepository(), new EventRepository()),
+      ),
+      attention: new AttentionService(new AttentionDbService(db, new AttentionRepository())),
+      journey: new JourneyService(new JourneyDbService(db, new JourneyRepository())),
+      serviceTerms: new ServiceTermsService(
+        new ServiceTermsDbService(db, new ServiceTermsRepository(), new EventRepository()),
       ),
       activity: new ActivityService(db, new ActivityRepository()),
       siteContent,

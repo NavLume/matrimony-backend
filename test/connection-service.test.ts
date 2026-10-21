@@ -1,3 +1,4 @@
+import { respondSchema } from '../src/bo/connection.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConnectionRecord, ProfileLite } from '../src/bo/connection.js';
@@ -90,6 +91,7 @@ function fake(window: [string, string][] = [[PROFILE.me, PROFILE.them]]) {
     ConnectionRecord & { by: string; note: string | null; reminders: number; due?: boolean }
   >();
   const notices: Notice[] = [];
+  const reasons: (string | null | undefined)[] = [];
   const unread: { value: number; calls: unknown[][] } = { value: 3, calls: [] };
   const events: string[] = [];
   let counter = 0;
@@ -229,10 +231,17 @@ function fake(window: [string, string][] = [[PROFILE.me, PROFILE.them]]) {
         c.due = false;
       }
     },
-    respond: async (_a: string, cid: string, status: 'accepted' | 'declined') => {
+    respond: async (
+      _a: string,
+      cid: string,
+      status: 'accepted' | 'declined',
+      _by: string,
+      reason?: string | null,
+    ) => {
       const c = connections.get(cid);
       if (!c || c.status !== 'pending') return false;
       c.status = status;
+      reasons.push(reason);
       return true;
     },
     withdraw: async (_a: string, cid: string, from: string) => {
@@ -277,7 +286,7 @@ function fake(window: [string, string][] = [[PROFILE.me, PROFILE.them]]) {
     },
   } as unknown as ConnectionUnit;
   const service = new ConnectionService({ inTransaction: async (_a, work) => work(unit) });
-  return { service, connections, notices, events, unread };
+  return { service, connections, notices, events, unread, reasons };
 }
 
 const refused = (status: number, code?: string) => (e: unknown) =>
@@ -386,6 +395,25 @@ await test('only the person asked answers, once, and the asker is told', async (
     t.service.respond(them, connectionId, false, 'c'),
     refused(409, 'CONNECTION_NOT_PENDING'),
   );
+});
+
+await test('a decline carries its reason to the record, and an accept never does', async () => {
+  const t = fake([
+    [PROFILE.me, PROFILE.them],
+    [PROFILE.them, PROFILE.me],
+  ]);
+  const { connectionId } = await t.service.send(me, PROFILE.them, 'c');
+  await t.service.review(admin, connectionId, true, 'c');
+  await t.service.respond(them, connectionId, false, 'c', 'location');
+  assert.deepEqual(t.reasons, ['location']);
+  const u = fake([
+    [PROFILE.me, PROFILE.them],
+    [PROFILE.them, PROFILE.me],
+  ]);
+  const second = await u.service.send(me, PROFILE.them, 'c');
+  await u.service.review(admin, second.connectionId, true, 'c');
+  await u.service.respond(them, second.connectionId, true, 'c', 'location');
+  assert.deepEqual(u.reasons, [null]);
 });
 
 await test('a declined pair stays declined, and only the asker is told', async () => {
@@ -685,4 +713,14 @@ await test('the bell counts only the account’s own unread lines, and marking r
     ['read', me.accountId, null],
     ['read', me.accountId, ['11111111-1111-4111-8111-111111111111']],
   ]);
+});
+
+await test('a reason is only taken with a decline, and only from the pick-list', () => {
+  assert.equal(respondSchema.safeParse({ response: 'decline', reason: 'religion' }).success, true);
+  assert.equal(respondSchema.safeParse({ response: 'decline' }).success, true);
+  assert.equal(respondSchema.safeParse({ response: 'accept', reason: 'religion' }).success, false);
+  assert.equal(
+    respondSchema.safeParse({ response: 'decline', reason: 'she is rude' }).success,
+    false,
+  );
 });

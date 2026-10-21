@@ -7,6 +7,7 @@ import {
   MAX_DOCUMENT_BYTES,
   type DocumentMime,
   type DocumentType,
+  type VerificationCheck,
   type VerificationState,
   type VerificationWaiting,
 } from '../bo/verification.js';
@@ -30,6 +31,7 @@ type EventType = Extract<
   | 'verification.rejected'
   | 'verification.withdrawn'
   | 'verification.revoked'
+  | 'verification.checks_changed'
   | 'verification.file_viewed'
 >;
 
@@ -146,9 +148,32 @@ export class VerificationService {
   async approve(
     actor: ProfileActor,
     profileId: string,
+    checks: readonly ('photo' | 'marital_status')[],
     correlationId: string,
   ): Promise<VerificationState> {
-    return this.decide(actor, profileId, 'approved', null, correlationId);
+    return this.decide(actor, profileId, 'approved', null, correlationId, checks);
+  }
+
+  /**
+   * Staff change which optional checks stand behind a verified profile's mark, for example after seeing a
+   * divorce certificate in the office. Who changed it is in the event log.
+   */
+  async updateChecks(
+    actor: ProfileActor,
+    profileId: string,
+    checks: readonly ('photo' | 'marital_status')[],
+    correlationId: string,
+  ): Promise<VerificationState> {
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const profile = await this.profileOf(unit, actor, { kind: 'client', profileId });
+      if (!profile.verifiedAt) throw new AppError(409, 'NOT_VERIFIED');
+      const unique = [...new Set(checks)];
+      await unit.setChecks(actor.agencyId, profile.id, unique);
+      await unit.appendEvent(
+        this.event('verification.checks_changed', actor, profile.id, correlationId),
+      );
+      return this.read(unit, actor, { ...profile, verifiedChecks: ['identity', ...unique] });
+    });
   }
 
   /** Staff reject a waiting request, with a reason the person can act on. */
@@ -173,7 +198,7 @@ export class VerificationService {
       if (!profile.verifiedAt) throw new AppError(409, 'NOT_VERIFIED');
       await unit.setVerified(actor.agencyId, profile.id, null);
       await unit.appendEvent(this.event('verification.revoked', actor, profile.id, correlationId));
-      return this.read(unit, actor, { ...profile, verifiedAt: null });
+      return this.read(unit, actor, { ...profile, verifiedAt: null, verifiedChecks: [] });
     });
   }
 
@@ -213,6 +238,7 @@ export class VerificationService {
     outcome: 'approved' | 'rejected',
     note: string | null,
     correlationId: string,
+    checks: readonly ('photo' | 'marital_status')[] = [],
   ): Promise<VerificationState> {
     const result = await this.db.inTransaction(actor.agencyId, async (unit) => {
       const profile = await this.profileOf(unit, actor, { kind: 'client', profileId });
@@ -223,8 +249,11 @@ export class VerificationService {
         throw new AppError(409, 'REVIEW_OWN_SUBMISSION');
       if (!(await unit.decide(actor.agencyId, request.row.id, outcome, actor.accountId, note)))
         throw new AppError(409, 'VERIFICATION_NOT_PENDING');
-      if (outcome === 'approved')
-        await unit.setVerified(actor.agencyId, profile.id, actor.accountId);
+      if (outcome === 'approved') {
+        const unique = [...new Set(checks)];
+        await unit.setVerified(actor.agencyId, profile.id, actor.accountId, unique);
+        await unit.setRequestChecks(actor.agencyId, request.row.id, unique);
+      }
       await unit.tellDecided(
         actor.agencyId,
         profile.id,
@@ -245,6 +274,8 @@ export class VerificationService {
         state: await this.read(unit, actor, {
           ...profile,
           verifiedAt: outcome === 'approved' ? this.now().toISOString() : profile.verifiedAt,
+          verifiedChecks:
+            outcome === 'approved' ? ['identity', ...new Set(checks)] : profile.verifiedChecks,
         }),
       };
     });
@@ -283,7 +314,9 @@ export class VerificationService {
   ): Promise<VerificationState> {
     const latest = await unit.latest(actor.agencyId, profile.id);
     return {
-      verified: profile.verifiedAt ? { at: profile.verifiedAt } : null,
+      verified: profile.verifiedAt
+        ? { at: profile.verifiedAt, checks: profile.verifiedChecks as VerificationCheck[] }
+        : null,
       request: latest?.row ?? null,
     };
   }

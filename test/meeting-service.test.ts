@@ -1,3 +1,4 @@
+import { feedbackInputSchema } from '../src/bo/meeting.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkflowEvent } from '../src/bo/event.js';
@@ -358,5 +359,21 @@ await test("a follow-up belongs to the client's agent, only staff of that client
   await assert.rejects(
     () => service.completeFollowUp(actor('agent', SALMA), ID(999), 'r'),
     code(404, 'FOLLOW_UP_NOT_FOUND'),
+  );
+});
+
+await test('a reason for a no is only taken when the client was not interested, and only from the pick-list', () => {
+  assert.equal(
+    feedbackInputSchema.safeParse({ verdict: 'not_interested', reason: 'family' }).success,
+    true,
+  );
+  assert.equal(feedbackInputSchema.safeParse({ verdict: 'not_interested' }).success, true);
+  assert.equal(
+    feedbackInputSchema.safeParse({ verdict: 'interested', reason: 'family' }).success,
+    false,
+  );
+  assert.equal(
+    feedbackInputSchema.safeParse({ verdict: 'not_interested', reason: 'smelled bad' }).success,
+    false,
   );
 });

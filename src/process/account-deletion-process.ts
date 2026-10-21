@@ -11,6 +11,8 @@ import { AppError } from '../exception/app-error.js';
 
 /** How long a person has to change their mind before everything personal is erased. */
 export const DELETION_GRACE_DAYS = 14;
+/** The same for a client with no login, whom an admin can still keep by cancelling. */
+export const CLIENT_ERASURE_GRACE_DAYS = 7;
 const DAY_MS = 24 * 3600 * 1000;
 
 /**
@@ -22,7 +24,13 @@ export class AccountDeletionProcess {
   constructor(
     private readonly db: Pick<
       AccountDeletionDbService,
-      'account' | 'request' | 'cancel' | 'eraseDue'
+      | 'account'
+      | 'request'
+      | 'cancel'
+      | 'eraseDue'
+      | 'scheduleClient'
+      | 'cancelClient'
+      | 'eraseDueClients'
     >,
     private readonly auth: Pick<AuthProcess, 'checkPassword' | 'checkPhonePassword'>,
     private readonly sessions: Pick<SessionRepository, 'removeAll'>,
@@ -69,31 +77,109 @@ export class AccountDeletionProcess {
       );
   }
 
-  /** Erases the accounts whose waiting time is over, and deletes their files. */
+  /** Erases the accounts and the clients whose waiting time is over, and deletes their files. */
   async eraseDue(agencyId: string, now: Date = new Date(), limit = 20) {
     const before = new Date(now.getTime() - DELETION_GRACE_DAYS * DAY_MS);
     const rows = await this.db.eraseDue(agencyId, before, limit);
-    for (const row of rows) {
-      const keys = row.storage_key.endsWith('.pdf')
-        ? [row.storage_key]
-        : (Object.keys(PHOTO_VARIANTS) as PhotoVariant[]).map((variant) =>
-            variantKey(row.storage_key, variant),
-          );
-      for (const key of keys) {
-        try {
-          await this.storage.delete(key);
-        } catch {
-          // Only the code is logged: a storage error can carry the bucket or the path.
-          this.logger.error({ code: 'ERASE_FILE_DELETE_FAILED' }, 'Could not delete a file');
-        }
-      }
-    }
+    for (const row of rows) await this.deleteFile(row);
     const accounts = [...new Set(rows.map((row) => row.account_id))];
     for (const accountId of accounts) {
       await this.chats?.eraseFor(agencyId, accountId);
       await this.record('account.erased', agencyId, accountId, `erase-${randomUUID()}`);
     }
-    return accounts.length;
+    const clientRows = await this.db.eraseDueClients(
+      agencyId,
+      new Date(now.getTime() - CLIENT_ERASURE_GRACE_DAYS * DAY_MS),
+      limit,
+    );
+    for (const row of clientRows) await this.deleteFile(row);
+    const clients = [...new Set(clientRows.map((row) => row.profile_id))];
+    for (const profileId of clients)
+      await this.recordClient('client.erased', agencyId, null, profileId, `erase-${randomUUID()}`);
+    return accounts.length + clients.length;
+  }
+
+  /** Deletes one erased file from storage. A photo has size variants; anything else is one object. */
+  private async deleteFile(row: { file_key: string | null; file_kind: 'photo' | 'file' | null }) {
+    if (!row.file_key) return;
+    const keys =
+      row.file_kind === 'photo'
+        ? (Object.keys(PHOTO_VARIANTS) as PhotoVariant[]).map((variant) =>
+            variantKey(row.file_key!, variant),
+          )
+        : [row.file_key];
+    for (const key of keys) {
+      try {
+        await this.storage.delete(key);
+      } catch {
+        // Only the code is logged: a storage error can carry the bucket or the path.
+        this.logger.error({ code: 'ERASE_FILE_DELETE_FAILED' }, 'Could not delete a file');
+      }
+    }
+  }
+
+  /**
+   * An admin asking for the erasure of a client who has no login (they cannot ask themselves). The profile is
+   * hidden now and erased after 7 days unless an admin cancels. Null when the profile is not an assisted client
+   * with no login, or is already scheduled or erased.
+   */
+  async scheduleClient(
+    actor: { agencyId: string; accountId: string },
+    profileId: string,
+    reason: string,
+    correlationId: string,
+  ) {
+    const scheduled = await this.db.scheduleClient(
+      actor.agencyId,
+      profileId,
+      actor.accountId,
+      reason,
+    );
+    if (!scheduled) return null;
+    await this.recordClient(
+      'client.erasure_scheduled',
+      actor.agencyId,
+      actor.accountId,
+      profileId,
+      correlationId,
+    );
+    return new Date(scheduled.getTime() + CLIENT_ERASURE_GRACE_DAYS * DAY_MS);
+  }
+
+  /** Stops a scheduled erasure and brings the profile back as it was. False when nothing was scheduled. */
+  async cancelClient(
+    actor: { agencyId: string; accountId: string },
+    profileId: string,
+    correlationId: string,
+  ) {
+    if (!(await this.db.cancelClient(actor.agencyId, profileId))) return false;
+    await this.recordClient(
+      'client.erasure_cancelled',
+      actor.agencyId,
+      actor.accountId,
+      profileId,
+      correlationId,
+    );
+    return true;
+  }
+
+  private recordClient(
+    type: 'client.erasure_scheduled' | 'client.erasure_cancelled' | 'client.erased',
+    agencyId: string,
+    actorId: string | null,
+    profileId: string,
+    correlationId: string,
+  ) {
+    return this.events.record({
+      id: randomUUID(),
+      agencyId,
+      actorId,
+      subjectId: profileId,
+      type,
+      version: 1,
+      occurredAt: new Date().toISOString(),
+      correlationId,
+    });
   }
 
   private record(

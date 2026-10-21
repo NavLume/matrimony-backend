@@ -31,7 +31,7 @@ const redis = {
   },
 } as unknown as Redis;
 
-const empty: PhotoList = { photos: [], limit: 5 };
+const empty: PhotoList = { photos: [], limit: 5, privacy: 'clear' };
 const PHOTO = '44444444-4444-4444-8444-444444444444';
 
 async function setup(role: 'member' | 'agent' = 'member') {
@@ -67,6 +67,7 @@ async function setup(role: 'member' | 'agent' = 'member') {
       upload: record('upload'),
       remove: record('remove'),
       makePrimary: record('makePrimary', new AppError(409, 'PHOTO_NOT_APPROVED')),
+      setPrivacy: record('setPrivacy'),
       image: async (actor, photoId, size) => {
         calls.push({ name: 'image', actor, args: [photoId, size] });
         return image;
@@ -226,5 +227,5 @@ await test('the response never contains storage details', async (t) => {
   const { app, call } = await setup();
   t.after(() => app.close());
   const res = await call('GET', '/api/v1/me/profile/photos');
-  assert.deepEqual(Object.keys(res.json()).sort(), ['limit', 'photos']);
+  assert.deepEqual(Object.keys(res.json()).sort(), ['limit', 'photos', 'privacy']);
 });

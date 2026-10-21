@@ -29,8 +29,22 @@ export const DOCUMENT_EXTENSION: Record<DocumentMime, string> = {
 const note = (min: number) =>
   z.string(fail('required')).trim().min(min, fail('tooShort')).max(300, fail('tooLong'));
 
-/** Approving needs no words; rejecting needs a reason the person can act on. */
-export const approveInputSchema = z.object({}).strict();
+/**
+ * What a staff member checked. `identity` (name and date of birth against the document) is always part of an
+ * approval; the others are added when they were really checked.
+ */
+export const VERIFICATION_CHECKS = ['identity', 'photo', 'marital_status'] as const;
+export type VerificationCheck = (typeof VERIFICATION_CHECKS)[number];
+export const OPTIONAL_CHECKS = ['photo', 'marital_status'] as const;
+const optionalChecks = z
+  .array(z.enum(OPTIONAL_CHECKS, fail('invalidOption')))
+  .max(2, fail('tooLong'));
+
+/** Approving needs no words, only the optional checks that were made; rejecting needs a reason the person can act on. */
+export const approveInputSchema = z.object({ checks: optionalChecks.default([]) }).strict();
+export type ApproveInput = z.output<typeof approveInputSchema>;
+/** The optional checks of an already verified profile, as they should be now. */
+export const checksInputSchema = z.object({ checks: optionalChecks }).strict();
 export const rejectInputSchema = z.object({ note: note(3) }).strict();
 
 export type VerificationStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn';
@@ -49,7 +63,8 @@ export interface VerificationRequest {
 
 /** Where a profile stands: whether it carries the mark, and the latest request. */
 export interface VerificationState {
-  verified: { at: string } | null;
+  /** The mark and what stands behind it: the checks made (always includes `identity`). */
+  verified: { at: string; checks: VerificationCheck[] } | null;
   request: VerificationRequest | null;
 }
 

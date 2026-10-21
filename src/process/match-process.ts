@@ -1,4 +1,5 @@
 import { variantKey, type PhotoVariant } from '../bo/photo.js';
+import { blurPreview, watermark } from '../security/photo-view.js';
 import { AppError } from '../exception/app-error.js';
 import type { MatchService } from '../service/match-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
@@ -24,9 +25,11 @@ export class MatchProcess {
   }
 
   async photo(actor: ProfileActor, candidateId: string, variant: PhotoVariant): Promise<Buffer> {
-    const { storageKey } = await this.matches.photoKey(actor, candidateId);
-    const data = await this.storage.get(variantKey(storageKey, variant));
+    const { storageKey, blurred, viewerCode } = await this.matches.photoKey(actor, candidateId);
+    // Blurred: made from the small copy whatever size was asked, so the clear picture is never sent.
+    const data = await this.storage.get(variantKey(storageKey, blurred ? 'thumb' : variant));
     if (!data) throw new AppError(404, 'PHOTO_NOT_FOUND');
-    return data;
+    // A clear photo carries the viewer's member code, so a copy that is passed on can be traced.
+    return blurred ? blurPreview(data) : watermark(data, viewerCode);
   }
 }

@@ -132,9 +132,10 @@ export const connectionQueries = {
   markReminded: `UPDATE matrimony.interests SET reminders_sent = reminders_sent + 1, last_reminded_at = $3::timestamptz
  WHERE agency_id = $1 AND id = $2 AND status = 'in_review' RETURNING id`,
 
-  // $1 agency, $2 interest, $3 accepted or declined, $4 who. Only a request still waiting can be answered.
+  // $1 agency, $2 interest, $3 accepted or declined, $4 who, $5 why it was declined (or null). Only a request still waiting can be answered.
   respond: `UPDATE matrimony.interests
-   SET status = $3, responded_by_account_id = $4, responded_at = now(), updated_at = now()
+   SET status = $3, responded_by_account_id = $4, responded_at = now(), updated_at = now(),
+       decline_reason = $5
  WHERE agency_id = $1 AND id = $2 AND status = 'pending' RETURNING id`,
 
   // $1 agency, $2 interest, $3 the profile that asked. A request can be taken back while it waits for review too.
@@ -197,7 +198,7 @@ export const connectionQueries = {
        (x.recipient_contact_consent_at IS NOT NULL) AS to_shared, x.created_at, x.responded_at,
        CASE WHEN x.recipient_profile_id = $2 THEN x.note END AS note,
        ${POSITION('x.updated_at')} AS position, m.id, m.member_code,
-       (m.verified_at IS NOT NULL) AS verified,
+       (m.verified_at IS NOT NULL) AS verified, m.verified_checks,
        ga.advice, ga.note AS advice_note, ga.advised_at AS advice_at${selectionFor(visible)}
   FROM matrimony.interests x
   JOIN matrimony.member_profiles m ON m.agency_id = x.agency_id

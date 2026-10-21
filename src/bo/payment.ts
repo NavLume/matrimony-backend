@@ -72,6 +72,16 @@ export const voidInputSchema = z
   })
   .strict();
 
+/**
+ * Deleting a payment record (admins only, from 21 October 2026): a longer reason than a cancellation, because
+ * nothing can be brought back. What was deleted is kept as a short record (amount, stage, date, why, who).
+ */
+export const deletePaymentSchema = z
+  .object({
+    reason: z.string(fail('required')).trim().min(5, fail('tooShort')).max(300, fail('tooLong')),
+  })
+  .strict();
+
 export interface PaymentRow {
   id: string;
   stage: PaymentStage;

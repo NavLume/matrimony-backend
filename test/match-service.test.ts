@@ -23,6 +23,8 @@ type Start = {
   codeSearch?: boolean;
   rows?: MatchItem[];
   photoKey?: string | null;
+  /** The owner chose blurred photos and no proposal is accepted. */
+  blurred?: boolean;
   total?: number;
 };
 
@@ -51,7 +53,12 @@ function fake(start: Start = {}) {
     },
     person: async () => null,
     sharedContact: async () => null,
-    viewablePhotoKey: async () => (start.photoKey === undefined ? 'k/1' : start.photoKey),
+    viewablePhoto: async () => {
+      const storageKey = start.photoKey === undefined ? 'k/1' : start.photoKey;
+      return storageKey === null
+        ? null
+        : { storageKey, blurred: start.blurred === true, viewerCode: 'M0000001' };
+    },
   };
   const service = new MatchService({ inTransaction: async (_agency, work) => work(unit) });
   return { service, seen };
@@ -62,6 +69,7 @@ const row = (n: number): MatchItem => ({
   memberCode: `M${n}`,
   position: `2026-10-10T08:00:0${n}.000000Z`,
   verified: false,
+  verifiedChecks: [],
   connection: null,
   fullName: `P${n}`,
 });
@@ -156,7 +164,14 @@ await test('pages: one more than the limit tells there is a next page, with a us
 await test('a photo is only given for a released profile, and only when staff allow photos', async () => {
   assert.deepEqual(await fake({ visible: ['photo'] }).service.photoKey(member, OWN), {
     storageKey: 'k/1',
+    blurred: false,
+    viewerCode: 'M0000001',
   });
+  // When the owner chose blurred photos and nothing is accepted yet, the picture must be sent blurred.
+  assert.equal(
+    (await fake({ visible: ['photo'], blurred: true }).service.photoKey(member, OWN)).blurred,
+    true,
+  );
   await assert.rejects(
     fake({ visible: ['fullName'] }).service.photoKey(member, OWN),
     refused(404, 'PHOTO_NOT_FOUND'),

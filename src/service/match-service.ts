@@ -118,17 +118,23 @@ export class MatchService {
     });
   }
 
-  /** The storage key of a profile's photo, if staff allow the member to see photos and may look at it. */
-  async photoKey(actor: ProfileActor, candidateId: string): Promise<{ storageKey: string }> {
+  /**
+   * A profile's photo, if staff allow the member to see photos and may look at it: where it is, whether it must be
+   * sent blurred, and the viewer's member code for the watermark.
+   */
+  async photoKey(
+    actor: ProfileActor,
+    candidateId: string,
+  ): Promise<{ storageKey: string; blurred: boolean; viewerCode: string }> {
     this.requireMemberOrGuardian(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const own = await this.viewedProfile(unit, actor);
       if (!own || own.status !== 'active') throw new AppError(404, 'PHOTO_NOT_FOUND');
       const visible = await this.visibleFields(unit, actor.agencyId, own.id);
       if (!visible.includes('photo')) throw new AppError(404, 'PHOTO_NOT_FOUND');
-      const key = await unit.viewablePhotoKey(actor.agencyId, own.id, candidateId);
-      if (!key) throw new AppError(404, 'PHOTO_NOT_FOUND');
-      return { storageKey: key };
+      const photo = await unit.viewablePhoto(actor.agencyId, own.id, candidateId);
+      if (!photo) throw new AppError(404, 'PHOTO_NOT_FOUND');
+      return photo;
     });
   }
 
