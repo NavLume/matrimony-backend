@@ -159,10 +159,31 @@ export class ConnectionService {
     this.requireMember(actor);
     await this.db.inTransaction(actor.agencyId, async (unit) => {
       const own = await this.publishedOwn(unit, actor);
-      const { connection } = await this.lockedParty(unit, actor.agencyId, own.id, connectionId);
+      const { connection, profiles } = await this.lockedParty(
+        unit,
+        actor.agencyId,
+        own.id,
+        connectionId,
+      );
       if (connection.fromProfileId !== own.id) throw new AppError(404, 'CONNECTION_NOT_FOUND');
+      const wasShown = connection.status === 'pending';
       if (!(await unit.withdraw(actor.agencyId, connection.id, own.id))) {
         throw new AppError(409, 'CONNECTION_NOT_PENDING');
+      }
+      // A request the other person had already been shown is taken from them: they are told. One still
+      // waiting for the agent's review was never shown, so there is nothing to tell.
+      if (wasShown) {
+        const asked = profiles.find((p) => p.id === connection.toProfileId);
+        const asker = profiles.find((p) => p.id === own.id);
+        if (asked && asker)
+          await this.tell(
+            unit,
+            actor.agencyId,
+            'connection_withdrawn',
+            connection.id,
+            asked,
+            asker,
+          );
       }
       await unit.appendEvent(this.event('interest.withdrawn', actor, connection.id, correlationId));
     });

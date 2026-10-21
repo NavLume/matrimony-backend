@@ -7003,7 +7003,7 @@ components:
         displayName: { type: string }
     QueueKind:
       type: string
-      enum: [initial_submission, field_update, photo_add, cv_upload]
+      enum: [initial_submission, field_update, photo_add, cv_upload, verification]
       description: A new profile, a change to a published profile, a new photo, or a CV waiting for a decision (decided on the client's page, not through the review endpoints).
     QueueStatus:
       type: string
@@ -7537,10 +7537,12 @@ components:
                 connection_review_reminder,
                 connection_matched,
                 connection_unavailable,
+                connection_withdrawn,
                 review_requested,
                 review_decided,
                 candidates_released,
                 client_assigned,
+                client_update,
                 chat_requested,
                 chat_accepted,
                 chat_message,
@@ -7568,7 +7570,7 @@ components:
         decision:
           {
             type: [string, 'null'],
-            enum: [approved, rejected, null],
+            enum: [approved, rejected, withdrawn, null],
             description: 'For a decision on something sent for review: approved or rejected.',
           }
         chatId: { type: [string, 'null'], format: uuid, description: For a chat line, the conversation. }

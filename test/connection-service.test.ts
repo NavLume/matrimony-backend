@@ -608,6 +608,26 @@ await test('a request waiting for review can be withdrawn by the asker', async (
   );
 });
 
+await test('the person asked is told when a request they had been shown is taken back, and not otherwise', async () => {
+  // Approved by the agent, so the person asked has been shown it.
+  const shown = fake([[PROFILE.me, PROFILE.managed]]);
+  const sent = await shown.service.send(me, PROFILE.managed, 'c');
+  await shown.service.review(agent, sent.connectionId, true, 'c');
+  shown.notices.length = 0;
+  await shown.service.withdraw(me, sent.connectionId, 'c');
+  assert.deepEqual(
+    shown.notices.filter((n) => n.kind === 'connection_withdrawn').map((n) => n.forProfile),
+    [PROFILE.managed],
+  );
+
+  // Still waiting for the agent: the person asked never saw it.
+  const waiting = fake([[PROFILE.me, PROFILE.managed]]);
+  const queued = await waiting.service.send(me, PROFILE.managed, 'c');
+  waiting.notices.length = 0;
+  await waiting.service.withdraw(me, queued.connectionId, 'c');
+  assert.equal(waiting.notices.filter((n) => n.kind === 'connection_withdrawn').length, 0);
+});
+
 await test('requests that waited too long are reminded about: the agent first, the admins from the third', async () => {
   const t = fake([[PROFILE.me, PROFILE.managed]]);
   const { connectionId } = await t.service.send(me, PROFILE.managed, 'c');

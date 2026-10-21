@@ -11,6 +11,7 @@ export const QUEUE_KINDS = [
   'field_update',
   'photo_add',
   'cv_upload',
+  'verification',
 ] as const;
 export type QueueKind = (typeof QUEUE_KINDS)[number];
 

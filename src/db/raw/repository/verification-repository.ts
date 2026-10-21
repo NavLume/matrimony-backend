@@ -151,7 +151,8 @@ export class VerificationRepository {
     const result = await tx.query(
       `UPDATE matrimony.profile_verifications
           SET status = $3, decided_by = $4, decided_at = now(), decision_note = $5
-        WHERE agency_id = $1 AND id = $2 AND status = 'pending'`,
+        WHERE agency_id = $1 AND id = $2 AND status = 'pending'
+`,
       [agencyId, id, status, deciderId, note],
     );
     return result.rowCount === 1;

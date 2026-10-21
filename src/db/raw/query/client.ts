@@ -71,6 +71,17 @@ export const clientQueries = {
            jsonb_build_object('forProfileId', id, 'aboutProfileId', id)
       FROM moved WHERE $3::uuid IS NOT NULL AND $3::uuid IS DISTINCT FROM $4::uuid
     RETURNING 1
+  ), told_clients AS (
+    -- Each client who signs in is told who looks after them now.
+    INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+    SELECT $1, p.owner_account_id, 'client-update:' || p.id::text || ':' || gen_random_uuid()::text, 'client.update',
+           jsonb_build_object('forProfileId', p.id, 'aboutProfileId', p.id, 'what', 'agent_assigned',
+                              'name', a.display_name, 'role', 'agent')
+      FROM moved m
+      JOIN matrimony.member_profiles p ON p.agency_id = $1 AND p.id = m.id AND p.owner_account_id IS NOT NULL
+      JOIN matrimony.accounts a ON a.agency_id = $1 AND a.id = $3::uuid
+     WHERE $3::uuid IS NOT NULL AND p.owner_account_id IS DISTINCT FROM $4::uuid
+    RETURNING 1
   )
   SELECT profile_id FROM recorded`,
 

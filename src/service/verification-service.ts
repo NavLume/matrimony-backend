@@ -128,6 +128,14 @@ export class VerificationService {
       await unit.appendEvent(
         this.event('verification.withdrawn', actor, request.row.id, correlationId),
       );
+      // Whoever the request was for or sent by, other than the person taking it back, is told.
+      await unit.tellDecided(
+        actor.agencyId,
+        profile.id,
+        request.submittedBy,
+        actor.accountId,
+        'withdrawn',
+      );
       return { request, state: await this.read(unit, actor, profile) };
     });
     await this.dispose(actor.agencyId, result.request);

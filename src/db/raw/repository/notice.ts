@@ -51,7 +51,7 @@ export async function notifyDecided(
   submitterId: string,
   deciderId: string,
   what: ReviewWhat,
-  decision: 'approved' | 'rejected',
+  decision: 'approved' | 'rejected' | 'withdrawn',
 ): Promise<void> {
   await tx.query(
     `INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)

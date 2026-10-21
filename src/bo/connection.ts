@@ -99,6 +99,7 @@ export const NOTIFICATION_GROUP_KINDS: Record<
     'connection_review',
     'connection_review_reminder',
     'connection_unavailable',
+    'connection_withdrawn',
     'connection_matched',
   ],
   answers: ['connection_accepted', 'connection_declined'],
@@ -107,6 +108,7 @@ export const NOTIFICATION_GROUP_KINDS: Record<
   updates: [
     'candidates_released',
     'client_assigned',
+    'client_update',
     'staff_joined',
     'meeting_update',
     'guardian_request',
@@ -226,6 +228,8 @@ export type NotificationKind =
   | 'connection_matched'
   /** A request was withdrawn because the person asked is no longer available (paused or closed). */
   | 'connection_unavailable'
+  /** The person who asked took a request back after the other person had been shown it. */
+  | 'connection_withdrawn'
   /** Staff: something was sent for review (a profile, a change, a photo or a CV). */
   | 'review_requested'
   /** A request that was sent for review (profile, change, photo or CV) was approved or rejected. */
@@ -234,6 +238,8 @@ export type NotificationKind =
   | 'candidates_released'
   /** An agent: a new client was given to them. */
   | 'client_assigned'
+  /** A client with a login: something staff did that they must know about (the line says what in `what`). */
+  | 'client_update'
   /** The other side of an accepted proposal asked to chat. */
   | 'chat_requested'
   /** They agreed to chat. */
@@ -264,8 +270,8 @@ export interface NotificationItem {
   connectionId: string | null;
   /** For a review request or its decision: what was sent (profile, edit, photo or cv). */
   what: string | null;
-  /** For a decision: whether it was approved or rejected. */
-  decision: 'approved' | 'rejected' | null;
+  /** For a decision: whether it was approved, rejected or (a document) taken back. */
+  decision: 'approved' | 'rejected' | 'withdrawn' | null;
   /** For a staff account that joined: who, and as what. */
   staff: { name: string; role: string } | null;
   /** For a release: how many profiles. */

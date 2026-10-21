@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { Transaction } from '../../config/database.js';
 import { eventSchema, type WorkflowEvent, type LeasedEvent } from '../../../bo/event.js';
 import { eventQueries } from '../query/event.js';
+import { notifyOwnerOfEvent } from './owner-notices.js';
 export class EventRepository {
   async append(tx: Transaction, event: WorkflowEvent) {
     const safe = eventSchema.parse(event);
     await tx.query(eventQueries.append, [safe.agencyId, safe.id, safe]);
+    // What a client must know about shows in their inbox, written in the same transaction.
+    await notifyOwnerOfEvent(tx, safe);
   }
   async claim(tx: Transaction, agencyId: string, maxAttempts: number): Promise<LeasedEvent | null> {
     const result = await tx.query(eventQueries.claim, [agencyId, maxAttempts, randomUUID()]);

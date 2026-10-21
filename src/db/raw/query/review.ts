@@ -33,6 +33,17 @@ const CV_FROM = `FROM matrimony.profile_cvs c
  JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
  JOIN matrimony.accounts s ON s.agency_id = c.agency_id AND s.id = c.uploaded_by_account_id`;
 
+// An identity document waiting for a decision is listed the same way, with its own kind and decided on
+// the client's page. A request that was taken back is no longer a request.
+const VERIFICATION_STATUS = `(CASE v.status WHEN 'pending' THEN 'pending' WHEN 'approved' THEN 'approved' WHEN 'rejected' THEN 'rejected' END)`;
+const VERIFICATION_COLUMNS = `v.id, 'verification'::text AS kind, ${VERIFICATION_STATUS}::text AS status, v.submitted_at AS created_at,
+ to_char(v.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS position, NULL::uuid AS photo_id,
+ v.submitted_by AS submitted_by_account_id, s.display_name AS submitter_name,
+ p.id AS profile_id, p.member_code, p.full_name, p.service_mode, p.assigned_agent_id`;
+const VERIFICATION_FROM = `FROM matrimony.profile_verifications v
+ JOIN matrimony.member_profiles p ON p.agency_id = v.agency_id AND p.id = v.profile_id
+ JOIN matrimony.accounts s ON s.agency_id = v.agency_id AND s.id = v.submitted_by`;
+
 export const listQuery = (direction: 'ASC' | 'DESC') => {
   const compare = direction === 'ASC' ? '>' : '<';
   return `SELECT * FROM (
@@ -47,6 +58,12 @@ export const listQuery = (direction: 'ASC' | 'DESC') => {
    AND ($3::text IS NULL OR $3::text = 'cv_upload')
    AND ($4::uuid IS NULL OR p.assigned_agent_id = $4 OR p.assigned_agent_id IS NULL)
    AND ($5::timestamptz IS NULL OR (c.created_at, c.id) ${compare} ($5::timestamptz, $6::uuid))
+ UNION ALL
+ SELECT ${VERIFICATION_COLUMNS} ${VERIFICATION_FROM}
+ WHERE v.agency_id = $1 AND ${VERIFICATION_STATUS} = $2
+   AND ($3::text IS NULL OR $3::text = 'verification')
+   AND ($4::uuid IS NULL OR p.assigned_agent_id = $4 OR p.assigned_agent_id IS NULL)
+   AND ($5::timestamptz IS NULL OR (v.submitted_at, v.id) ${compare} ($5::timestamptz, $6::uuid))
  ) q
  ORDER BY q.created_at ${direction}, q.id ${direction}
  LIMIT $7`;
@@ -74,6 +91,11 @@ export const reviewQueries = {
    (SELECT count(*) FROM matrimony.profile_cvs c
      JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
     WHERE c.agency_id = $1 AND c.status = 'pending'
+      AND ($2::uuid IS NULL OR p.assigned_agent_id = $2 OR p.assigned_agent_id IS NULL))
+   +
+   (SELECT count(*) FROM matrimony.profile_verifications v
+     JOIN matrimony.member_profiles p ON p.agency_id = v.agency_id AND p.id = v.profile_id
+    WHERE v.agency_id = $1 AND v.status = 'pending'
       AND ($2::uuid IS NULL OR p.assigned_agent_id = $2 OR p.assigned_agent_id IS NULL))
  )::int AS n`,
 

@@ -28,5 +28,14 @@ export const autoAssign = `WITH chosen AS (
            jsonb_build_object('forProfileId', id, 'aboutProfileId', id)
       FROM assigned
     RETURNING 1
+  ), told_client AS (
+    INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+    SELECT $1, p.owner_account_id, 'client-update:' || p.id::text || ':' || gen_random_uuid()::text, 'client.update',
+           jsonb_build_object('forProfileId', p.id, 'aboutProfileId', p.id, 'what', 'agent_assigned',
+                              'name', a.display_name, 'role', 'agent')
+      FROM assigned s
+      JOIN matrimony.member_profiles p ON p.agency_id = $1 AND p.id = s.id AND p.owner_account_id IS NOT NULL
+      JOIN matrimony.accounts a ON a.agency_id = $1 AND a.id = s.assigned_agent_id
+    RETURNING 1
   )
   SELECT assigned_agent_id FROM assigned`;

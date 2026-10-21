@@ -22,7 +22,7 @@ export interface VerificationUnit extends Repo {
     profileId: string,
     submitterId: string,
     deciderId: string,
-    decision: 'approved' | 'rejected',
+    decision: 'approved' | 'rejected' | 'withdrawn',
   ): Promise<void>;
   appendEvent(event: WorkflowEvent): Promise<void>;
 }
