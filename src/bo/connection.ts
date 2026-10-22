@@ -114,6 +114,7 @@ export const NOTIFICATION_GROUP_KINDS: Record<
     'concern_resolved',
     'staff_joined',
     'meeting_update',
+    'meeting_reminder',
     'guardian_request',
     'guardian_advice',
     'guardian_answer',
@@ -267,6 +268,8 @@ export type NotificationKind =
   | 'chat_invited'
   /** A meeting of an accepted proposal was set, moved or cancelled. */
   | 'meeting_update'
+  /** A meeting is coming up (the day before). */
+  | 'meeting_reminder'
   /** The agency asked for a guardian and the client has to agree. */
   | 'guardian_request'
   /** The guardian gave advice on a proposal. */

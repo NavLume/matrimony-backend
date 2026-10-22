@@ -1,6 +1,6 @@
 # Discovery loop (Phase 3): agent-curated matching
 
-Status: **proposal, 10 October 2026.** Written after the owner's meeting with the friend who wrote `docs/design/launch-features.md`. It changes how features 2.2, 3.1, 3.2, 3.3 and 2.3 work. The friend has not yet reviewed this text, and `launch-features.md` has not been edited. Do not treat anything below as final until he confirms it.
+Status: **proposal, 10 October 2026.** Written after the owner's meeting with Shammo Bhai, who wrote `docs/design/launch-features.md`. It changes how features 2.2, 3.1, 3.2, 3.3 and 2.3 work. Shammo Bhai has not yet reviewed this text, and `launch-features.md` has not been edited. Do not treat anything below as final until Shammo Bhai confirms it.
 
 ## Outcome
 
@@ -33,11 +33,11 @@ The cap is a **window**: the client sees at most N released profiles at a time (
 
 ### Preference fields for slice 3.A (proposed by the assistant from a web search plus judgement, 10 October 2026)
 
-Existing preferences stay. New ones, each with a matching profile field so candidates can be matched: **profession** (a coded list, because the current occupation is only a type and cannot say "doctor" or "nurse"), complexion, religious practice, diet, smoking, children, willingness to relocate, current country. Left out on purpose: polygamy, hijab or beard, disability and health (sensitive, agency-specific; Phase 6 or the agent's judgement). **Complexion** is decided (owner, 10 October 2026): it is **shown to staff but never used to filter or exclude profiles automatically**. The client's complexion preference is stored and visible to the agent, who applies it by hand when reviewing a candidate list. Candidate generation (3.B) must ignore `complexionCodes`. If an agency later wants automatic filtering, it becomes a per-agency setting in Phase 6. (Similar filters were removed by Shaadi.com after a petition.) The friend has not yet been told.
+Existing preferences stay. New ones, each with a matching profile field so candidates can be matched: **profession** (a coded list, because the current occupation is only a type and cannot say "doctor" or "nurse"), complexion, religious practice, diet, smoking, children, willingness to relocate, current country. Left out on purpose: polygamy, hijab or beard, disability and health (sensitive, agency-specific; Phase 6 or the agent's judgement). **Complexion** is decided (owner, 10 October 2026): it is **shown to staff but never used to filter or exclude profiles automatically**. The client's complexion preference is stored and visible to the agent, who applies it by hand when reviewing a candidate list. Candidate generation (3.B) must ignore `complexionCodes`. If an agency later wants automatic filtering, it becomes a per-agency setting in Phase 6. (Similar filters were removed by Shaadi.com after a petition.) Shammo Bhai has not yet been told.
 
 ## Decision still open: agency-admin configuration
 
-The owner wants every feature to be customisable per agency by the agency admin (fields, visible data, payment options). This is deferred and tracked as **Phase 6**. Two points need the friend's answer before any work starts:
+The owner wants every feature to be customisable per agency by the agency admin (fields, visible data, payment options). This is deferred and tracked as **Phase 6**. Two points need Shammo Bhai's answer before any work starts:
 
 1. Does `launch-features.md`'s hard exclusion "tenant-facing UI" (and `PROJECT.md`'s "tenant admin UI") mean a platform-owner portal, or also a settings screen for one agency's admin? Feature 4.4 (agency admin edits the plans) already exists in scope.
 2. Can launch start with the platform owner configuring each agency (database or script), with a screen added later?
@@ -71,7 +71,7 @@ Until then, Phase 3 uses **fixed field lists** in code (the development defaults
 - A connection request to the same person twice, or two people requesting each other, ends as one pair.
 - Bengali and mobile layouts for the dashboard, empty state and request states.
 
-## Open questions for the owner or friend
+## Open questions for the owner or Shammo Bhai
 
 - The full list of preference fields, and which fields staff may show or hide per client.
 - Does a released profile stay visible after the other person pauses or closes their profile?
@@ -80,7 +80,7 @@ Until then, Phase 3 uses **fixed field lists** in code (the development defaults
 
 ## Connections, the inbox and the full view: rules the assistant chose (10 October 2026), to confirm
 
-The owner asked for advanced search, the full profile view and connection requests together. The rules below were not discussed and are the assistant's calls; the friend should confirm them.
+The owner asked for advanced search, the full profile view and connection requests together. The rules below were not discussed and are the assistant's calls; Shammo Bhai should confirm them.
 
 - **Storage:** the original `interests` table is the connection (one row per pair, whoever asked first) and `notifications` is the inbox. Nothing parallel was created. Migration 015 only grants the runtime role what it needs and adds one check.
 - **Who can ask:** a member with a published profile, someone in their released window. Anything else is "not found".
@@ -93,11 +93,11 @@ The owner asked for advanced search, the full profile view and connection reques
 - **Advanced search** is the file's five filters minus complexion (never a filter, by the owner's decision): height, income, family status, district of origin. Each works only on a field the client may see. Plan gating is not applied: gating and payments are Phase 4.
 - **Preview and detail:** a list card shows headline fields (name, age, photo, profession, district, religion); the detail page shows every field staff allowed.
 - **Read or unread state** was added on 12 October 2026 (slice 3.G.1, migration 016): each line has `read`, `GET /me/notifications/unread-count` and `POST /me/notifications/read`.
-- **Not built:** chat, email or SMS for a request, a limit on requests per day, photo for assisted contact sharing, the friend's "interest.accepted" outbox consumer.
+- **Not built:** chat, email or SMS for a request, a limit on requests per day, photo for assisted contact sharing, Shammo Bhai's "interest.accepted" outbox consumer.
 
 ## Slice 3.H: the agent reviews a request first (built 12 October 2026, in review)
 
-Decided with the friend on 12 October 2026 and reported by the owner. The rules chosen in 3.F above
+Decided with Shammo Bhai on 12 October 2026 and reported by the owner. The rules chosen in 3.F above
 change as follows; where this section and the earlier one differ, this one is current.
 
 - **A request to a member with a login waits for review** (`interests.status = 'in_review'`). The
@@ -143,7 +143,7 @@ change as follows; where this section and the earlier one differ, this one is cu
 
 ## Slice 3.J: a CV for every profile (built 13 October 2026, in review)
 
-Decided with the friend on 12 October 2026 (answers 14 and 16) and by the owner on 13 October: **PDF only
+Decided with Shammo Bhai on 12 October 2026 (answers 14 and 16) and by the owner on 13 October: **PDF only
 (photos inside the PDF are fine), one CV per profile that the owner can replace, shown to the other person
 only after a connection is accepted.**
 
@@ -173,7 +173,7 @@ only after a connection is accepted.**
 
 ## Slices 3.K to 3.N (built 13 October 2026, in review)
 
-Decided with the friend on 12 October 2026 (answers 14 to 29) and built together.
+Decided with Shammo Bhai on 12 October 2026 (answers 14 to 29) and built together.
 
 ### 3.K A family member who uses the account
 

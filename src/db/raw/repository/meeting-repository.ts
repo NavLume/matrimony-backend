@@ -230,6 +230,7 @@ export class MeetingRepository {
     const result = await tx.query(
       `UPDATE matrimony.meetings SET
           scheduled_at = CASE WHEN $3::boolean THEN $4::timestamptz ELSE scheduled_at END,
+          reminded_at = CASE WHEN $3::boolean THEN NULL ELSE reminded_at END,
           kind = CASE WHEN $5::boolean THEN $6::text ELSE kind END,
           place = CASE WHEN $7::boolean THEN $8::text ELSE place END,
           note = CASE WHEN $9::boolean THEN $10::text ELSE note END,
@@ -477,6 +478,51 @@ export class MeetingRepository {
       [agencyId, id, doneBy],
     );
     return result.rowCount === 1;
+  }
+
+  /**
+   * Adds the reminder for meetings coming up (within about a day) to the inbox of the people they are about: the
+   * clients who sign in, their guardians, and the staff who look after either side. Each meeting is reminded once,
+   * and again if it is moved (a change of time clears the mark). Returns how many meetings were reminded.
+   */
+  async remindUpcoming(tx: Transaction, agencyId: string): Promise<number> {
+    const due = await tx.query(
+      `UPDATE matrimony.meetings SET reminded_at = now()
+        WHERE agency_id = $1 AND status = 'scheduled' AND reminded_at IS NULL
+          AND scheduled_at > now() AND scheduled_at <= now() + interval '30 hours'
+        RETURNING id, interest_id`,
+      [agencyId],
+    );
+    for (const row of due.rows as { id: string; interest_id: string }[]) {
+      await tx.query(
+        `INSERT INTO matrimony.notifications (agency_id, recipient_account_id, event_key, template_key, payload)
+         SELECT $1, w.account_id, 'meeting-reminder:' || $2::text || ':' || w.account_id::text, 'meeting.reminder',
+                jsonb_build_object('interestId', $3::uuid, 'forProfileId', w.for_profile, 'aboutProfileId', w.about_profile)
+           FROM (
+             SELECT p.owner_account_id AS account_id, p.id AS for_profile, o.id AS about_profile
+               FROM matrimony.interests i
+               JOIN matrimony.member_profiles p ON p.agency_id = i.agency_id AND p.id IN (i.sender_profile_id, i.recipient_profile_id)
+               JOIN matrimony.member_profiles o ON o.agency_id = i.agency_id AND o.id IN (i.sender_profile_id, i.recipient_profile_id) AND o.id <> p.id
+              WHERE i.agency_id = $1 AND i.id = $3 AND p.owner_account_id IS NOT NULL
+             UNION
+             SELECT g.account_id, p.id, o.id
+               FROM matrimony.interests i
+               JOIN matrimony.member_profiles p ON p.agency_id = i.agency_id AND p.id IN (i.sender_profile_id, i.recipient_profile_id)
+               JOIN matrimony.member_profiles o ON o.agency_id = i.agency_id AND o.id IN (i.sender_profile_id, i.recipient_profile_id) AND o.id <> p.id
+               JOIN matrimony.profile_guardians g ON g.agency_id = p.agency_id AND g.profile_id = p.id AND g.status = 'active'
+              WHERE i.agency_id = $1 AND i.id = $3
+             UNION
+             SELECT p.assigned_agent_id, p.id, o.id
+               FROM matrimony.interests i
+               JOIN matrimony.member_profiles p ON p.agency_id = i.agency_id AND p.id IN (i.sender_profile_id, i.recipient_profile_id)
+               JOIN matrimony.member_profiles o ON o.agency_id = i.agency_id AND o.id IN (i.sender_profile_id, i.recipient_profile_id) AND o.id <> p.id
+              WHERE i.agency_id = $1 AND i.id = $3 AND p.assigned_agent_id IS NOT NULL
+           ) w
+         ON CONFLICT (agency_id, recipient_account_id, event_key) DO NOTHING`,
+        [agencyId, row.id, row.interest_id],
+      );
+    }
+    return due.rows.length;
   }
 
   /**

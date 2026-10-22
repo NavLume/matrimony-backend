@@ -17,6 +17,7 @@ const actor = (role: ProfileActor['role']): ProfileActor => ({
 
 const input = {
   attention: { reviewDays: 1, unansweredDays: 3, noCandidatesDays: 2, noMeetingDays: 5 },
+  messaging: { enabled: true, dailyLimit: 100, perMemberDaily: 2 },
 };
 
 function setup() {
@@ -56,7 +57,7 @@ await test('missing or invalid values read as the defaults, so a bad value never
 await test('every limit is a whole number of days from 1 to 60', () => {
   assert.equal(settingsInputSchema.safeParse(input).success, true);
   for (const bad of [0, 61, 1.5, -2]) {
-    const value = { attention: { ...input.attention, reviewDays: bad } };
+    const value = { ...input, attention: { ...input.attention, reviewDays: bad } };
     assert.equal(settingsInputSchema.safeParse(value).success, false, `${bad} is refused`);
   }
   assert.equal(settingsInputSchema.safeParse({ attention: { reviewDays: 2 } }).success, false);
@@ -82,5 +83,51 @@ await test('only an admin reads or changes the settings', async () => {
       service.save(actor(role), input, 'c'),
       (e) => e instanceof AppError && e.status === 403,
     );
+  }
+});
+
+await test('texts outside the app are off unless the admin turned them on', () => {
+  assert.equal(parseSettings({}).messaging.enabled, false);
+  assert.equal(parseSettings({ messaging: { dailyLimit: 40 } }).messaging.enabled, false);
+  assert.equal(
+    parseSettings({ messaging: { enabled: 'yes', dailyLimit: 40 } }).messaging.enabled,
+    false,
+  );
+  const on = parseSettings({ messaging: { enabled: true, dailyLimit: 'many' } }).messaging;
+  assert.deepEqual(on, { enabled: true, dailyLimit: 300, perMemberDaily: 3 });
+  assert.equal(
+    settingsInputSchema.safeParse({ ...input, messaging: { dailyLimit: 5, perMemberDaily: 2 } })
+      .success,
+    false,
+  );
+});
+
+await test('the daily limit of texts is a whole number from 0 (none) to 5000, and reads as 300 when missing', () => {
+  assert.equal(parseSettings({}).messaging.dailyLimit, 300);
+  assert.equal(parseSettings({ messaging: { dailyLimit: 'many' } }).messaging.dailyLimit, 300);
+  assert.equal(parseSettings({ messaging: { dailyLimit: 40 } }).messaging.dailyLimit, 40);
+  for (const bad of [-1, 5001, 1.5]) {
+    const value = { ...input, messaging: { enabled: true, perMemberDaily: 2, dailyLimit: bad } };
+    assert.equal(settingsInputSchema.safeParse(value).success, false, `${bad} is refused`);
+  }
+  assert.equal(
+    settingsInputSchema.safeParse({
+      ...input,
+      messaging: { enabled: true, perMemberDaily: 2, dailyLimit: 0 },
+    }).success,
+    true,
+  );
+});
+
+await test('the most texts one member gets in a day is a whole number from 1 to 20, and reads as 3 when missing', () => {
+  assert.equal(parseSettings({}).messaging.perMemberDaily, 3);
+  assert.equal(
+    parseSettings({ messaging: { perMemberDaily: 'lots' } }).messaging.perMemberDaily,
+    3,
+  );
+  assert.equal(parseSettings({ messaging: { perMemberDaily: 5 } }).messaging.perMemberDaily, 5);
+  for (const bad of [0, 21, 1.5, -1]) {
+    const value = { ...input, messaging: { enabled: true, dailyLimit: 100, perMemberDaily: bad } };
+    assert.equal(settingsInputSchema.safeParse(value).success, false, `${bad} is refused`);
   }
 });

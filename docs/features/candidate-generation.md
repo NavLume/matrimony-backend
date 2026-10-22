@@ -1,6 +1,6 @@
 # Slice 3.B: candidate generation
 
-Status: **built 10 October 2026 (backend only, no screen yet).** Decisions were recorded the same day. Part of [discovery-loop.md](discovery-loop.md). The friend has not yet confirmed these product rules.
+Status: **built 10 October 2026 (backend only, no screen yet).** Decisions were recorded the same day. Part of [discovery-loop.md](discovery-loop.md). Shammo Bhai has not yet confirmed these product rules.
 
 ## Decisions (owner, 10 October 2026)
 

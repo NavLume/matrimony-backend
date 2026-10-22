@@ -67,6 +67,7 @@ export class PhotoRepository {
     storageKey: string,
     byteSize: number,
     uploadedBy: string,
+    contentHash: string | null = null,
   ) {
     await tx.query(photoQueries.insert, [
       agencyId,
@@ -75,6 +76,7 @@ export class PhotoRepository {
       storageKey,
       byteSize,
       uploadedBy,
+      contentHash,
     ]);
     await tx.query(photoQueries.insertReview, [agencyId, profileId, uploadedBy, photoId]);
     await notifyReviewers(tx, agencyId, profileId, uploadedBy, 'photo');

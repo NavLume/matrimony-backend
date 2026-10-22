@@ -198,7 +198,7 @@ export const connectionQueries = {
        (x.recipient_contact_consent_at IS NOT NULL) AS to_shared, x.created_at, x.responded_at,
        CASE WHEN x.recipient_profile_id = $2 THEN x.note END AS note,
        ${POSITION('x.updated_at')} AS position, m.id, m.member_code,
-       (m.verified_at IS NOT NULL) AS verified, m.verified_checks,
+       (m.verified_at IS NOT NULL) AS verified, m.verified_checks, m.managed_for, m.service_mode,
        ga.advice, ga.note AS advice_note, ga.advised_at AS advice_at${selectionFor(visible)}
   FROM matrimony.interests x
   JOIN matrimony.member_profiles m ON m.agency_id = x.agency_id

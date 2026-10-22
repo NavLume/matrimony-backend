@@ -70,6 +70,7 @@ const row = (n: number): MatchItem => ({
   position: `2026-10-10T08:00:0${n}.000000Z`,
   verified: false,
   verifiedChecks: [],
+  managedBy: 'self',
   connection: null,
   fullName: `P${n}`,
 });

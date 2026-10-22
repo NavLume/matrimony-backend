@@ -14,17 +14,19 @@ const BY_KIND: Record<string, Record<Locale, string>> = {
     bn: 'আপনার জন্য একটি নতুন সংযোগ অনুরোধ এসেছে।',
     en: 'You have a new connection request.',
   },
+  // The person who asked: the other side's agent approved the request and it now waits for their answer.
   'interest.forwarded': {
-    bn: 'আপনার জন্য একটি নতুন সংযোগ অনুরোধ এসেছে।',
-    en: 'You have a new connection request.',
+    bn: 'আপনার একটি অনুরোধ অনুমোদিত হয়েছে এবং উত্তরের অপেক্ষায় আছে।',
+    en: 'One of your requests was approved and is waiting for an answer.',
   },
   'interest.accepted': {
     bn: 'আপনার একটি অনুরোধ গ্রহণ করা হয়েছে।',
     en: 'One of your requests was accepted.',
   },
+  // A request was withdrawn because the person asked matched with someone else: not an acceptance.
   'interest.matched': {
-    bn: 'আপনার একটি অনুরোধ গ্রহণ করা হয়েছে।',
-    en: 'One of your requests was accepted.',
+    bn: 'আপনার একটি অনুরোধ আর চালু নেই।',
+    en: 'One of your requests is no longer open.',
   },
   'interest.declined': {
     bn: 'আপনার একটি অনুরোধের উত্তর এসেছে।',
@@ -61,6 +63,10 @@ const BY_KIND: Record<string, Record<Locale, string>> = {
   'guardian.advice': {
     bn: 'অভিভাবক একটি প্রস্তাবে পরামর্শ দিয়েছেন।',
     en: 'Your guardian gave advice on a proposal.',
+  },
+  'meeting.reminder': {
+    bn: 'আপনার একটি সাক্ষাৎ আগামীকাল বা আজ আছে।',
+    en: 'You have a meeting coming up.',
   },
   'meeting.update': {
     bn: 'একটি সাক্ষাতের সময় ঠিক বা পরিবর্তন করা হয়েছে।',

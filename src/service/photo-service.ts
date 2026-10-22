@@ -79,6 +79,7 @@ export class PhotoService {
     byteSize: number,
     correlationId: string,
     target: PhotoTarget = OWN,
+    contentHash: string | null = null,
   ): Promise<PhotoList> {
     this.requireRole(actor, target);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
@@ -93,6 +94,7 @@ export class PhotoService {
         reservation.storageKey,
         byteSize,
         actor.accountId,
+        contentHash,
       );
       await unit.appendEvent(
         this.event('photo.uploaded', actor, reservation.photoId, correlationId),

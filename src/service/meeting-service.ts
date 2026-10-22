@@ -220,6 +220,11 @@ export class MeetingService {
   }
 
   /** A client's own meetings: when and where, with the other person. */
+  /** The meeting reminder (the day before) goes to the inbox of the people a coming meeting is about. A timer calls this. */
+  async remindUpcoming(agencyId: string, _correlationId: string): Promise<number> {
+    return this.db.inTransaction(agencyId, (unit) => unit.remindUpcoming(agencyId));
+  }
+
   async mine(actor: ProfileActor): Promise<MemberMeeting[]> {
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       const own =

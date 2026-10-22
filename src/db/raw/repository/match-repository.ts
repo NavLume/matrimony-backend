@@ -5,6 +5,7 @@ import type {
   MatchItem,
   SharedContact,
 } from '../../../bo/matches.js';
+import { operatorOf } from '../../../bo/operator.js';
 import { ageOn } from '../../../bo/profile.js';
 import type { Cursor } from '../../../bo/review.js';
 import type { VisibleField } from '../../../bo/release.js';
@@ -228,6 +229,7 @@ export class MatchRepository {
       position: (row.position as string | undefined) ?? '',
       verified: row.verified === true,
       verifiedChecks: (row.verified_checks as string[] | null) ?? [],
+      managedBy: operatorOf(row.service_mode as string | null, row.managed_for as string | null),
       connection: link && { id: link.id, status: link.status, direction: link.direction },
     };
     const has = (field: VisibleField) => visible.includes(field);

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Logger } from 'pino';
 import {
   PHOTO_VARIANTS,
@@ -73,7 +74,16 @@ export class PhotoProcess {
         await this.storage.put(key, data, 'image/webp');
         stored.push(key);
       }
-      return await this.photos.attach(actor, reservation, image.full.length, correlationId, target);
+      // The fingerprint lets the same picture on two profiles be noticed (see bo/flags.ts).
+      const hash = createHash('sha256').update(image.full).digest('hex');
+      return await this.photos.attach(
+        actor,
+        reservation,
+        image.full.length,
+        correlationId,
+        target,
+        hash,
+      );
     } catch (error) {
       await this.deleteQuietly(stored);
       throw error;

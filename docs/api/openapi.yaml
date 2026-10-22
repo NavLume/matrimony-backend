@@ -1040,6 +1040,222 @@ paths:
               schema: { $ref: '#/components/schemas/DeclinePatterns' }
         '401': { $ref: '#/components/responses/Error401' }
         '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/connections/{connectionId}/history:
+    get:
+      tags: [Introductions]
+      summary: Who did what on one proposal
+      description: |
+        The introduction ledger of a proposal, oldest first: who released the person to the client who asked, who sent,
+        approved or rejected and answered the request, who arranged each meeting, who recorded or undid the match, and any
+        handover of a client to another agent while it was alive. Read from what the platform already stores, so it covers
+        every earlier proposal. A record only: it does not decide who earned a success fee. An admin, or an agent who looks
+        after either side. 404 `CONNECTION_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: connectionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The history.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectionHistory' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'CONNECTION_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/admin/reports/introductions:
+    get:
+      tags: [Introductions]
+      summary: Each staff member's introductions
+      description: |
+        Admins only. For each admin and agent: candidates released to clients, how many of those became a request, an
+        accepted proposal and a match, requests approved and rejected in review, meetings arranged and matches recorded.
+        Over the dates given (the whole history when none). How credit is shared is the agency's own decision.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: One row per staff member, most introductions first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/AgentIntroductions' } }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/me/message-preferences:
+    get:
+      tags: [Messages]
+      summary: A member's choice of texts outside the app
+      description: |
+        Whether the member agreed to a short SMS telling them something is waiting in the app, which
+        channels the agency can send on at all (a provider is configured), and the account's phone number partly hidden.
+        Members only.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The choice.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePreference' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+    put:
+      tags: [Messages]
+      summary: Choose texts outside the app, or turn them off
+      description: |
+        `sms` or `none` (SMS only for now). Turning a channel on is the member's agreement, recorded with its date, and needs a
+        channel the agency can send on (409 `CHANNEL_NOT_AVAILABLE`) and a verified phone number on the account (409
+        `PHONE_REQUIRED`), and the agency must have texts switched on (otherwise 409 `CHANNEL_NOT_AVAILABLE`). What was waiting before is not sent. The text names only the kind of thing (never a name or
+        a detail), is not sent between 9 pm and 8 am in Bangladesh, and stops at the agency's daily limit and at the most texts one member gets in a day (both set by the admin). 20 an hour.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [channel]
+              properties:
+                channel: { type: string, enum: [none, sms] }
+      responses:
+        '200':
+          description: The choice now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePreference' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409': { description: 'CHANNEL_NOT_AVAILABLE or PHONE_REQUIRED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/admin/reports/messages:
+    get:
+      tags: [Messages]
+      summary: Texts sent outside the app
+      description: Admins only. How many were sent today and this month (Bangladesh time), how many failed today, and the daily limit. No text and no number is ever kept.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The counts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageUsage' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/flags:
+    get:
+      tags: [Flags]
+      summary: Fraud signals that need a look
+      description: |
+        Warning flags found from what the platform already holds: the same phone number or email on profiles of different
+        people, the same photo, many requests in a day, reports about a profile from at least two people in 90 days, an
+        identity document rejected twice. They are hints, never verdicts: a flag only informs staff and never pauses or
+        blocks a profile, and no member or guardian ever sees one. An admin sees every flag; an agent only those on the
+        clients they look after. `state=open` (default) lists what nobody has decided; `reviewed` what staff marked fine or
+        confirmed. A decided flag returns to open only if new evidence appears after the decision.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [open, reviewed], default: open } }
+      responses:
+        '200':
+          description: The flags, newest evidence first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlagList' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+  /api/v1/staff/clients/{profileId}/flags:
+    get:
+      tags: [Flags]
+      summary: The flags on one client, open or decided
+      description: An admin, or the client's own agent. 404 `PROFILE_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The flags.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlagList' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/clients/{profileId}/flags/{signal}/review:
+    post:
+      tags: [Flags]
+      summary: Mark a flag checked and fine, or confirmed as a problem
+      description: |
+        An admin, or the client's own agent. Confirming does not change the profile: staff act separately (pause, close,
+        report). Deciding again replaces the earlier decision. Recorded as the event `flag.reviewed`. 404
+        `PROFILE_NOT_FOUND`, or `FLAG_NOT_FOUND` when that flag does not apply now.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: signal, in: path, required: true, schema: { type: string, enum: [shared_phone, shared_email, shared_photo, request_burst, reported_by_several, document_rejected_twice] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [outcome]
+              properties:
+                outcome: { type: string, enum: [fine, confirmed] }
+      responses:
+        '200':
+          description: The client's flags after the decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlagList' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'PROFILE_NOT_FOUND or FLAG_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/staff/funnel:
+    get:
+      tags: [Funnel]
+      summary: How far the people who registered got
+      description: |
+        The full funnel: of the people who registered in a period, how many reached each of nine stages (registered,
+        profile sent for review, approved and published, an agent and an agreed amount or payment recorded, candidates
+        released, a request sent or shown, a request accepted, a meeting arranged, a match recorded), with each stage as a
+        share of everyone and of the stage before, and the average days from the stage before. Counting people: one
+        person per profile, plus each member account with no profile yet. A person has reached a stage if they reached it
+        or any later one, so the numbers never grow down the list. An admin reads the whole agency, or one agent's
+        clients with `agentId`; an agent reads only their own (asking for another agent's is 403). `from` and `to` are
+        dates, both inclusive, by when the person registered; none means all time.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: agentId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The funnel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Funnel' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
   /api/v1/admin/settings:
     get:
       tags: [Settings]
@@ -7092,6 +7308,122 @@ components:
               reason: { type: string, enum: [religion, age, location, education_work, family, no_chemistry, not_ready, other, prefer_not_to_say, not_given], description: not_given means no reason was recorded. }
               proposals: { type: integer, description: Proposals declined with this reason. }
               meetings: { type: integer, description: Meetings after which the client was not interested, with this reason. }
+    ConnectionHistory:
+      type: object
+      additionalProperties: false
+      required: [connectionId, sides, events]
+      properties:
+        connectionId: { type: string, format: uuid }
+        sides:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [memberCode, fullName, agent]
+            properties:
+              memberCode: { type: string }
+              fullName: { type: string }
+              agent: { type: [string, 'null'], description: Who looks after this side now. }
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, at, by, aboutMemberCode, detail]
+            properties:
+              kind: { type: string, enum: [suggested, requested, approved, rejected, accepted, declined, meeting, matched, unmatched, handed_over] }
+              at: { type: string, format: date-time }
+              by:
+                anyOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [name, role]
+                    properties:
+                      name: { type: string }
+                      role: { type: string, enum: [admin, agent, member, guardian] }
+                  - type: 'null'
+              aboutMemberCode: { type: [string, 'null'], description: The client it was about, when it was about one side. }
+              detail: { type: [string, 'null'], description: 'The new agent for a handover; "kind:state" for a meeting.' }
+    AgentIntroductions:
+      type: object
+      additionalProperties: false
+      required: [agentId, name, role, suggested, ledToRequest, ledToAccepted, ledToMatch, approved, rejected, meetingsArranged, matchesRecorded]
+      properties:
+        agentId: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string, enum: [admin, agent] }
+        suggested: { type: integer, description: Candidates this person released to a client. }
+        ledToRequest: { type: integer, description: Of those, how many the client then asked. }
+        ledToAccepted: { type: integer, description: Of those, how many were accepted. }
+        ledToMatch: { type: integer, description: Of those, how many are a match now. }
+        approved: { type: integer, description: Requests approved in review. }
+        rejected: { type: integer, description: Requests rejected in review. }
+        meetingsArranged: { type: integer }
+        matchesRecorded: { type: integer }
+    MessagePreference:
+      type: object
+      additionalProperties: false
+      required: [channel, enabled, available, phone, phoneVerified]
+      properties:
+        channel: { type: string, enum: [none, sms] }
+        enabled: { type: boolean, description: The agency sends texts at all. When false the member cannot choose a channel; a choice already made is kept. }
+        available:
+          type: object
+          additionalProperties: false
+          required: [sms]
+          properties:
+            sms: { type: boolean }
+        phone: { type: [string, 'null'], description: The account's phone number with the middle hidden. }
+        phoneVerified: { type: boolean, description: The number is verified, so texts may go to it. }
+    MessageUsage:
+      type: object
+      additionalProperties: false
+      required: [enabled, today, thisMonth, failedToday, dailyLimit]
+      properties:
+        enabled: { type: boolean, description: The agency's switch. }
+        today: { type: integer }
+        thisMonth: { type: integer }
+        failedToday: { type: integer }
+        dailyLimit: { type: integer, description: Today's limit. 0 means outside messages are off. }
+    FlagRow:
+      type: object
+      additionalProperties: false
+      required: [profileId, memberCode, fullName, signal, others, count, evidenceAt, status, reviewedBy, reviewedAt]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        signal: { type: string, enum: [shared_phone, shared_email, shared_photo, request_burst, reported_by_several, document_rejected_twice] }
+        others: { type: array, items: { type: string }, description: The member codes of the other profiles it matches (shared phone, email or photo); empty for the other signals. }
+        count: { type: integer, description: 'How many: other profiles, requests, reporters or rejections.' }
+        evidenceAt: { type: string, format: date-time, description: When the newest evidence appeared. }
+        status: { type: string, enum: [open, fine, confirmed] }
+        reviewedBy: { type: [string, 'null'] }
+        reviewedAt: { type: [string, 'null'], format: date-time }
+    FlagList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/FlagRow' } }
+    Funnel:
+      type: object
+      additionalProperties: false
+      required: [total, stages]
+      properties:
+        total: { type: integer, description: People who registered in the period. }
+        stages:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [stage, count, ofRegistered, ofPrevious, averageDaysFromPrevious]
+            properties:
+              stage: { type: string, enum: [registered, submitted, approved, fee, released, requested, accepted, meeting, matched] }
+              count: { type: integer, description: People who reached this stage or a later one. }
+              ofRegistered: { type: number, description: As a share of everyone who registered, 0 to 1. }
+              ofPrevious: { type: [number, 'null'], description: As a share of those who reached the stage before, 0 to 1; null for the first. }
+              averageDaysFromPrevious: { type: [number, 'null'], description: The average days from the previous stage over people with a record of both; null when there is none. }
     AttentionLimits:
       type: object
       additionalProperties: false
@@ -7104,9 +7436,17 @@ components:
     AgencySettings:
       type: object
       additionalProperties: false
-      required: [attention]
+      required: [attention, messaging]
       properties:
         attention: { $ref: '#/components/schemas/AttentionLimits' }
+        messaging:
+          type: object
+          additionalProperties: false
+          required: [enabled, dailyLimit, perMemberDaily]
+          properties:
+            enabled: { type: boolean, description: 'Whether the agency sends texts outside the app (SMS) at all. Off unless its admin turns it on, because every text costs money. While off, members cannot choose a channel and none is sent.' }
+            dailyLimit: { type: integer, minimum: 0, maximum: 5000, description: 'When on, the most texts the agency sends in a day. 0 sends none. Usually 300.' }
+            perMemberDaily: { type: integer, minimum: 1, maximum: 20, description: 'When on, the most texts one member gets in a day; further lines stay in the app inbox. Usually 3.' }
     PaymentLedger:
       type: object
       additionalProperties: false
@@ -8333,7 +8673,7 @@ components:
     MatchItem:
       type: object
       additionalProperties: false
-      required: [candidateId, memberCode, verified, connection]
+      required: [candidateId, memberCode, verified, managedBy, connection]
       description: |
         A released profile. Only the fields staff chose are present; every other key is absent.
         Contact details and internal notes are never present.
@@ -8341,6 +8681,10 @@ components:
         candidateId: { type: string, format: uuid }
         memberCode: { type: string }
         verified: { type: boolean, description: The profile carries the Verified mark. Always present. }
+        managedBy:
+          type: string
+          enum: [self, parent, sibling, relative, other, agency]
+          description: Who runs the profile, shown to the other family as a label. Always present, whatever fields staff chose. No name and no contact.
         verifiedChecks:
           type: array
           description: 'What stands behind the mark: identity (name and date of birth against a document), photo (matches the person), marital_status (checked with a document). Everything else is only what the person said.'
@@ -8583,6 +8927,7 @@ components:
                 chat_reported,
                 chat_invited,
                 meeting_update,
+                meeting_reminder,
                 guardian_request,
                 guardian_advice,
                 guardian_answer,

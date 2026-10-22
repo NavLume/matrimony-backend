@@ -5,6 +5,7 @@ import { buildApp } from './controller/app.js';
 import { startNightlyRefresh } from './scheduler/nightly-refresh-scheduler.js';
 import { startReviewReminders } from './scheduler/review-reminder-scheduler.js';
 import { startAccountErasure } from './scheduler/account-erasure-scheduler.js';
+import { startMessageRounds } from './scheduler/message-scheduler.js';
 import { startChatMaintenance } from './scheduler/chat-maintenance-scheduler.js';
 async function main() {
   const config = loadConfig();
@@ -20,6 +21,14 @@ async function main() {
       logger,
     );
     app.addHook('onClose', () => stopReminders());
+    // The meeting reminder (the day before) and the texts held back at night are handled on a timer.
+    const stopMessages = startMessageRounds(
+      container.meetings,
+      container.outside,
+      [...new Set(Object.values(config.TENANT_HOSTS))],
+      logger,
+    );
+    app.addHook('onClose', () => stopMessages());
     const stopErasure = startAccountErasure(
       container.deletions,
       [...new Set(Object.values(config.TENANT_HOSTS))],

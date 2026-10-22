@@ -35,10 +35,10 @@ export const photoQueries = {
   count: `SELECT count(*)::int AS n FROM matrimony.profile_photos
  WHERE agency_id = $1 AND profile_id = $2 AND status <> 'removed'`,
 
-  // $1 agency, $2 photo id, $3 profile, $4 storage key, $5 size of the main file, $6 uploader.
+  // $1 agency, $2 photo id, $3 profile, $4 storage key, $5 size of the main file, $6 uploader, $7 fingerprint of the file.
   insert: `INSERT INTO matrimony.profile_photos
- (agency_id, id, profile_id, storage_key, mime_type, byte_size, uploaded_by_account_id, sort_order)
- VALUES ($1, $2, $3, $4, 'image/webp', $5, $6,
+ (agency_id, id, profile_id, storage_key, mime_type, byte_size, uploaded_by_account_id, content_hash, sort_order)
+ VALUES ($1, $2, $3, $4, 'image/webp', $5, $6, $7,
    (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM matrimony.profile_photos WHERE agency_id = $1 AND profile_id = $3))`,
   insertReview: `INSERT INTO matrimony.profile_reviews
  (agency_id, profile_id, submitted_by_account_id, kind, photo_id)

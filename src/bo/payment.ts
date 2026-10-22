@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Payments recorded in the office (decided with the friend on 16 October 2026). Money is paid outside
+ * Payments recorded in the office (decided with Shammo Bhai on 16 October 2026). Money is paid outside
  * the platform; the platform keeps what each client agreed to pay and what they paid.
  *
  * - Two stages: `registration` (the fee before a match) and `success` (the fee after a match).

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The admin's reports (part C of the friend's feedback of 16 October 2026): how many people there are,
+ * The admin's reports (part C of Shammo Bhai's feedback of 16 October 2026): how many people there are,
  * how proposals are going, who is connected with whom, how each agent is doing, and the money recorded
  * in the office. Read only, and for admins only.
  *

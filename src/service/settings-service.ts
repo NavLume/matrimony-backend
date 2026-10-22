@@ -26,7 +26,10 @@ export class SettingsService {
     if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       await unit.get(actor.agencyId, true);
-      const settings: AgencySettings = { attention: input.attention };
+      const settings: AgencySettings = {
+        attention: input.attention,
+        messaging: input.messaging,
+      };
       await unit.save(actor.agencyId, settings);
       await unit.appendEvent({
         id: this.newId(),

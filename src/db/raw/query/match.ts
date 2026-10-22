@@ -81,7 +81,7 @@ export const matchQueries = {
        x.id AS connection_id, x.status AS connection_status,
        (x.sender_profile_id = c.client_profile_id) AS connection_sent,
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared,
-       (m.verified_at IS NOT NULL) AS verified, m.verified_checks${selectionFor(visible)}
+       (m.verified_at IS NOT NULL) AS verified, m.verified_checks, m.managed_for, m.service_mode${selectionFor(visible)}
   ${RELEASED}
     AND ($3::text IS NULL OR m.member_code = $3::text)
     AND ($4::int IS NULL OR m.date_of_birth <= (CURRENT_DATE - make_interval(years => $4::int)))
@@ -105,7 +105,7 @@ export const matchQueries = {
        x.id AS connection_id, x.status AS connection_status,
        (x.sender_profile_id = $2) AS connection_sent,
        (x.sender_contact_consent_at IS NOT NULL) AS from_shared, (x.recipient_contact_consent_at IS NOT NULL) AS to_shared,
-       (m.verified_at IS NOT NULL) AS verified, m.verified_checks${selectionFor(visible)}
+       (m.verified_at IS NOT NULL) AS verified, m.verified_checks, m.managed_for, m.service_mode${selectionFor(visible)}
   FROM matrimony.member_profiles m
   LEFT JOIN matrimony.interests x ON x.agency_id = m.agency_id
      AND ((x.sender_profile_id = $2 AND x.recipient_profile_id = m.id)

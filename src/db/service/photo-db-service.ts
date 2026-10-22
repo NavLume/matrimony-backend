@@ -36,6 +36,8 @@ export interface PhotoUnit {
     storageKey: string,
     byteSize: number,
     uploadedBy: string,
+    /** A fingerprint of the processed photo, so the same picture on two profiles can be noticed. */
+    contentHash?: string | null,
   ): Promise<void>;
   remove(agencyId: string, photoId: string): Promise<void>;
   makePrimary(agencyId: string, profileId: string, photoId: string): Promise<void>;
@@ -67,8 +69,8 @@ export class PhotoDbService {
         repo.setPrivacy(tx, agencyId, profileId, privacy),
       find: (agencyId, profileId, photoId) => repo.find(tx, agencyId, profileId, photoId),
       count: (agencyId, profileId) => repo.count(tx, agencyId, profileId),
-      insert: (agencyId, profileId, photoId, key, size, by) =>
-        repo.insert(tx, agencyId, profileId, photoId, key, size, by),
+      insert: (agencyId, profileId, photoId, key, size, by, hash) =>
+        repo.insert(tx, agencyId, profileId, photoId, key, size, by, hash ?? null),
       remove: (agencyId, photoId) => repo.remove(tx, agencyId, photoId),
       makePrimary: (agencyId, profileId, photoId) =>
         repo.makePrimary(tx, agencyId, profileId, photoId),

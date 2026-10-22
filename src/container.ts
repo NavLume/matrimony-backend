@@ -28,6 +28,9 @@ import { AttentionService } from './service/attention-service.js';
 import { ConcernService } from './service/concern-service.js';
 import { PrivacyService } from './service/privacy-service.js';
 import { DeclineService } from './service/decline-service.js';
+import { IntroductionService } from './service/introduction-service.js';
+import { IntroductionDbService } from './db/service/introduction-db-service.js';
+import { IntroductionRepository } from './db/raw/repository/introduction-repository.js';
 import { DeclineDbService } from './db/service/decline-db-service.js';
 import { DeclineRepository } from './db/raw/repository/decline-repository.js';
 import { PrivacyDbService } from './db/service/privacy-db-service.js';
@@ -76,6 +79,16 @@ import { ReportRepository } from './db/raw/repository/report-repository.js';
 import { PaymentDbService } from './db/service/payment-db-service.js';
 import { PaymentRepository } from './db/raw/repository/payment-repository.js';
 import { PushProcess } from './process/push-process.js';
+import { OutsideMessageProcess } from './process/outside-message-process.js';
+import { MessagingService } from './service/messaging-service.js';
+import { FlagService } from './service/flag-service.js';
+import { FunnelService } from './service/funnel-service.js';
+import { FunnelDbService } from './db/service/funnel-db-service.js';
+import { FunnelRepository } from './db/raw/repository/funnel-repository.js';
+import { FlagDbService } from './db/service/flag-db-service.js';
+import { FlagRepository } from './db/raw/repository/flag-repository.js';
+import { MessagingDbService } from './db/service/messaging-db-service.js';
+import { MessagingRepository } from './db/raw/repository/messaging-repository.js';
 import { PushDbService } from './db/service/push-db-service.js';
 import { PushRepository } from './db/raw/repository/push-repository.js';
 import { ConsolePushSender } from './push/push-sender.js';
@@ -347,6 +360,25 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
     );
     if (config.PUSH_DRIVER === 'console')
       hub.onAny((signal) => void push.dispatch(signal.agencyId, signal.accountId));
+    // Texts outside the app (SMS): a member may choose them only where a sender is set up, so until a
+    // provider is chosen these run against the development stub that prints each text in this terminal.
+    const outside = new OutsideMessageProcess(
+      new MessagingDbService(
+        db,
+        new MessagingRepository(),
+        new SettingsRepository(),
+        new EventRepository(),
+      ),
+      {
+        sms:
+          config.SMS_DRIVER === 'console'
+            ? new ConsoleSmsSender((text) => process.stdout.write(`${text}\n`))
+            : undefined,
+      },
+      (agencyId) => identities.tenantById(agencyId),
+      logger,
+    );
+    hub.onAny((signal) => void outside.dispatch(signal.agencyId, signal.accountId));
     const siteContent = new SiteContentService(
       new SiteContentDbService(db, new SiteContentRepository(), new EventRepository()),
       storage,
@@ -380,6 +412,21 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       settings: new SettingsService(
         new SettingsDbService(db, new SettingsRepository(), new EventRepository()),
       ),
+      introductions: new IntroductionService(
+        new IntroductionDbService(db, new IntroductionRepository()),
+      ),
+      funnel: new FunnelService(new FunnelDbService(db, new FunnelRepository())),
+      flags: new FlagService(new FlagDbService(db, new FlagRepository(), new EventRepository())),
+      messaging: new MessagingService(
+        new MessagingDbService(
+          db,
+          new MessagingRepository(),
+          new SettingsRepository(),
+          new EventRepository(),
+        ),
+        () => outside.available(),
+      ),
+      outside,
       declines: new DeclineService(new DeclineDbService(db, new DeclineRepository())),
       privacy: new PrivacyService(
         new PrivacyDbService(db, new PrivacyRepository(), new EventRepository()),

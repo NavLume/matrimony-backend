@@ -42,6 +42,7 @@ const TEMPLATE_OF: Record<NotificationKind, string> = {
   chat_reported: 'chat.reported',
   chat_invited: 'chat.invited',
   meeting_update: 'meeting.update',
+  meeting_reminder: 'meeting.reminder',
   guardian_request: 'guardian.requested',
   guardian_advice: 'guardian.advice',
   guardian_answer: 'guardian.answer',

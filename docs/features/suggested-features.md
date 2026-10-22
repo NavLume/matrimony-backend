@@ -1,11 +1,11 @@
 # Suggested features (not decided, not built)
 
-Ideas that came up while testing, kept apart from what is built and from what the friend has decided. Each says
+Ideas that came up while testing, kept apart from what is built and from what Shammo Bhai has decided. Each says
 who suggested it, why, and what it would change. Nothing here is built until it is moved to a feature note.
 
 ## S1. "Client only" mode for a client who has a login (suggested 14 October 2026)
 
-**Status:** suggested by the owner, to be discussed with the friend. **Not built.** The first release of a client's
+**Status:** suggested by the owner, to be discussed with Shammo Bhai. **Not built.** The first release of a client's
 login (see `discovery-loop.md`, "A client's own login") is built without it: both the client and the agent can
 act, as they do for any member with a login.
 
@@ -31,7 +31,7 @@ login, so a separate "agent only" mode was not kept).
 **Unchanged in this mode:** reviews of the client's own profile edits, photos and CV; the agent still curates and
 releases candidates.
 
-**Open points for the friend**
+**Open points for Shammo Bhai**
 
 - Is the mode wanted at launch, or only when agencies ask for it? (Our view: rare in an assisted agency.)
 - Should the 14-day expiry apply to every client, not only this mode?

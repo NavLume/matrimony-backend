@@ -179,6 +179,8 @@ export interface ProfileDetail {
 }
 
 /** One released profile. Only the fields staff allowed are present; contact details never are. */
+import type { Operator } from './operator.js';
+
 export interface MatchItem {
   candidateId: string;
   memberCode: string;
@@ -188,6 +190,8 @@ export interface MatchItem {
   verified: boolean;
   /** What was checked behind the mark: identity (always), photo, marital_status. Empty when not verified. */
   verifiedChecks: string[];
+  /** Who runs the profile, shown as a label to the other family. Always present, whatever fields staff released. */
+  managedBy: Operator;
   connection: ConnectionSummary | null;
   fullName?: string;
   age?: number | null;

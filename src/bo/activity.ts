@@ -15,7 +15,7 @@ export const ACTIVITY_GROUPS = {
   proposals: ['interest', 'match', 'story'],
   meetings: ['meeting', 'note', 'followup'],
   payments: ['payment', 'service_terms'],
-  safety: ['concern'],
+  safety: ['concern', 'flag'],
   chats: ['chat'],
   guardians: ['guardian'],
   site: ['site', 'legal', 'agreements', 'settings'],

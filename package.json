@@ -17,6 +17,7 @@
     "test": "tsx --test test/*.test.ts",
     "test:integration": "tsx --test test/integration/*.test.ts",
     "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
+    "photos:backfill-hashes": "tsx --env-file=.env scripts/backfill-photo-hashes.ts",
     "auth:keygen": "tsx scripts/auth-keygen.ts",
     "auth:set-password": "tsx --env-file=.env scripts/set-password.ts",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
