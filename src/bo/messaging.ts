@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { pushBody } from '../push/messages.js';
 
 /**
  * Messages outside the app (22 October 2026): a short SMS telling a member that something is
@@ -80,9 +79,11 @@ export function messageText(
   locale: 'bn' | 'en',
   agencyName: string,
   host: string,
+  /** What one kind of thing is called in a push or text (supplied by the caller, so this file depends on no other layer). */
+  bodyOf: (templateKey: string, locale: 'bn' | 'en') => string,
 ): string {
   const what =
-    templates.length === 1 ? pushBody(templates[0]!, locale) : MANY[locale](templates.length);
+    templates.length === 1 ? bodyOf(templates[0]!, locale) : MANY[locale](templates.length);
   return `${agencyName}: ${what} ${OPEN[locale](host)}`;
 }
 

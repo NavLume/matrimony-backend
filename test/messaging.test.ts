@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pino } from 'pino';
+import { pushBody } from '../src/push/messages.js';
 import { MESSAGED_TEMPLATES, inQuietHours, messageText, summaryText } from '../src/bo/messaging.js';
 import { maskPhone } from '../src/bo/phone.js';
 import type { MessagingUnit } from '../src/db/service/messaging-db-service.js';
@@ -88,16 +89,24 @@ function fixture(
 }
 
 await test('the text names only the kind of thing, and where to read it: no name, no detail', () => {
-  const one = messageText(['interest.received'], 'en', 'Marriage Solution BD', 'msbd.example.test');
+  const one = messageText(
+    ['interest.received'],
+    'en',
+    'Marriage Solution BD',
+    'msbd.example.test',
+    pushBody,
+  );
   assert.equal(
     one,
     'Marriage Solution BD: You have a new connection request. Open msbd.example.test.',
   );
   assert.equal(
-    messageText(['interest.received', 'meeting.update'], 'en', 'MSBD', 'x.test'),
+    messageText(['interest.received', 'meeting.update'], 'en', 'MSBD', 'x.test', pushBody),
     'MSBD: You have 2 new notices. Open x.test.',
   );
-  assert.ok(messageText(['interest.received'], 'bn', 'MSBD', 'x.test').startsWith('MSBD: '));
+  assert.ok(
+    messageText(['interest.received'], 'bn', 'MSBD', 'x.test', pushBody).startsWith('MSBD: '),
+  );
 });
 
 await test('only the four kinds that keep a proposal moving are texted; the rest stay in the inbox', () => {
@@ -120,7 +129,7 @@ await test('only the four kinds that keep a proposal moving are texted; the rest
 });
 
 await test('each kind says what happened, in the right direction: an approved request is not a new one, a closed one is not an acceptance', () => {
-  const say = (kind: string) => messageText([kind], 'en', 'MSBD', 'x.test');
+  const say = (kind: string) => messageText([kind], 'en', 'MSBD', 'x.test', pushBody);
   assert.match(say('interest.received'), /new connection request/);
   assert.match(say('interest.forwarded'), /approved/);
   assert.doesNotMatch(say('interest.forwarded'), /new connection request/);

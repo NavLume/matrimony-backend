@@ -1,4 +1,5 @@
 import type { Logger } from 'pino';
+import { pushBody } from '../push/messages.js';
 import { inQuietHours, messageText, summaryText, type MessageChannel } from '../bo/messaging.js';
 import type { MessagingDbService } from '../db/service/messaging-db-service.js';
 import type { SmsSender } from '../sms/sender.js';
@@ -56,7 +57,7 @@ export class OutsideMessageProcess {
       const { name, hostname } = await this.agency(agencyId);
       const text = taken.last
         ? summaryText(taken.locale, name, hostname)
-        : messageText(taken.templates, taken.locale, name, hostname);
+        : messageText(taken.templates, taken.locale, name, hostname, pushBody);
       let status: 'sent' | 'failed' = 'sent';
       try {
         await this.sender(taken.channel).send({ to: taken.phone, text });
