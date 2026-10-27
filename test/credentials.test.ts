@@ -190,3 +190,19 @@ await test('logging in takes an email or a phone number with the password, never
     false,
   );
 });
+
+await test('logging in with a member ID: M and seven digits in either case, and only one way at a time', () => {
+  const parsed = loginInputSchema.parse({ memberCode: ' m1234567 ', password: 'x' });
+  assert.equal(parsed.memberCode, 'M1234567');
+  assert.equal(parsed.email, undefined);
+  assert.deepEqual(codes(loginInputSchema, { memberCode: '1234567', password: 'x' }), [
+    'memberCode:invalid',
+  ]);
+  assert.deepEqual(codes(loginInputSchema, { memberCode: 'M12345678', password: 'x' }), [
+    'memberCode:invalid',
+  ]);
+  assert.deepEqual(
+    codes(loginInputSchema, { memberCode: 'M1234567', email: 'a@b.com', password: 'x' }),
+    ['phone:invalid'],
+  );
+});

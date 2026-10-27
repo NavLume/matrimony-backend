@@ -194,12 +194,22 @@ export class CoupleMatchRepository {
     await tx.query(
       `UPDATE matrimony.success_stories
           SET names = '{}'::jsonb, story = NULL, story_year = NULL, status = 'hidden',
+              photo_file = NULL, wedding_date = NULL,
               consent_a_at = NULL, consent_b_at = NULL, consent_by = NULL, published_at = NULL,
               removed_at = now(), removed_by = $3, removed_reason = $4, updated_at = now()
         WHERE agency_id = $1 AND id = $2`,
       [agencyId, storyId, by, reason],
     );
     return 'removed';
+  }
+
+  /** The stored photo file of a story, if it has one (read before the story is removed, so the file can be deleted). */
+  async storyPhotoFile(tx: Transaction, agencyId: string, storyId: string): Promise<string | null> {
+    const result = await tx.query(
+      `SELECT photo_file FROM matrimony.success_stories WHERE agency_id = $1 AND id = $2`,
+      [agencyId, storyId],
+    );
+    return ((result.rows[0] as Row | undefined)?.photo_file as string | null | undefined) ?? null;
   }
 
   /** The match standing for a connection, if there is one. */

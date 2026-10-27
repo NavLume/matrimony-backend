@@ -50,6 +50,33 @@ export async function blurPreview(thumb: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/**
+ * The picture of a card on the public site: 80 per cent blurred, 20 per cent visible. A very soft base (colour and
+ * shape only) with a slightly less soft layer laid over it at 20 per cent, so a visitor sees there is a person, the
+ * colour of their clothes and the mood of the picture, but cannot recognise a face. It is made from the small stored
+ * copy, so the clear picture is never decoded for it, and it is cropped to 4 by 5 like the card.
+ */
+export async function showcaseBlur(thumb: Buffer): Promise<Buffer> {
+  const upright = await sharp(thumb).rotate().toBuffer();
+  const crop = { width: 16, height: 20, fit: 'cover' as const, position: 'attention' as const };
+  const base = await sharp(upright)
+    .resize({ width: 8, height: 10, fit: 'cover' })
+    .resize({ width: 240, height: 300, kernel: 'cubic' })
+    .blur(16)
+    .toBuffer();
+  const soft = await sharp(upright)
+    .resize(crop)
+    .resize({ width: 240, height: 300, kernel: 'cubic' })
+    .blur(10)
+    .ensureAlpha(0.2)
+    .png()
+    .toBuffer();
+  return sharp(base)
+    .composite([{ input: soft }])
+    .webp({ quality: 55 })
+    .toBuffer();
+}
+
 /** The viewer's member code, repeated across the picture in two layers so it shows on light and dark photos. */
 export async function watermark(image: Buffer, code: string): Promise<Buffer> {
   const meta = await sharp(image).metadata();

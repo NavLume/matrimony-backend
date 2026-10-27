@@ -81,6 +81,24 @@ export const profileQueries = {
   )
   SELECT (SELECT count(*) FROM gone)::int AS withdrawn`,
 
+  // $1 agency, $2 profile. How the profile's mobile number was confirmed, if it was.
+  phoneCheck: `SELECT c.phone_e164 AS phone,
+       (k.phone_e164 IS NOT NULL AND k.phone_e164 = c.phone_e164) AS by_staff,
+       k.confirmed_at,
+       EXISTS (SELECT 1 FROM matrimony.member_profiles p
+                 JOIN matrimony.accounts a ON a.agency_id = p.agency_id AND a.id = p.owner_account_id
+                WHERE p.agency_id = c.agency_id AND p.id = c.profile_id
+                  AND a.phone_e164 = c.phone_e164 AND a.phone_verified_at IS NOT NULL) AS by_code
+  FROM matrimony.profile_contacts c
+  LEFT JOIN matrimony.profile_phone_checks k ON k.agency_id = c.agency_id AND k.profile_id = c.profile_id
+ WHERE c.agency_id = $1 AND c.profile_id = $2`,
+  // $1 agency, $2 profile, $3 staff member. Marks the number now on the profile as reached.
+  confirmPhone: `INSERT INTO matrimony.profile_phone_checks (agency_id, profile_id, phone_e164, confirmed_by)
+ SELECT agency_id, profile_id, phone_e164, $3 FROM matrimony.profile_contacts
+  WHERE agency_id = $1 AND profile_id = $2 AND phone_e164 IS NOT NULL
+ ON CONFLICT (agency_id, profile_id)
+ DO UPDATE SET phone_e164 = EXCLUDED.phone_e164, confirmed_by = EXCLUDED.confirmed_by, confirmed_at = now()`,
+
   contact: `SELECT ${selectList(CONTACT_COLUMNS)} FROM matrimony.profile_contacts WHERE agency_id = $1 AND profile_id = $2`,
   upsertContact: `INSERT INTO matrimony.profile_contacts (agency_id, profile_id, ${names(CONTACT_COLUMNS)})
  VALUES ($1, $2, ${marks(CONTACT_COLUMNS, 3)})

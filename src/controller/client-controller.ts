@@ -16,7 +16,7 @@ import {
   staffMemberResponse,
 } from '../factory/client-response.js';
 import type { ClientService } from '../service/client-service.js';
-import type { ProfileActor } from '../service/profile-service.js';
+import type { ProfileActor, ProfileService } from '../service/profile-service.js';
 import './context.js';
 
 const staffOnly = { roles: ['admin' as const, 'agent' as const] };
@@ -46,6 +46,7 @@ export function registerClientController(
     | 'assignments'
     | 'listStaff'
   >,
+  phoneChecks?: Pick<ProfileService, 'phoneCheck' | 'confirmPhone'>,
 ) {
   const actor = (req: {
     principal: { agencyId: string; id: string; role: ProfileActor['role'] } | null;
@@ -74,6 +75,16 @@ export function registerClientController(
   app.put('/api/v1/staff/clients/:profileId', { config: staffOnly }, async (req) =>
     clientDetailResponse(await clients.save(actor(req), id(req), input(req.body))),
   );
+
+  // Whether the client's mobile number has been reached (registering never sends a code for it).
+  if (phoneChecks) {
+    app.get('/api/v1/staff/clients/:profileId/phone-check', { config: staffOnly }, async (req) =>
+      phoneChecks.phoneCheck(actor(req), id(req)),
+    );
+    app.post('/api/v1/staff/clients/:profileId/phone-check', { config: staffOnly }, async (req) =>
+      phoneChecks.confirmPhone(actor(req), id(req)),
+    );
+  }
 
   app.post('/api/v1/staff/clients/:profileId/submit', { config: staffOnly }, async (req) =>
     clientDetailResponse(

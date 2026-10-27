@@ -399,3 +399,40 @@ await test('the validation schema and the database column list describe exactly 
   assert.deepEqual(Object.keys(parsed.contact).sort(), keys(CONTACT_COLUMNS));
   assert.deepEqual(Object.keys(parsed.preferences).sort(), keys(PREFERENCE_COLUMNS));
 });
+
+await test('staff can see whether a client mobile number was reached, mark it, and a changed number is unconfirmed again', async () => {
+  const { service } = setup();
+  const admin: ProfileActor = { agencyId: agency, accountId: randomUUID(), role: 'admin' };
+  const agent: ProfileActor = { agencyId: agency, accountId: randomUUID(), role: 'agent' };
+  const otherAgent: ProfileActor = { agencyId: agency, accountId: randomUUID(), role: 'agent' };
+  const { id } = await service.createClient(admin, completeInput(), agent.accountId, 'r');
+
+  assert.deepEqual(await service.phoneCheck(agent, id), {
+    phone: '+8801712345678',
+    confirmed: false,
+    how: null,
+    confirmedAt: null,
+  });
+  // An agent who does not look after the client cannot even see it.
+  await rejects(service.phoneCheck(otherAgent, id), 404, 'PROFILE_NOT_FOUND');
+  await rejects(service.confirmPhone(otherAgent, id), 404, 'PROFILE_NOT_FOUND');
+
+  const confirmed = await service.confirmPhone(agent, id);
+  assert.equal(confirmed.confirmed, true);
+  assert.equal(confirmed.how, 'staff');
+
+  // A new number has not been reached yet.
+  const current = (await service.getClient(agent, id)).profile!;
+  await service.saveClient(
+    agent,
+    id,
+    completeInput(current.version, {}, { phone: '+8801811111111' }),
+  );
+  assert.equal((await service.phoneCheck(agent, id)).confirmed, false);
+});
+
+await test('a member cannot ask about or mark a number', async () => {
+  const { service, member } = setup();
+  await rejects(service.phoneCheck(member, randomUUID()), 403, 'ROLE_FORBIDDEN');
+  await rejects(service.confirmPhone(member, randomUUID()), 403, 'ROLE_FORBIDDEN');
+});

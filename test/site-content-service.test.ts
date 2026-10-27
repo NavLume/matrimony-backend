@@ -6,6 +6,7 @@ import {
   contrastOnDark,
   contrastOnWhite,
   siteContentSchema,
+  weddingDateSchema,
 } from '../src/bo/site-content.js';
 import sharp from 'sharp';
 import type { StoredPreview } from '../src/cache/repository/preview-repository.js';
@@ -29,7 +30,18 @@ function setup(config: Record<string, unknown> = {}, published: unknown[] = []) 
     get: async (key: string) => files.get(key) ?? null,
     delete: async (key: string) => void files.delete(key),
   };
+  const stories = new Map<string, { photo: string | null; published: boolean; removed: boolean }>();
   const db = {
+    setStoryDetails: async (_agency: string, id: string, change: { photoFile?: string | null }) => {
+      const story = stories.get(id);
+      if (!story || story.removed) return undefined;
+      const previous = story.photo;
+      if (change.photoFile !== undefined) story.photo = change.photoFile;
+      return { previous };
+    },
+    isPublishedPhoto: async (_agency: string, file: string) =>
+      [...stories.values()].some((s) => s.photo === file && s.published && !s.removed),
+    storyPhotoFile: async (_agency: string, id: string) => stories.get(id)?.photo ?? null,
     readConfig: async () => ({
       config: state.config,
       published: published.length,
@@ -46,15 +58,17 @@ function setup(config: Record<string, unknown> = {}, published: unknown[] = []) 
       return state.config;
     },
   };
+  let counter = 0;
   return {
     state,
     files,
     previews,
+    stories,
     service: new SiteContentService(
       db,
       storage,
       () => new Date('2026-10-20T10:00:00Z'),
-      undefined,
+      () => `00000000-0000-4000-8000-${String(++counter).padStart(12, '0')}`,
       {
         put: async (agency, id, preview) => void previews.set(`${agency}:${id}`, preview),
         get: async (agency, id) => previews.get(`${agency}:${id}`) ?? null,
@@ -359,4 +373,116 @@ await test('a preview link belongs to its agency, is a long random id, and only 
   });
   const other = await service.preview(admin, { name: 'A', locale: 'bn' }, {});
   assert.notEqual(other.id, id);
+});
+
+const png400 = await png(400);
+const png50 = await png(50);
+await test('home pictures are stored as WebP, replace the old one and can be removed', async () => {
+  const { service, state, files } = setup();
+  const hero = await service.setImage(admin, 'hero', await png(400), 'r');
+  assert.match(hero, /^\/api\/v1\/public\/branding\/img-[0-9a-f-]{36}\.webp$/);
+  assert.ok(await service.logoFile(AGENCY, hero.split('/').pop()!));
+  const second = await service.setImage(admin, 'hero', await png(400), 'r');
+  assert.equal(files.size, 1);
+  assert.deepEqual(state.config, { images: { hero: second } });
+  await service.removeImage(admin, 'hero', 'r');
+  assert.equal(files.size, 0);
+  assert.deepEqual(state.config, {});
+  await assert.rejects(() => service.setImage(agent, 'hero', png400, 'r'), {
+    code: 'ROLE_FORBIDDEN',
+  });
+  await assert.rejects(() => service.setImage(admin, 'hero', png50, 'r'), {
+    code: 'IMAGE_TOO_SMALL',
+  });
+  await assert.rejects(() => service.setImage(admin, 'hero', Buffer.from('<svg/>'), 'r'), {
+    code: 'IMAGE_INVALID',
+  });
+  assert.equal(files.size, 0);
+});
+
+await test('the gallery grows one picture at a time, keeps its order and captions, and cannot link foreign files', async () => {
+  const { service, state, files } = setup();
+  const a = await service.addGalleryImage(admin, await png(400), 'r');
+  const b = await service.addGalleryImage(admin, await png(400), 'r');
+  await service.update(
+    admin,
+    siteContentSchema.parse({
+      gallery: [
+        { url: b, caption: { en: 'Second first', bn: '' } },
+        { url: a },
+        { url: '/api/v1/public/branding/img-99999999-9999-4999-8999-999999999999.webp' },
+      ],
+    }),
+    'r',
+  );
+  const gallery = (state.config.images as { gallery: { url: string }[] }).gallery;
+  assert.deepEqual(gallery, [{ url: b, caption: { en: 'Second first' } }, { url: a }]);
+  await service.removeGalleryImage(admin, a.split('/').pop()!, 'r');
+  assert.equal(files.size, 1);
+  assert.deepEqual((state.config.images as { gallery: unknown[] }).gallery.length, 1);
+  await assert.rejects(() => service.removeGalleryImage(admin, a.split('/').pop()!, 'r'), {
+    code: 'NOT_FOUND',
+  });
+  await assert.rejects(() => service.removeGalleryImage(admin, '../x', 'r'), { code: 'NOT_FOUND' });
+  assert.equal(
+    siteContentSchema.safeParse({ gallery: [{ url: 'https://evil.example/x.webp' }] }).success,
+    false,
+  );
+});
+
+await test('a story photo is shown only while the story is published, and goes with it when removed', async () => {
+  const { service, stories, files } = setup();
+  const id = '44444444-4444-4444-8444-444444444444';
+  stories.set(id, { photo: null, published: false, removed: false });
+  await service.setStoryPhoto(admin, id, await png(400), 'r');
+  const file = stories.get(id)!.photo!;
+  assert.match(file, /^story-[0-9a-f-]{36}\.webp$/);
+  assert.equal(await service.storyPhotoFile(AGENCY, file), null);
+  assert.ok(await service.storyPhotoForAdmin(admin, id));
+  stories.get(id)!.published = true;
+  assert.ok(await service.storyPhotoFile(AGENCY, file));
+  await service.setStoryPhoto(admin, id, await png(400), 'r');
+  assert.equal(files.size, 1);
+  await service.removeStoryPhoto(admin, id, 'r');
+  assert.equal(files.size, 0);
+  await assert.rejects(
+    () => service.setStoryPhoto(admin, '55555555-5555-4555-8555-555555555555', png400, 'r'),
+    { code: 'STORY_NOT_FOUND' },
+  );
+  stories.get(id)!.removed = true;
+  await assert.rejects(() => service.setStoryPhoto(admin, id, png400, 'r'), {
+    code: 'STORY_NOT_FOUND',
+  });
+  assert.equal(files.size, 0);
+  await assert.rejects(() => service.setStoryPhoto(agent, id, png400, 'r'), {
+    code: 'ROLE_FORBIDDEN',
+  });
+});
+
+await test('a wedding date must be a real date', () => {
+  assert.equal(weddingDateSchema.safeParse({ weddingDate: '2026-02-14' }).success, true);
+  assert.equal(weddingDateSchema.safeParse({ weddingDate: null }).success, true);
+  assert.equal(weddingDateSchema.safeParse({ weddingDate: '2026-02-30' }).success, false);
+  assert.equal(weddingDateSchema.safeParse({ weddingDate: 'soon' }).success, false);
+});
+
+await test('the public config keeps only stored picture addresses', () => {
+  const config = parsePublicConfig({
+    images: {
+      hero: 'https://evil.example/x.png',
+      about: '/api/v1/public/branding/img-11111111-1111-4111-8111-111111111111.webp',
+      gallery: [
+        { url: '/etc/passwd' },
+        { url: '/api/v1/public/branding/img-11111111-1111-4111-8111-111111111111.webp' },
+      ],
+    },
+    successStories: [
+      { names: { en: 'A' }, photoUrl: 'https://evil.example/x.png', weddingDate: '2026-02-14' },
+    ],
+  });
+  assert.equal(config.images?.hero, undefined);
+  assert.ok(config.images?.about);
+  assert.equal(config.images?.gallery.length, 1);
+  assert.equal(config.successStories[0]?.photoUrl, undefined);
+  assert.equal(config.successStories[0]?.weddingDate, '2026-02-14');
 });

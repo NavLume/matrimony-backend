@@ -12,7 +12,7 @@ export interface SmtpSettings {
   tls: 'starttls' | 'implicit' | 'none';
   user?: string;
   password?: string;
-  /** The sender, for example `Marriage Solution BD <no-reply@example.com>`. */
+  /** The sender, for example `Biyer Bondhon <no-reply@example.com>`. */
   from: string;
   timeoutMs: number;
 }

@@ -54,6 +54,10 @@ import { LegalDbService } from './db/service/legal-db-service.js';
 import { LegalRepository } from './db/raw/repository/legal-repository.js';
 import { PreviewRepository } from './cache/repository/preview-repository.js';
 import { SiteContentService } from './service/site-content-service.js';
+import { ShowcaseService } from './service/showcase-service.js';
+import { ShowcaseDbService } from './db/service/showcase-db-service.js';
+import { ShowcaseRepository } from './db/raw/repository/showcase-repository.js';
+import { ShowcaseProcess } from './process/showcase-process.js';
 import { SiteContentDbService } from './db/service/site-content-db-service.js';
 import { SiteContentRepository } from './db/raw/repository/site-content-repository.js';
 import { CoupleMatchService } from './service/couple-match-service.js';
@@ -128,6 +132,7 @@ import { createFileStorage } from './storage/config/storage.js';
 import { RegistrationRepository } from './db/raw/repository/registration-repository.js';
 import { RegistrationDbService } from './db/service/registration-db-service.js';
 import { RegistrationService } from './service/registration-service.js';
+import { detailsToProfileInput } from './bo/registration-details.js';
 import { ReviewRepository } from './db/raw/repository/review-repository.js';
 import { ReviewDbService } from './db/service/review-db-service.js';
 import { ReviewService } from './service/review-service.js';
@@ -221,6 +226,18 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
     const registrations = new RegistrationService(
       new RegistrationDbService(db, new RegistrationRepository(), new EventRepository()),
     );
+    // The answers given while registering start the member's draft profile. A failure is logged and
+    // never fails the registration: the account exists and My Profile can be filled in by hand.
+    registrations.afterRegistered = async (agencyId, account, details) => {
+      try {
+        await profiles.save(
+          { agencyId, accountId: account.id, role: 'member' },
+          detailsToProfileInput(details, new Date()),
+        );
+      } catch {
+        logger.warn({ code: 'REGISTRATION_PROFILE_FAILED' }, 'Could not start the draft profile');
+      }
+    };
     const oneTimeTokens = new OneTimeTokenRepository(redis);
     // The agency's own terms and privacy text; a registration records the version shown when the person agreed.
     const legal = new LegalService(
@@ -386,6 +403,14 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       undefined,
       new PreviewRepository(redis),
     );
+    const showcaseService = new ShowcaseService(
+      new ShowcaseDbService(
+        db,
+        new ShowcaseRepository(),
+        new SiteContentRepository(),
+        new EventRepository(),
+      ),
+    );
     // Signing in again within the waiting time cancels a deletion.
     auth.afterSignIn = (agencyId, accountId) =>
       deletions.cancelOnSignIn(agencyId, accountId).catch(() => undefined);
@@ -442,10 +467,15 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       ),
       activity: new ActivityService(db, new ActivityRepository()),
       siteContent,
+      showcase: showcaseService,
+      showcaseProcess: new ShowcaseProcess(showcaseService, storage, phone),
       legal,
       agreements,
       coupleMatches: new CoupleMatchService(
         new CoupleMatchDbService(db, new CoupleMatchRepository(), new EventRepository()),
+        undefined,
+        undefined,
+        storage,
       ),
       meetings: new MeetingService(
         new MeetingDbService(db, new MeetingRepository(), new EventRepository()),
@@ -470,6 +500,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         logger,
       ),
       profiles,
+      phoneChecks: profiles,
       reviews: new ReviewProcess(
         new ReviewService(
           new ReviewDbService(

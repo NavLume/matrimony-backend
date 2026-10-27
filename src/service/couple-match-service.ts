@@ -5,6 +5,7 @@ import type { WorkflowEvent } from '../bo/event.js';
 import type { MatchProfile } from '../db/raw/repository/couple-match-repository.js';
 import type { CoupleMatchDbService } from '../db/service/couple-match-db-service.js';
 import { AppError } from '../exception/app-error.js';
+import type { FileStorage } from '../storage/service/file-storage.js';
 import type { ProfileActor } from './profile-service.js';
 
 type EventType = Extract<
@@ -26,6 +27,7 @@ export class CoupleMatchService {
     private readonly db: Pick<CoupleMatchDbService, 'inTransaction'>,
     private readonly now: () => Date = () => new Date(),
     private readonly newId: () => string = randomUUID,
+    private readonly files?: Pick<FileStorage, 'delete'>,
   ) {}
 
   async markMatched(
@@ -154,12 +156,17 @@ export class CoupleMatchService {
     correlationId: string,
   ): Promise<void> {
     if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
-    await this.db.inTransaction(actor.agencyId, async (unit) => {
+    const photo = await this.db.inTransaction(actor.agencyId, async (unit) => {
+      const file = await unit.storyPhotoFile(actor.agencyId, storyId);
       const result = await unit.removeStory(actor.agencyId, storyId, actor.accountId, reason);
       if (result === 'missing') throw new AppError(404, 'STORY_NOT_FOUND');
       if (result === 'already') throw new AppError(409, 'STORY_ALREADY_REMOVED');
       await unit.appendEvent(this.event('story.removed', actor, storyId, correlationId));
+      return file;
     });
+    // The couple's face goes with the story. A file that cannot be deleted now is no longer linked or served.
+    if (photo)
+      await this.files?.delete(`${actor.agencyId}/stories/${photo}`).catch(() => undefined);
   }
 
   private allowed(actor: ProfileActor, a: MatchProfile, b: MatchProfile) {

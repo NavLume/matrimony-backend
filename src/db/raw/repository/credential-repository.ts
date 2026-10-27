@@ -27,6 +27,11 @@ export class CredentialRepository {
     return result.rows[0] ? toRecord(result.rows[0]) : null;
   }
 
+  async byMemberCode(tx: Transaction, agencyId: string, memberCode: string) {
+    const result = await tx.query(credentialQueries.byMemberCode, [agencyId, memberCode]);
+    return result.rows[0] ? toRecord(result.rows[0]) : null;
+  }
+
   async byId(tx: Transaction, agencyId: string, accountId: string) {
     const result = await tx.query(credentialQueries.byId, [agencyId, accountId]);
     return result.rows[0] ? toRecord(result.rows[0]) : null;

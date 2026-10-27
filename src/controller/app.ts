@@ -31,6 +31,7 @@ import type { Principal } from '../bo/identity.js';
 import { registerAgreementController } from './agreement-controller.js';
 import { registerLegalController } from './legal-controller.js';
 import { registerSiteContentController } from './site-content-controller.js';
+import { registerShowcaseController } from './showcase-controller.js';
 import { registerCoupleMatchController } from './couple-match-controller.js';
 import { registerActivityController } from './activity-controller.js';
 import { registerGuardianController } from './guardian-controller.js';
@@ -173,6 +174,8 @@ export interface AppDependencies {
   };
   siteContent?: Parameters<typeof registerSiteContentController>[1] &
     Pick<SiteContentService, 'withStories'>;
+  showcase?: Parameters<typeof registerShowcaseController>[1];
+  showcaseProcess?: Parameters<typeof registerShowcaseController>[2];
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
   /** Undefined in tests that do not need it. */
   deletions?: Pick<AccountDeletionProcess, 'request'>;
@@ -208,6 +211,8 @@ export interface AppDependencies {
     'state' | 'upload' | 'remove' | 'review' | 'file' | 'fileOfConnection' | 'infoOfConnection'
   >;
   profiles: Pick<ProfileService, 'get' | 'save' | 'submit' | 'requestEdit' | 'cancelPending'>;
+  /** Whether a client's mobile number was reached; the routes exist only when it is given. */
+  phoneChecks?: Pick<ProfileService, 'phoneCheck' | 'confirmPhone'>;
   ready: () => Promise<void>;
 }
 export async function buildApp(deps: AppDependencies) {
@@ -352,7 +357,7 @@ export async function buildApp(deps: AppDependencies) {
   registerPhotoController(app, deps.photos);
   registerCvController(app, deps.cvs);
   registerReviewController(app, deps.reviews);
-  registerClientController(app, deps.clients);
+  registerClientController(app, deps.clients, deps.phoneChecks);
   registerCandidateController(app, deps.candidates);
   registerMatchController(app, deps.matches);
   registerConnectionController(app, deps.connections);
@@ -363,6 +368,8 @@ export async function buildApp(deps: AppDependencies) {
   if (deps.activity) registerActivityController(app, deps.activity);
   if (deps.coupleMatches) registerCoupleMatchController(app, deps.coupleMatches);
   if (deps.siteContent) registerSiteContentController(app, deps.siteContent);
+  if (deps.showcase && deps.showcaseProcess)
+    registerShowcaseController(app, deps.showcase, deps.showcaseProcess);
   if (deps.legal) registerLegalController(app, deps.legal);
   if (deps.agreements) registerAgreementController(app, deps.agreements);
   if (deps.mobile) registerMobileController(app, deps.mobile);

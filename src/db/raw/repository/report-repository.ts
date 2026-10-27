@@ -424,6 +424,8 @@ export class ReportRepository {
               cm.matched_at, st.id AS story_id, st.status AS story_status,
               (st.consent_a_at IS NOT NULL AND st.consent_b_at IS NOT NULL) AS story_ok,
               (st.removed_at IS NOT NULL) AS story_removed,
+              (st.photo_file IS NOT NULL) AS story_has_photo,
+              to_char(st.wedding_date, 'YYYY-MM-DD') AS story_wedding_date,
               coalesce((SELECT sum(c.amount) FROM matrimony.client_payments c
                          WHERE c.agency_id = i.agency_id AND c.interest_id = i.id AND c.voided_at IS NULL), 0)::bigint AS for_this,
               (SELECT count(*) FROM matrimony.meetings m WHERE m.agency_id = i.agency_id AND m.interest_id = i.id
@@ -493,6 +495,8 @@ export class ReportRepository {
               status: row.story_status as 'draft' | 'published' | 'hidden',
               consentBoth: row.story_ok === true,
               removed: row.story_removed === true,
+              hasPhoto: row.story_has_photo === true,
+              weddingDate: (row.story_wedding_date as string | null) ?? null,
             }
           : null,
         meetings: {

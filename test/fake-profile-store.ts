@@ -32,6 +32,8 @@ export class FakeStore {
   withdrawn: { profileId: string; reason: string }[] = [];
   reviews: (ReviewRecord & { profileId: string; submittedBy?: string })[] = [];
   events: WorkflowEvent[] = [];
+  /** The number staff confirmed, by profile. */
+  confirmedPhones = new Map<string, string>();
   /** Make the next create() lose a race with another request for the same member. */
   raceOnNextCreate = false;
   /** Member codes that are already taken. */
@@ -151,6 +153,22 @@ export class FakeStore {
             (r) =>
               r.profileId === profileId && (r.status === 'approved' || r.status === 'rejected'),
           ) ?? null,
+      phoneCheck: async (_agencyId, profileId) => {
+        const phone = this.profiles.get(profileId)?.data.contact.phone ?? null;
+        const by = phone !== null && this.confirmedPhones.get(profileId) === phone;
+        return {
+          phone,
+          confirmed: by,
+          how: by ? ('staff' as const) : null,
+          confirmedAt: by ? '2026-10-28T00:00:00.000Z' : null,
+        };
+      },
+      confirmPhone: async (_agencyId, profileId) => {
+        const phone = this.profiles.get(profileId)?.data.contact.phone;
+        if (!phone) return false;
+        this.confirmedPhones.set(profileId, phone);
+        return true;
+      },
       appendEvent: async (event) => {
         this.events.push(event);
       },

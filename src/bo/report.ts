@@ -254,6 +254,10 @@ export interface SuccessfulConnection {
     status: 'draft' | 'published' | 'hidden';
     consentBoth: boolean;
     removed: boolean;
+    /** A couple photo is stored (shown on the site only while the story is published). */
+    hasPhoto: boolean;
+    /** `YYYY-MM-DD`. */
+    weddingDate: string | null;
   } | null;
   meetings: { total: number; done: number; last: string | null };
   /** Success-fee payments recorded for this very connection. */

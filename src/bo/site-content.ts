@@ -1,5 +1,16 @@
 import { z } from 'zod';
-import { HOME_SECTION_IDS, THEME_IDS } from './public-config.js';
+import {
+  HOME_SECTION_IDS,
+  MAX_GALLERY_IMAGES,
+  SITE_IMAGE_SLOTS,
+  THEME_IDS,
+} from './public-config.js';
+
+/** The address of a picture the platform stored for the agency (always one random id, always WebP). */
+const SITE_IMAGE_URL = /^\/api\/v1\/public\/branding\/img-[0-9a-f-]{36}\.webp$/;
+
+export const siteImageSlotSchema = z.enum(SITE_IMAGE_SLOTS);
+export type SiteImageSlot = z.output<typeof siteImageSlotSchema>;
 
 /**
  * The words of an agency's public site that its admin edits from the dashboard (20 October 2026):
@@ -52,10 +63,22 @@ const email = z
   )
   .optional();
 
+export const gallerySchema = z
+  .array(
+    z
+      .object({
+        url: z.string(fail('invalid')).regex(SITE_IMAGE_URL, fail('invalid')),
+        caption: localized(160),
+      })
+      .strict(),
+  )
+  .max(MAX_GALLERY_IMAGES, fail('tooMany'));
+
 const branch = z
   .object({
     name: localized(120),
     address: localized(300),
+    hours: localized(160),
     phone: clean(40),
     mapUrl: httpsUrl,
   })
@@ -70,7 +93,7 @@ const homeSectionInput = z
     text: localized(400),
     items: z
       .array(z.object({ title: localized(160), text: localized(400) }).strict())
-      .max(4, fail('tooMany'))
+      .max(8, fail('tooMany'))
       .optional(),
   })
   .strict();
@@ -99,6 +122,8 @@ export const siteContentSchema = z
       .optional(),
     about: localized(4000),
     branches: z.array(branch).max(3, fail('tooMany')).optional(),
+    /** The gallery's order and captions; the pictures themselves are uploaded one by one. */
+    gallery: gallerySchema.optional(),
   })
   .strict();
 export type SiteContentInput = z.output<typeof siteContentSchema>;
@@ -118,9 +143,17 @@ export interface SiteContent {
     scene?: boolean;
   };
   about?: { bn?: string; en?: string };
+  /** The home page's pictures: three single ones and the gallery in its order. */
+  images: {
+    hero?: string;
+    about?: string;
+    cta?: string;
+    gallery: { url: string; caption?: { bn?: string; en?: string } }[];
+  };
   branches: {
     name?: { bn?: string; en?: string };
     address?: { bn?: string; en?: string };
+    hours?: { bn?: string; en?: string };
     phone?: string;
     mapUrl?: string;
   }[];
@@ -196,3 +229,27 @@ export function contrastOnWhite(hex: string): number {
 export const LOGO_FILE =
   /^logo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/;
 export const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+/** The name of a stored home-page picture: one random id, always WebP. */
+export const SITE_IMAGE_FILE =
+  /^img-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/;
+export const MAX_SITE_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** The name of a stored success-story photo: one random id, always WebP. */
+export const STORY_PHOTO_FILE =
+  /^story-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/;
+
+/** A story's wedding date, as `YYYY-MM-DD`, or empty to clear it. */
+export const weddingDateSchema = z
+  .object({
+    weddingDate: z
+      .string(fail('invalid'))
+      .regex(/^\d{4}-\d{2}-\d{2}$/, fail('invalid'))
+      .refine((value) => {
+        const date = new Date(`${value}T00:00:00Z`);
+        return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+      }, fail('invalid'))
+      .refine((value) => value >= '1900-01-01' && value <= '2100-12-31', fail('invalid'))
+      .nullable(),
+  })
+  .strict();

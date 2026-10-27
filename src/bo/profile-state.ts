@@ -50,3 +50,15 @@ export interface OwnProfileState {
   pendingReview: ReviewRecord | null;
   lastDecision: ReviewRecord | null;
 }
+
+/**
+ * Whether the mobile number on a profile has been reached. A number is confirmed when a text-message
+ * code proved it (the member registered or signed in with it) or when staff who spoke to the person
+ * marked it. A number that was changed since is not confirmed again.
+ */
+export interface PhoneCheck {
+  phone: string | null;
+  confirmed: boolean;
+  how: 'code' | 'staff' | null;
+  confirmedAt: string | null;
+}

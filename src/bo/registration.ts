@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { emailSchema, newPasswordSchema, passwordMatchesEmail } from './credentials.js';
+import { registrationDetailsSchema } from './registration-details.js';
 
 /**
  * Registration of a new member. Only members register themselves; agents and admins are
@@ -37,6 +38,8 @@ export const registrationInputSchema = z
     onBehalfOfOther: z.boolean(fail('invalid')).default(false),
     /** Needed when registering for someone else: they confirm they have that person's permission. */
     confirmAuthority: z.boolean(fail('invalid')).default(false),
+    /** The answers of the first steps, which start the member's draft profile. */
+    details: registrationDetailsSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -61,6 +64,7 @@ export const registrationSchema = z.object({
   onBehalfOfOther: z.boolean(),
   termsVersion: z.string().min(1),
   privacyVersion: z.string().min(1),
+  details: registrationDetailsSchema.optional(),
 });
 export type Registration = z.output<typeof registrationSchema>;
 
@@ -74,6 +78,7 @@ export function toRegistration(
     onBehalfOfOther: input.onBehalfOfOther,
     termsVersion: versions.terms,
     privacyVersion: versions.privacy,
+    ...(input.details ? { details: input.details } : {}),
   };
 }
 

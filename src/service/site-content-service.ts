@@ -1,14 +1,18 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { parsePublicConfig, type PublicConfig } from '../bo/public-config.js';
+import { MAX_GALLERY_IMAGES, parsePublicConfig, type PublicConfig } from '../bo/public-config.js';
 import {
   LOGO_FILE,
   MAX_LOGO_BYTES,
+  MAX_SITE_IMAGE_BYTES,
+  SITE_IMAGE_FILE,
+  STORY_PHOTO_FILE,
   type BrandingInput,
   type SiteContent,
   type SiteContentInput,
+  type SiteImageSlot,
 } from '../bo/site-content.js';
 import type { StoredPreview } from '../cache/repository/preview-repository.js';
-import { processLogo } from '../security/image-processor.js';
+import { processLogo, processSiteImage } from '../security/image-processor.js';
 import type { FileStorage } from '../storage/service/file-storage.js';
 import type { SiteContentDbService } from '../db/service/site-content-db-service.js';
 import { AppError } from '../exception/app-error.js';
@@ -16,6 +20,9 @@ import type { ProfileActor } from './profile-service.js';
 
 /** The most stories the public site shows: the published ones first, then any the operator typed in. */
 const MAX_STORIES = 12;
+
+/** Where a success story's couple photo is served from (only while the story is published). */
+const STORY_PHOTO_PATH = '/api/v1/public/story-photos/';
 
 /** How long a draft can be looked at before it is saved, in seconds. */
 const PREVIEW_SECONDS = 30 * 60;
@@ -29,7 +36,15 @@ const LOGO_PATH = '/api/v1/public/branding/';
  */
 export class SiteContentService {
   constructor(
-    private readonly db: Pick<SiteContentDbService, 'readConfig' | 'publishedStories' | 'update'>,
+    private readonly db: Pick<
+      SiteContentDbService,
+      | 'readConfig'
+      | 'publishedStories'
+      | 'update'
+      | 'setStoryDetails'
+      | 'isPublishedPhoto'
+      | 'storyPhotoFile'
+    >,
     private readonly storage: Pick<FileStorage, 'put' | 'get' | 'delete'>,
     private readonly now: () => Date = () => new Date(),
     private readonly newId: () => string = randomUUID,
@@ -48,6 +63,8 @@ export class SiteContentService {
         names: story.names,
         story: story.story ?? undefined,
         year: story.year ?? undefined,
+        photoUrl: story.photoFile ? `${STORY_PHOTO_PATH}${story.photoFile}` : undefined,
+        weddingDate: story.weddingDate ?? undefined,
       })),
     }).successStories;
     return {
@@ -72,6 +89,12 @@ export class SiteContentService {
       home: parsed.home ?? {},
       auth: parsed.auth ?? {},
       about: parsed.about,
+      images: {
+        hero: parsed.images?.hero,
+        about: parsed.images?.about,
+        cta: parsed.images?.cta,
+        gallery: parsed.images?.gallery ?? [],
+      },
       branches: parsed.branches,
       publishedStories: published,
     };
@@ -177,10 +200,219 @@ export class SiteContentService {
     await this.deleteStored(actor.agencyId, previous);
   }
 
-  /** A stored logo for the public site, or null. Only names this service wrote are looked up. */
+  /** A stored logo or home-page picture for the public site, or null. Only names this service wrote are looked up. */
   async logoFile(agencyId: string, file: string): Promise<Buffer | null> {
-    if (!LOGO_FILE.test(file)) return null;
+    if (!LOGO_FILE.test(file) && !SITE_IMAGE_FILE.test(file)) return null;
     return this.storage.get(this.key(agencyId, file));
+  }
+
+  /**
+   * The couple photo of a success story. Admin only; the couple's agreement to the story covers it. The picture is
+   * written again as a WebP like every site image. It is shown only while the story is published.
+   */
+  async setStoryPhoto(
+    actor: ProfileActor,
+    storyId: string,
+    bytes: Buffer,
+    correlationId: string,
+  ): Promise<void> {
+    this.adminOnly(actor);
+    if (bytes.length === 0 || bytes.length > MAX_SITE_IMAGE_BYTES)
+      throw new AppError(413, 'PAYLOAD_TOO_LARGE');
+    const image = await processSiteImage(bytes);
+    const file = `story-${this.newId()}.webp`;
+    const key = this.storyKey(actor.agencyId, file);
+    await this.storage.put(key, image, 'image/webp');
+    let result;
+    try {
+      result = await this.db.setStoryDetails(
+        actor.agencyId,
+        storyId,
+        { photoFile: file },
+        this.event(actor, correlationId),
+      );
+    } catch (error) {
+      await this.storage.delete(key).catch(() => undefined);
+      throw error;
+    }
+    if (!result) {
+      await this.storage.delete(key).catch(() => undefined);
+      throw new AppError(404, 'STORY_NOT_FOUND');
+    }
+    if (result.previous)
+      await this.storage
+        .delete(this.storyKey(actor.agencyId, result.previous))
+        .catch(() => undefined);
+  }
+
+  async removeStoryPhoto(actor: ProfileActor, storyId: string, correlationId: string) {
+    this.adminOnly(actor);
+    const result = await this.db.setStoryDetails(
+      actor.agencyId,
+      storyId,
+      { photoFile: null },
+      this.event(actor, correlationId),
+    );
+    if (!result) throw new AppError(404, 'STORY_NOT_FOUND');
+    if (result.previous)
+      await this.storage
+        .delete(this.storyKey(actor.agencyId, result.previous))
+        .catch(() => undefined);
+  }
+
+  /** The wedding date shown on a story (or none, to clear it). */
+  async setStoryWeddingDate(
+    actor: ProfileActor,
+    storyId: string,
+    weddingDate: string | null,
+    correlationId: string,
+  ) {
+    this.adminOnly(actor);
+    const result = await this.db.setStoryDetails(
+      actor.agencyId,
+      storyId,
+      { weddingDate },
+      this.event(actor, correlationId),
+    );
+    if (!result) throw new AppError(404, 'STORY_NOT_FOUND');
+  }
+
+  /** A story's photo for the admin who manages it, whatever the story's state. Null when it has none. */
+  async storyPhotoForAdmin(actor: ProfileActor, storyId: string): Promise<Buffer | null> {
+    this.adminOnly(actor);
+    const file = await this.db.storyPhotoFile(actor.agencyId, storyId);
+    return file ? this.storage.get(this.storyKey(actor.agencyId, file)) : null;
+  }
+
+  /** A story's photo for the public site, only while its story is published. Null otherwise. */
+  async storyPhotoFile(agencyId: string, file: string): Promise<Buffer | null> {
+    if (!STORY_PHOTO_FILE.test(file)) return null;
+    if (!(await this.db.isPublishedPhoto(agencyId, file))) return null;
+    return this.storage.get(this.storyKey(agencyId, file));
+  }
+
+  private storyKey(agencyId: string, file: string) {
+    return `${agencyId}/stories/${file}`;
+  }
+
+  /** Stores an uploaded home-page picture and returns its address; the caller links it, or deletes it again. */
+  private async storeSiteImage(agencyId: string, bytes: Buffer): Promise<string> {
+    if (bytes.length === 0 || bytes.length > MAX_SITE_IMAGE_BYTES)
+      throw new AppError(413, 'PAYLOAD_TOO_LARGE');
+    const image = await processSiteImage(bytes);
+    const file = `img-${this.newId()}.webp`;
+    await this.storage.put(this.key(agencyId, file), image, 'image/webp');
+    return `${LOGO_PATH}${file}`;
+  }
+
+  /** Sets the hero, about or call-to-action picture, and removes the one it replaces. */
+  async setImage(
+    actor: ProfileActor,
+    slot: SiteImageSlot,
+    bytes: Buffer,
+    correlationId: string,
+  ): Promise<string> {
+    this.adminOnly(actor);
+    const url = await this.storeSiteImage(actor.agencyId, bytes);
+    let previous: string | undefined;
+    try {
+      await this.db.update(
+        actor.agencyId,
+        (current) => {
+          const images = { ...asObject(current.images) };
+          previous = typeof images[slot] === 'string' ? (images[slot] as string) : undefined;
+          images[slot] = url;
+          return { ...current, images };
+        },
+        this.event(actor, correlationId),
+      );
+    } catch (error) {
+      await this.deleteStored(actor.agencyId, url);
+      throw error;
+    }
+    await this.deleteStored(actor.agencyId, previous);
+    return url;
+  }
+
+  async removeImage(actor: ProfileActor, slot: SiteImageSlot, correlationId: string) {
+    this.adminOnly(actor);
+    let previous: string | undefined;
+    await this.db.update(
+      actor.agencyId,
+      (current) => {
+        const images = { ...asObject(current.images) };
+        previous = typeof images[slot] === 'string' ? (images[slot] as string) : undefined;
+        delete images[slot];
+        return withImages(current, images);
+      },
+      this.event(actor, correlationId),
+    );
+    await this.deleteStored(actor.agencyId, previous);
+  }
+
+  /** Adds a picture at the end of the gallery (up to 24). */
+  async addGalleryImage(
+    actor: ProfileActor,
+    bytes: Buffer,
+    correlationId: string,
+  ): Promise<string> {
+    this.adminOnly(actor);
+    const url = await this.storeSiteImage(actor.agencyId, bytes);
+    try {
+      await this.db.update(
+        actor.agencyId,
+        (current) => {
+          const images = { ...asObject(current.images) };
+          const gallery = Array.isArray(images.gallery) ? [...(images.gallery as unknown[])] : [];
+          if (gallery.length >= MAX_GALLERY_IMAGES) throw new AppError(409, 'GALLERY_FULL');
+          gallery.push({ url });
+          images.gallery = gallery;
+          return { ...current, images };
+        },
+        this.event(actor, correlationId),
+      );
+    } catch (error) {
+      await this.deleteStored(actor.agencyId, url);
+      throw error;
+    }
+    return url;
+  }
+
+  /** Saves the gallery's order and captions. */
+  async setGallery(
+    actor: ProfileActor,
+    items: NonNullable<SiteContentInput['gallery']>,
+    correlationId: string,
+  ) {
+    this.adminOnly(actor);
+    await this.db.update(
+      actor.agencyId,
+      (current) => withGallery(current, items),
+      this.event(actor, correlationId),
+    );
+  }
+
+  /** Takes a picture out of the gallery and deletes its file. */
+  async removeGalleryImage(actor: ProfileActor, file: string, correlationId: string) {
+    this.adminOnly(actor);
+    if (!SITE_IMAGE_FILE.test(file)) throw new AppError(404, 'NOT_FOUND');
+    const url = `${LOGO_PATH}${file}`;
+    let found = false;
+    await this.db.update(
+      actor.agencyId,
+      (current) => {
+        const images = { ...asObject(current.images) };
+        const gallery = Array.isArray(images.gallery) ? (images.gallery as unknown[]) : [];
+        const kept = gallery.filter((item) => asObject(item).url !== url);
+        found = kept.length !== gallery.length;
+        if (kept.length > 0) images.gallery = kept;
+        else delete images.gallery;
+        return withImages(current, images);
+      },
+      this.event(actor, correlationId),
+    );
+    if (!found) throw new AppError(404, 'NOT_FOUND');
+    await this.deleteStored(actor.agencyId, url);
   }
 
   private key(agencyId: string, file: string) {
@@ -190,7 +422,7 @@ export class SiteContentService {
   /** Removes the file a logo address points to, when it is one this service stored. Never fails the change. */
   private async deleteStored(agencyId: string, url: string | undefined) {
     const file = url?.startsWith(LOGO_PATH) ? url.slice(LOGO_PATH.length) : undefined;
-    if (file && LOGO_FILE.test(file))
+    if (file && (LOGO_FILE.test(file) || SITE_IMAGE_FILE.test(file)))
       await this.storage.delete(this.key(agencyId, file)).catch(() => undefined);
   }
 
@@ -264,6 +496,49 @@ function mergeContent(
   set('auth', pruned(input.auth));
   set('about', pruned(input.about));
   set('branches', input.branches?.map((branch) => pruned(branch)).filter(Boolean));
+  return input.gallery ? withGallery(next, input.gallery) : next;
+}
+
+/**
+ * The gallery's order and captions applied to the config. Only pictures already in the gallery can be kept, so
+ * the order and captions cannot link a foreign file, and a picture left out of the list is not deleted here.
+ */
+function withGallery(
+  config: Record<string, unknown>,
+  items: NonNullable<SiteContentInput['gallery']>,
+): Record<string, unknown> {
+  const stored = new Set(galleryUrls(config));
+  const images = { ...asObject(config.images) };
+  const seen = new Set<string>();
+  const gallery = items
+    .filter((item) => stored.has(item.url) && !seen.has(item.url) && seen.add(item.url))
+    .map((item) => pruned(item))
+    .filter(Boolean);
+  // Pictures the list forgot stay at the end, so a stale page cannot silently drop an upload.
+  for (const url of stored) if (!seen.has(url)) gallery.push({ url });
+  if (gallery.length > 0) images.gallery = gallery;
+  else delete images.gallery;
+  return withImages(config, images);
+}
+
+function galleryUrls(config: Record<string, unknown>): string[] {
+  const gallery = asObject(config.images).gallery;
+  return Array.isArray(gallery)
+    ? gallery.flatMap((item) => {
+        const url = asObject(item).url;
+        return typeof url === 'string' ? [url] : [];
+      })
+    : [];
+}
+
+/** The config with its pictures replaced; an empty set of pictures is removed. */
+function withImages(
+  config: Record<string, unknown>,
+  images: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...config };
+  if (Object.keys(images).length > 0) next.images = images;
+  else delete next.images;
   return next;
 }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { REGISTRATION_LOCALES } from './registration.js';
+import { registrationDetailsSchema } from './registration-details.js';
 
 /**
  * Starting a sign-in with Google. Registering needs the same agreements as registering with an
@@ -17,6 +18,8 @@ export const googleStartInputSchema = z
     acceptPrivacy: z.boolean(fail('invalid')).default(false),
     onBehalfOfOther: z.boolean(fail('invalid')).default(false),
     confirmAuthority: z.boolean(fail('invalid')).default(false),
+    /** The answers of the first registration steps, kept sealed until the account is made. */
+    details: registrationDetailsSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -35,6 +38,7 @@ export const googleAgreementsSchema = z.object({
   onBehalfOfOther: z.boolean(),
   termsVersion: z.string().min(1),
   privacyVersion: z.string().min(1),
+  details: registrationDetailsSchema.optional(),
 });
 export type GoogleAgreements = z.output<typeof googleAgreementsSchema>;
 
@@ -82,6 +86,8 @@ export const googleSignupInputSchema = z
     acceptPrivacy: z.boolean(fail('invalid')).default(false),
     onBehalfOfOther: z.boolean(fail('invalid')).default(false),
     confirmAuthority: z.boolean(fail('invalid')).default(false),
+    /** The answers of the registration steps, used to start the draft profile. */
+    details: registrationDetailsSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

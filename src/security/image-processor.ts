@@ -64,6 +64,44 @@ export async function processImage(input: Buffer): Promise<ProcessedImage> {
   }
 }
 
+const SITE_IMAGE_MAX_SIDE = 1920;
+const SITE_IMAGE_MIN_SIDE = 200;
+
+/**
+ * A picture for the public home page (hero, about, gallery): decoded and written again as a WebP of at
+ * most 1920 pixels on the longest side, turned upright, with no metadata (a phone photo's location is
+ * dropped). The file's own bytes decide what it is; an SVG is refused.
+ */
+export async function processSiteImage(input: Buffer): Promise<Buffer> {
+  const open = () =>
+    sharp(input, { limitInputPixels: MAX_PIXELS, failOn: 'error', sequentialRead: true });
+  let format: string | undefined;
+  let size = 0;
+  try {
+    const meta = await open().metadata();
+    format = meta.format;
+    size = Math.min(meta.width ?? 0, meta.height ?? 0);
+  } catch {
+    throw new AppError(422, 'IMAGE_INVALID');
+  }
+  if (!format || !FORMATS[format]) throw new AppError(415, 'IMAGE_TYPE_UNSUPPORTED');
+  if (size < SITE_IMAGE_MIN_SIDE) throw new AppError(422, 'IMAGE_TOO_SMALL');
+  try {
+    return await open()
+      .rotate()
+      .resize({
+        width: SITE_IMAGE_MAX_SIDE,
+        height: SITE_IMAGE_MAX_SIDE,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 82 })
+      .toBuffer();
+  } catch {
+    throw new AppError(422, 'IMAGE_INVALID');
+  }
+}
+
 const LOGO_MAX_SIDE = 512;
 const LOGO_MIN_SIDE = 32;
 

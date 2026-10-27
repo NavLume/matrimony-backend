@@ -17,6 +17,7 @@ import {
   PROFESSIONS,
   RELIGIONS,
   RELIGIOUS_PRACTICES,
+  COUNTRIES,
   RELOCATION_OPTIONS,
   SECTS,
   SMOKING_HABITS,
@@ -158,6 +159,7 @@ export function profileInputSchema(now: Date = new Date()) {
       smokingCode: optionalCode(SMOKING_HABITS),
       childrenCode: optionalCode(CHILDREN_STATUSES),
       relocationCode: optionalCode(RELOCATION_OPTIONS),
+      countryCode: optionalCode(COUNTRIES),
       hobbies: text(500),
       aboutMe: text(2000),
     })

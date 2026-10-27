@@ -104,6 +104,19 @@ export class PhoneAuthProcess {
     return this.send(context, purpose, phone, locale, { onlyIfAccount: purpose === 'login' });
   }
 
+  /**
+   * Sends a code to a visitor of the public site who wants the agency to call them (the showcase's "Talk to us"). It proves
+   * the number is real and answers the same for every number; it can sign nobody in.
+   */
+  async sendLeadCode(context: PhoneContext, phone: string, locale: 'bn' | 'en') {
+    return this.send(context, 'lead', phone, locale);
+  }
+
+  /** Checks that code. Throws CODE_INVALID (try again) or CODE_EXPIRED (ask for a new one). */
+  async checkLeadCode(agencyId: string, phone: string, code: string) {
+    await this.checkCode(this.scope(agencyId, 'lead', phone), code);
+  }
+
   /** Resolves when every text handed over so far has been sent or has failed. For shutdown and tests. */
   async idle() {
     await Promise.allSettled([...this.sending]);
@@ -209,6 +222,8 @@ export class PhoneAuthProcess {
       onBehalfOfOther: input.onBehalfOfOther,
       termsVersion: versions.terms,
       privacyVersion: versions.privacy,
+      // The number is the one the code proved, whatever else was sent.
+      details: input.details && { ...input.details, phone: pending.phone },
     };
     const created = await this.registrations.registerPhone(
       agencyId,

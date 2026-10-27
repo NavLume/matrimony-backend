@@ -17,7 +17,7 @@ export class CredentialService {
   constructor(
     private readonly db: Pick<
       CredentialDbService,
-      'byEmail' | 'byPhone' | 'byId' | 'rehash' | 'setPasswordWithEvent'
+      'byEmail' | 'byPhone' | 'byMemberCode' | 'byId' | 'rehash' | 'setPasswordWithEvent'
     >,
     private readonly hasher: Pick<
       PasswordHasher,
@@ -48,6 +48,11 @@ export class CredentialService {
   /** The same for a phone number that a code has proved, and the password of its account. */
   async verifyPhone(agencyId: string, phone: string, password: string): Promise<Account> {
     return this.check(agencyId, await this.db.byPhone(agencyId, phone), password);
+  }
+
+  /** The same for a member ID and the password of the account that owns that profile. */
+  async verifyMemberCode(agencyId: string, memberCode: string, password: string): Promise<Account> {
+    return this.check(agencyId, await this.db.byMemberCode(agencyId, memberCode), password);
   }
 
   private async check(

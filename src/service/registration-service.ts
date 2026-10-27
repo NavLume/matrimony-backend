@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Account } from '../bo/identity.js';
 import { consentsFor, type Registration } from '../bo/registration.js';
+import type { RegistrationDetails } from '../bo/registration-details.js';
 import { AppError } from '../exception/app-error.js';
 import type { FoundAccount, SignInMethods } from '../db/raw/repository/registration-repository.js';
 import type { RegistrationDbService } from '../db/service/registration-db-service.js';
@@ -41,6 +42,13 @@ export class RegistrationService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** Set once at start-up: what else happens when a member registered with their answers. */
+  afterRegistered?: (
+    agencyId: string,
+    account: Account,
+    details: RegistrationDetails,
+  ) => Promise<void>;
+
   async emailRegistered(agencyId: string, email: string): Promise<boolean> {
     return (await this.db.findByEmail(agencyId, email)) !== null;
   }
@@ -66,7 +74,7 @@ export class RegistrationService {
     registration: Registration,
     correlationId: string,
   ): Promise<CreateResult> {
-    return this.db.inTransaction(agencyId, async (unit): Promise<CreateResult> => {
+    const result = await this.db.inTransaction(agencyId, async (unit): Promise<CreateResult> => {
       if (await unit.findByPhone(agencyId, member.phone)) return { created: false };
       const account = await unit.createPhoneMember(agencyId, {
         id: randomUUID(),
@@ -80,6 +88,7 @@ export class RegistrationService {
       await unit.appendEvent(this.event('account.registered', agencyId, account.id, correlationId));
       return { created: true, account };
     });
+    return this.started(agencyId, result, registration);
   }
 
   /**
@@ -153,7 +162,7 @@ export class RegistrationService {
     registration: Registration,
     correlationId: string,
   ): Promise<CreateResult> {
-    return this.db.inTransaction(agencyId, async (unit): Promise<CreateResult> => {
+    const result = await this.db.inTransaction(agencyId, async (unit): Promise<CreateResult> => {
       if (await unit.findByEmail(agencyId, identity.email)) return { created: false };
       const account = await unit.createMember(agencyId, {
         id: randomUUID(),
@@ -175,6 +184,7 @@ export class RegistrationService {
       await unit.appendEvent(this.event('account.registered', agencyId, account.id, correlationId));
       return { created: true, account };
     });
+    return this.started(agencyId, result, registration);
   }
 
   /**
@@ -220,7 +230,7 @@ export class RegistrationService {
     verified: VerifiedRegistration,
     correlationId: string,
   ): Promise<CreateResult> {
-    return this.db.inTransaction(agencyId, async (unit): Promise<CreateResult> => {
+    const result = await this.db.inTransaction(agencyId, async (unit): Promise<CreateResult> => {
       // The same link opened twice, or two links for one address: the second finds the account.
       if (await unit.findByEmail(agencyId, verified.email)) return { created: false };
 
@@ -247,5 +257,21 @@ export class RegistrationService {
       });
       return { created: true, account };
     });
+    return this.started(agencyId, result, verified.registration);
+  }
+
+  /**
+   * The answers given while registering start the member's draft profile. This is best effort and
+   * never fails the registration: the account exists, and an empty profile is only a few minutes
+   * of typing in My Profile.
+   */
+  private async started(
+    agencyId: string,
+    result: CreateResult,
+    registration: Registration,
+  ): Promise<CreateResult> {
+    if (result.created && registration.details && this.afterRegistered)
+      await this.afterRegistered(agencyId, result.account, registration.details);
+    return result;
   }
 }

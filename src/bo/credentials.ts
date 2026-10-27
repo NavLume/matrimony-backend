@@ -91,14 +91,23 @@ export function passwordMatchesEmail(password: string, email: string): boolean {
   return lower === email || lower === email.split('@')[0];
 }
 
+/** A member ID as printed on a profile: M and seven digits, in either letter case. */
+export const memberCodeSchema = z
+  .string(fail('invalid'))
+  .trim()
+  .toUpperCase()
+  .regex(/^M[0-9]{7}$/, fail('invalid'));
+
 /**
- * Signing in with a password: an email, or a phone number, with the password. Exactly one of
- * the two. Which account it is, and whether it has a password, is never told apart in the answer.
+ * Signing in with a password: an email, a phone number or a member ID, with the password. Exactly
+ * one of the three. Which account it is, and whether it has a password, is never told apart in
+ * the answer.
  */
 export const loginInputSchema = z
   .object({
     email: emailSchema.optional(),
     phone: phoneSchema.optional(),
+    memberCode: memberCodeSchema.optional(),
     // No strength rules here: an older, weaker password must still be able to sign in.
     password: z
       .string(fail('required'))
@@ -108,10 +117,9 @@ export const loginInputSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.email === undefined && value.phone === undefined)
-      ctx.addIssue({ code: 'custom', message: 'required', path: ['email'] });
-    if (value.email !== undefined && value.phone !== undefined)
-      ctx.addIssue({ code: 'custom', message: 'invalid', path: ['phone'] });
+    const given = [value.email, value.phone, value.memberCode].filter((v) => v !== undefined);
+    if (given.length === 0) ctx.addIssue({ code: 'custom', message: 'required', path: ['email'] });
+    if (given.length > 1) ctx.addIssue({ code: 'custom', message: 'invalid', path: ['phone'] });
   });
 export type LoginInput = z.output<typeof loginInputSchema>;
 

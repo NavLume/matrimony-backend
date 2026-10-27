@@ -9,7 +9,7 @@ import {
   type ProfileData,
   type ProfileInput,
 } from '../bo/profile.js';
-import type { OwnProfileState, ProfileRecord } from '../bo/profile-state.js';
+import type { OwnProfileState, PhoneCheck, ProfileRecord } from '../bo/profile-state.js';
 import type { ProfileDbService, ProfileUnit } from '../db/service/profile-db-service.js';
 import { AppError } from '../exception/app-error.js';
 
@@ -132,6 +132,26 @@ export class ProfileService {
     return this.db.inTransaction(actor.agencyId, async (unit) => {
       await this.mustFindManaged(unit, actor, profileId, false);
       return this.stateOf(unit, actor.agencyId, profileId);
+    });
+  }
+
+  /** Whether the client's mobile number has been reached, for staff who look after the client. */
+  async phoneCheck(actor: ProfileActor, profileId: string): Promise<PhoneCheck> {
+    this.requireStaff(actor);
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      await this.mustFindManaged(unit, actor, profileId, false);
+      return unit.phoneCheck(actor.agencyId, profileId);
+    });
+  }
+
+  /** Staff who reached the number say so. The number is the one on the profile now. */
+  async confirmPhone(actor: ProfileActor, profileId: string): Promise<PhoneCheck> {
+    this.requireStaff(actor);
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      await this.mustFindManaged(unit, actor, profileId, false);
+      if (!(await unit.confirmPhone(actor.agencyId, profileId, actor.accountId)))
+        throw new AppError(409, 'PHONE_MISSING');
+      return unit.phoneCheck(actor.agencyId, profileId);
     });
   }
 

@@ -92,6 +92,27 @@ export const CHILDREN_STATUSES = ['none', 'has_living_with', 'has_not_living_wit
 /** Whether the person would move for marriage. */
 export const RELOCATION_OPTIONS = ['no', 'within_country', 'abroad'] as const;
 
+/** The country a person lives in. Empty means Bangladesh. Bangladeshis live and work in all of these. */
+export const COUNTRIES = [
+  'bangladesh',
+  'united_states',
+  'united_kingdom',
+  'canada',
+  'australia',
+  'saudi_arabia',
+  'united_arab_emirates',
+  'qatar',
+  'kuwait',
+  'oman',
+  'malaysia',
+  'singapore',
+  'japan',
+  'italy',
+  'germany',
+  'france',
+  'other',
+] as const;
+
 /** Who the profile is for, when it is not the account holder. */
 export const MANAGED_FOR = ['self', 'child', 'sibling', 'relative', 'other'] as const;
 

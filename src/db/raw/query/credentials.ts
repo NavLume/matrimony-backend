@@ -9,6 +9,13 @@ export const credentialQueries = {
  FROM matrimony.accounts a
  LEFT JOIN matrimony.account_credentials c ON c.agency_id = a.agency_id AND c.account_id = a.id
  WHERE a.agency_id = $1 AND a.phone_e164 = $2 AND a.phone_verified_at IS NOT NULL`,
+  // $1 agency, $2 member ID (upper-case). The account that owns the profile with that ID, so only a
+  // client who has a login of their own can use it. Any status.
+  byMemberCode: `SELECT a.id, a.agency_id, a.role, a.display_name, a.email, a.status, a.locale, c.password_hash
+ FROM matrimony.member_profiles p
+ JOIN matrimony.accounts a ON a.agency_id = p.agency_id AND a.id = p.owner_account_id
+ LEFT JOIN matrimony.account_credentials c ON c.agency_id = a.agency_id AND c.account_id = a.id
+ WHERE p.agency_id = $1 AND p.member_code = $2`,
   byId: `SELECT a.id, a.agency_id, a.role, a.display_name, a.email, a.status, a.locale, c.password_hash
  FROM matrimony.accounts a
  LEFT JOIN matrimony.account_credentials c ON c.agency_id = a.agency_id AND c.account_id = a.id

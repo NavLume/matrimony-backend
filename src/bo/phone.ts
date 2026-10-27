@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { newPasswordSchema } from './credentials.js';
 import { asciiDigits, phoneSchema } from './phone-number.js';
 import { REGISTRATION_LOCALES } from './registration.js';
+import { registrationDetailsBaseSchema } from './registration-details.js';
 
 /**
  * Signing in and registering with a phone number and a code sent by SMS. Validation messages are
@@ -71,6 +72,8 @@ export const phoneSignupInputSchema = z
     acceptPrivacy: z.boolean(fail('invalid')).default(false),
     onBehalfOfOther: z.boolean(fail('invalid')).default(false),
     confirmAuthority: z.boolean(fail('invalid')).default(false),
+    /** The answers of the first steps; the number is the one the code proved. */
+    details: registrationDetailsBaseSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

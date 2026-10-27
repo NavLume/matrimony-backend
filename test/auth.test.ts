@@ -68,6 +68,7 @@ function fixture(options: { accessTtl?: number; maxSessions?: number } = {}) {
 
   const events: WorkflowEvent[] = [];
   const phoneChecks: { agencyId: string; phone: string }[] = [];
+  const memberChecks: { agencyId: string; memberCode: string }[] = [];
   let accountActive = true;
   let verify = async (_agency: string, _email: string, password: string) => {
     if (password !== login.password) throw new AppError(401, 'INVALID_CREDENTIALS');
@@ -79,6 +80,10 @@ function fixture(options: { accessTtl?: number; maxSessions?: number } = {}) {
       verifyPhone: async (agencyId, phone, password) => {
         phoneChecks.push({ agencyId, phone });
         return verify(agencyId, phone, password);
+      },
+      verifyMemberCode: async (agencyId, memberCode, password) => {
+        memberChecks.push({ agencyId, memberCode });
+        return verify(agencyId, memberCode, password);
       },
     },
     tokens,
@@ -107,6 +112,7 @@ function fixture(options: { accessTtl?: number; maxSessions?: number } = {}) {
     store,
     events,
     phoneChecks,
+    memberChecks,
     limited,
     counters,
     setVerify: (fn: typeof verify) => {
@@ -307,7 +313,11 @@ await test('signing out while a refresh is running cannot bring the session back
   const f = fixture();
   const first = await f.signedIn();
   const slow = new AuthProcess(
-    { verify: async () => account, verifyPhone: async () => account },
+    {
+      verify: async () => account,
+      verifyPhone: async () => account,
+      verifyMemberCode: async () => account,
+    },
     {
       verify: (token) => f.tokens.verify(token),
       issue: async (id, ttl) => {
@@ -456,6 +466,30 @@ await test("a number's pause is its own: it does not pause the email of the same
   assert.equal((await f.auth.login(agency, phoneLogin, 'r')).sessionId.length, 43);
   for (let i = 0; i < 4; i++)
     await assert.rejects(() => f.auth.login(agency, { ...phoneLogin, password: 'nope' }, 'r'));
+  assert.equal((await f.auth.login(agency, phoneLogin, 'r')).sessionId.length, 43);
+});
+
+const memberLogin = { memberCode: 'M1234567', password: login.password };
+
+await test('a member ID and its password sign in; five wrong ones pause that ID, and only that ID', async () => {
+  const f = fixture();
+  const result = await f.auth.login(agency, memberLogin, 'req-member');
+  assert.equal(result.sessionId.length, 43);
+  assert.deepEqual(f.memberChecks, [{ agencyId: agency, memberCode: 'M1234567' }]);
+  for (let i = 0; i < 5; i++)
+    await assert.rejects(
+      () => f.auth.login(agency, { ...memberLogin, password: 'nope' }, 'r'),
+      (error) => error instanceof AppError && error.status === 401,
+    );
+  const before = f.memberChecks.length;
+  await assert.rejects(
+    () => f.auth.login(agency, memberLogin, 'r'),
+    (error) =>
+      error instanceof AppError && error.status === 429 && error.code === 'TOO_MANY_ATTEMPTS',
+  );
+  assert.equal(f.memberChecks.length, before);
+  // The email and the number of the same person are counted on their own.
+  assert.equal((await f.auth.login(agency, login, 'r')).sessionId.length, 43);
   assert.equal((await f.auth.login(agency, phoneLogin, 'r')).sessionId.length, 43);
 });
 

@@ -2410,10 +2410,183 @@ paths:
       responses:
         '204': { description: Removed. }
 
+  /api/v1/admin/site-images/{slot}:
+    put:
+      tags: [Site content]
+      summary: Upload the home page's hero, about or call-to-action picture (admin)
+      description: The picture is the request body (PNG, JPEG or WebP, up to 5 MB, at least 200 pixels). It is written again as a WebP of at most 1920 pixels, upright and without metadata. Replaces and deletes the previous one. 413 `PAYLOAD_TOO_LARGE`, 415 `IMAGE_TYPE_UNSUPPORTED`, 422 `IMAGE_INVALID` or `IMAGE_TOO_SMALL`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: slot, in: path, required: true, schema: { type: string, enum: [hero, about, cta] } }
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: The new picture address.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string }
+    delete:
+      tags: [Site content]
+      summary: Remove the picture of a slot (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: slot, in: path, required: true, schema: { type: string, enum: [hero, about, cta] } }
+      responses:
+        '204': { description: Removed. }
+
+  /api/v1/admin/gallery:
+    put:
+      tags: [Site content]
+      summary: Save the gallery's order and captions (admin)
+      description: Only addresses already in the gallery are kept; a picture left out of the list stays at the end, so a stale page cannot drop an upload. 400 with field codes (`invalid`, `tooLong`, `tooMany`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [gallery]
+              properties:
+                gallery:
+                  type: array
+                  maxItems: 24
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [url]
+                    properties:
+                      url: { type: string }
+                      caption: { $ref: '#/components/schemas/LocalizedText' }
+      responses:
+        '204': { description: Saved. }
+    post:
+      tags: [Site content]
+      summary: Add a picture to the gallery (admin)
+      description: Same body and rules as the other site pictures. At most 24; 409 `GALLERY_FULL`. Captions and order are saved with the site content (`gallery`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '201':
+          description: The picture's address.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string }
+
+  /api/v1/admin/gallery/{file}:
+    delete:
+      tags: [Site content]
+      summary: Remove a gallery picture and delete its file (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: file, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Removed. }
+        '404': { description: No such picture. }
+
+  /api/v1/admin/success-stories/{storyId}/photo:
+    get:
+      tags: [Site content]
+      summary: A story's couple photo, for the admin who manages it
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The photo as WebP, whatever the story's state.
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { description: The story has no photo. }
+    put:
+      tags: [Site content]
+      summary: Set a story's couple photo (admin)
+      description: The couple's agreement to the story covers the photo. Same body and rules as the other site pictures. The public site shows it only while the story is published. 404 `STORY_NOT_FOUND` (also for a removed story).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '204': { description: Saved. }
+    delete:
+      tags: [Site content]
+      summary: Remove a story's couple photo (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Removed. }
+
+  /api/v1/admin/success-stories/{storyId}/wedding-date:
+    put:
+      tags: [Site content]
+      summary: Set or clear a story's wedding date (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [weddingDate]
+              properties:
+                weddingDate: { type: [string, 'null'], description: '`YYYY-MM-DD`, or null to clear.' }
+      responses:
+        '204': { description: Saved. }
+
+  /api/v1/public/story-photos/{file}:
+    get:
+      tags: [Public]
+      summary: A published success story's couple photo
+      description: Public, for the agency of the request's host, and only while the story is published (404 otherwise). Cached for five minutes so that hiding a story makes the photo vanish quickly.
+      parameters:
+        - { name: file, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The photo as WebP.
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { description: No such photo. }
+
   /api/v1/public/branding/{file}:
     get:
       tags: [Public]
-      summary: The agency's logo file
+      summary: The agency's logo or home-page picture file
       description: Public, for the agency of the request's host. The file name is a random id, so the response is cached for a year.
       parameters:
         - { name: file, in: path, required: true, schema: { type: string } }
@@ -2424,6 +2597,299 @@ paths:
             image/webp: { schema: { type: string, format: binary } }
         '404': { description: No such file. }
 
+  /api/v1/public/showcase:
+    get:
+      tags: [Showcase]
+      summary: The "Meet our members" cards of the agency's public site
+      description: Public, for the agency of the request's host. Empty while the agency has not switched the showcase on. A card has no name, no member code, no contact and no exact age; its `ref` is its own random id, not the profile's.
+      responses:
+        '200':
+          description: The cards, newest added first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cards]
+                properties:
+                  cards:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShowcaseCard' }
+
+  /api/v1/public/showcase/browse:
+    get:
+      tags: [Showcase]
+      summary: Browse the showcase's cards with filters, a page at a time
+      description: Public. The same cards as the home page, filtered and paged (12 a page). A filter left out matches everyone; a person with no country counts as living in Bangladesh. Empty while the showcase is off. 400 for an unknown code.
+      parameters:
+        - { name: district, in: query, required: false, schema: { type: string } }
+        - { name: religion, in: query, required: false, schema: { type: string } }
+        - { name: profession, in: query, required: false, schema: { type: string } }
+        - { name: country, in: query, required: false, schema: { $ref: '#/components/schemas/Country' } }
+        - { name: ageMin, in: query, required: false, schema: { type: integer, minimum: 18, maximum: 100 } }
+        - { name: ageMax, in: query, required: false, schema: { type: integer, minimum: 18, maximum: 100 } }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+      responses:
+        '200':
+          description: One page of cards.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cards, total, page, pageSize]
+                properties:
+                  cards:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShowcaseCard' }
+                  total: { type: integer, description: Cards matching the filters, all pages. }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+
+  /api/v1/me/showcase-requests:
+    post:
+      tags: [Showcase]
+      summary: A member tells their agent which card on the website they liked
+      description: It becomes a reminder on the agent's agenda; the agent reviews it and, if it is a good match, releases the profile through the usual candidate release. 201 when created, 200 when the same request is already open. 404 `NOT_FOUND` (the card is gone), 409 `NO_AGENT` (the member has no agent yet).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ref]
+              properties:
+                ref: { type: string, format: uuid }
+                note: { type: string, maxLength: 120 }
+      responses:
+        '200': { description: Already asked, content: { application/json: { schema: { type: object, properties: { created: { type: boolean } } } } } }
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { created: { type: boolean } } } } } }
+  /api/v1/public/showcase/{ref}/photo:
+    get:
+      tags: [Showcase]
+      summary: A card's picture, 80 per cent blurred
+      description: Public. Made from the small stored copy, so the clear picture is never sent. Cached for five minutes. 404 when the card is not showable now (switched off, not published, no photo).
+      parameters:
+        - { name: ref, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The blurred picture as WebP.
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { description: No such card. }
+
+  /api/v1/public/showcase/leads/code:
+    post:
+      tags: [Showcase]
+      summary: Send a visitor a text-message code before they ask to be called
+      description: Public, same-origin only, 10 per 10 minutes per address, and the usual limits per number and per agency. Only while the showcase is on (404 otherwise). 400 `PHONE_COUNTRY_NOT_SUPPORTED`, 429 `CODE_RATE_LIMITED`, 502 `SMS_UNAVAILABLE`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone, locale]
+              properties:
+                phone: { type: string }
+                locale: { type: string, enum: [bn, en] }
+      responses:
+        '202':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  resendAfter: { type: integer }
+                  expiresIn: { type: integer }
+
+  /api/v1/public/showcase/leads:
+    post:
+      tags: [Showcase]
+      summary: A visitor asks the agency to call them
+      description: Public, same-origin only. The number is stored only after the code proves it (400 `CODE_INVALID` or `CODE_EXPIRED`). `ref` is the card they were looking at, when there was one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, phone, code]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                phone: { type: string }
+                code: { type: string }
+                ref: { type: string, format: uuid }
+      responses:
+        '201': { description: Received. }
+
+  /api/v1/admin/showcase:
+    get:
+      tags: [Showcase]
+      summary: The showcase's settings, who is in it, who could be added, and new leads (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The overview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShowcaseOverview' }
+
+  /api/v1/admin/showcase/settings:
+    put:
+      tags: [Showcase]
+      summary: Switch the showcase on or off and set how many cards it shows (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled, limit]
+              properties:
+                enabled: { type: boolean }
+                limit: { type: integer, minimum: 1, maximum: 24 }
+      responses:
+        '204': { description: Saved. }
+
+  /api/v1/admin/showcase/entries:
+    post:
+      tags: [Showcase]
+      summary: Add a published profile to the showcase (admin)
+      description: 404 `PROFILE_NOT_FOUND`, 409 `PROFILE_NOT_PUBLISHED`, `WEBSITE_HIDDEN` (switched off) or `PHOTO_REQUIRED`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [profileId]
+              properties:
+                profileId: { type: string, format: uuid }
+      responses:
+        '204': { description: Added. }
+
+  /api/v1/admin/showcase/entries/{profileId}:
+    delete:
+      tags: [Showcase]
+      summary: Remove a profile from the showcase (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Removed. }
+        '404': { description: Not in the showcase. }
+
+  /api/v1/admin/leads:
+    get:
+      tags: [Showcase]
+      summary: The visitors who asked to be called, new ones first (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [new, contacted, closed] } }
+      responses:
+        '200':
+          description: Up to 200 leads.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leads]
+                properties:
+                  leads:
+                    type: array
+                    items: { $ref: '#/components/schemas/Lead' }
+
+  /api/v1/admin/leads/{id}:
+    put:
+      tags: [Showcase]
+      summary: Mark a lead contacted or closed, with a note (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: { type: string, enum: [new, contacted, closed] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '204': { description: Saved. }
+
+  /api/v1/me/profile/website-visibility:
+    get:
+      tags: [Showcase]
+      summary: Whether the member's profile is switched off the agency's website
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The switch.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebsiteVisibility' }
+    put:
+      tags: [Showcase]
+      summary: Switch the member's profile off, or on again
+      description: A profile switched off also leaves the showcase.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebsiteVisibility' }
+      responses:
+        '204': { description: Saved. }
+
+  /api/v1/staff/clients/{profileId}/website-visibility:
+    get:
+      tags: [Showcase]
+      summary: The same switch for a client, for the staff who look after them (admin, or the client's agent)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The switch.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebsiteVisibility' }
+    put:
+      tags: [Showcase]
+      summary: Switch a client's profile off the website, or on again
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebsiteVisibility' }
+      responses:
+        '204': { description: Saved. }
   /api/v1/public/legal/{kind}:
     get:
       tags: [Public]
@@ -3095,7 +3561,7 @@ paths:
   /api/v1/auth/login:
     post:
       tags: [Auth]
-      summary: Sign in with email or phone number, and a password
+      summary: Sign in with email, phone number or member ID, and a password
       description: |
         Public, 10 per minute per client address, same-origin only. Starts a session: the
         `matrimony-session` cookie (HttpOnly, SameSite=Strict, `__Host-` and Secure in production)
@@ -3104,10 +3570,11 @@ paths:
         right password (429 `TOO_MANY_ATTEMPTS`, with `details.retryAfter` and a `Retry-After`
         header). An unknown email, an account with no password and a wrong password are all the
         same 401 `INVALID_CREDENTIALS`. A disabled account is told so (403 `ACCOUNT_NOT_ACTIVE`)
-        only after the right password. Send **either** `email` **or** `phone` (a number that a code
-        has proved belongs to an account), never both: the same rules, the same answers and the
-        same pause apply to a phone number, counted separately from the email. No text message is
-        sent, and none is paid for.
+        only after the right password. Send **exactly one** of `email`, `phone` (a number that a code
+        has proved belongs to an account) or `memberCode` (the ID printed on a profile, for a
+        client who has a login of their own): the same rules, the same answers and the same pause
+        apply to each, counted separately for the email, the number and the ID. No text message
+        is sent, and none is paid for.
       requestBody:
         required: true
         content:
@@ -4498,6 +4965,46 @@ paths:
             description: 'PROFILE_VERSION_CONFLICT, PROFILE_LOCKED or PROFILE_EDIT_REQUIRES_REVIEW.',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
+  /api/v1/staff/clients/{profileId}/phone-check:
+    get:
+      tags: [Clients]
+      summary: Whether the client's mobile number has been reached
+      description: |
+        Registering asks for a mobile number but never sends a code for it. A number is confirmed
+        when a text-message code proved it (the member registered or signed in with it) or when staff
+        marked it after speaking to the person. A number that was changed since is not confirmed
+        again. Admin, or the agent who looks after the client.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The state of the number now on the profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhoneCheck' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: PROFILE_NOT_FOUND. }
+    post:
+      tags: [Clients]
+      summary: Mark the client's mobile number as reached
+      description: Staff who spoke to the person say so. The number is the one on the profile now (409 PHONE_MISSING when there is none).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The number is confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhoneCheck' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: PROFILE_NOT_FOUND. }
+        '409': { description: PHONE_MISSING. }
   /api/v1/staff/clients/{profileId}/submit:
     post:
       tags: [Clients]
@@ -6867,12 +7374,14 @@ components:
           anyOf:
             - type: object
               additionalProperties: false
-              required: [id, status, consentBoth, removed]
+              required: [id, status, consentBoth, removed, hasPhoto]
               properties:
                 id: { type: string, format: uuid }
                 status: { type: string, enum: [draft, published, hidden] }
                 consentBoth: { type: boolean }
                 removed: { type: boolean, description: An admin removed its names and words; it can never be published again. }
+                hasPhoto: { type: boolean, description: A couple photo is stored; the site shows it only while the story is published. }
+                weddingDate: { type: [string, 'null'], description: '`YYYY-MM-DD`.' }
             - type: 'null'
         meetings:
           type: object
@@ -7528,7 +8037,7 @@ components:
             subtitle: { $ref: '#/components/schemas/LocalizedText' }
             sections:
               type: array
-              maxItems: 7
+              maxItems: 10
               description: Parts of the home page in the order to show them. A part not listed shows in its default place; the first screen always comes first.
               items: { $ref: '#/components/schemas/HomeSection' }
         auth:
@@ -7539,6 +8048,7 @@ components:
             text: { $ref: '#/components/schemas/LocalizedText' }
             scene: { type: boolean, description: Whether the village scene shows (default true). }
         about: { $ref: '#/components/schemas/LocalizedText' }
+        images: { $ref: '#/components/schemas/SiteImages' }
         branches:
           type: array
           maxItems: 3
@@ -7548,6 +8058,23 @@ components:
           maxItems: 12
           description: The stories an admin published (newest first), then any typed in by the operator.
           items: { $ref: '#/components/schemas/SuccessStory' }
+
+    SiteImages:
+      type: object
+      description: The home page's pictures, uploaded by the admin. Every address is a path the platform stored (`/api/v1/public/branding/img-<id>.webp`); anything else is ignored.
+      properties:
+        hero: { type: string, description: Replaces the first screen's illustration. }
+        about: { type: string }
+        cta: { type: string, description: The background of the closing call to action. }
+        gallery:
+          type: array
+          maxItems: 24
+          items:
+            type: object
+            required: [url]
+            properties:
+              url: { type: string }
+              caption: { $ref: '#/components/schemas/LocalizedText' }
 
     AgreementsStatus:
       type: object
@@ -7610,13 +8137,13 @@ components:
       type: object
       required: [id]
       properties:
-        id: { type: string, enum: [village, how, why, trust, stories, agency, final] }
+        id: { type: string, enum: [stories, gallery, members, village, stats, how, about, why, trust, offices, agency, final] }
         visible: { type: boolean, description: False hides the part (default true). }
         title: { $ref: '#/components/schemas/LocalizedText' }
         text: { $ref: '#/components/schemas/LocalizedText' }
         items:
           type: array
-          maxItems: 4
+          maxItems: 8
           description: Words for the part's cards, steps or points, by position; an empty one keeps the default.
           items:
             type: object
@@ -7642,7 +8169,7 @@ components:
             subtitle: { $ref: '#/components/schemas/LocalizedText' }
             sections:
               type: array
-              maxItems: 7
+              maxItems: 10
               items: { $ref: '#/components/schemas/HomeSection' }
         auth:
           type: object
@@ -7656,10 +8183,21 @@ components:
           type: array
           maxItems: 3
           items: { $ref: '#/components/schemas/Branch' }
+        gallery:
+          type: array
+          maxItems: 24
+          description: The gallery's order and captions. Only addresses already in the gallery are kept; pictures are added and removed with their own calls.
+          items:
+            type: object
+            additionalProperties: false
+            required: [url]
+            properties:
+              url: { type: string }
+              caption: { $ref: '#/components/schemas/LocalizedText' }
 
     SiteContent:
       type: object
-      required: [branding, contact, home, auth, branches, publishedStories]
+      required: [branding, contact, home, auth, images, branches, publishedStories]
       properties:
         branding:
           type: object
@@ -7690,6 +8228,7 @@ components:
             text: { $ref: '#/components/schemas/LocalizedText' }
             scene: { type: boolean }
         about: { $ref: '#/components/schemas/LocalizedText' }
+        images: { $ref: '#/components/schemas/SiteImages' }
         branches:
           type: array
           items: { $ref: '#/components/schemas/Branch' }
@@ -7701,6 +8240,7 @@ components:
       properties:
         name: { $ref: '#/components/schemas/LocalizedText' }
         address: { $ref: '#/components/schemas/LocalizedText' }
+        hours: { $ref: '#/components/schemas/LocalizedText', description: When the office is open, as written by the admin. }
         phone: { type: string, maxLength: 40 }
         mapUrl:
           type: string
@@ -7714,7 +8254,95 @@ components:
         names: { $ref: '#/components/schemas/LocalizedText' }
         story: { $ref: '#/components/schemas/LocalizedText' }
         year: { type: integer, minimum: 1900, maximum: 2100 }
+        photoUrl: { type: string, description: The couple's photo (`/api/v1/public/story-photos/story-<id>.webp`), served only while the story is published. }
+        weddingDate: { type: string, description: '`YYYY-MM-DD`.' }
 
+    WebsiteVisibility:
+      type: object
+      additionalProperties: false
+      required: [hidden]
+      properties:
+        hidden: { type: boolean, description: True when the profile is switched off the agency's website. }
+
+    ShowcaseCard:
+      type: object
+      required: [ref, ageBand, professionCode, districtCode, religionCode, countryCode, wants]
+      properties:
+        ref: { type: string, format: uuid }
+        ageBand:
+          anyOf:
+            - type: object
+              required: [min, max]
+              properties:
+                min: { type: integer }
+                max: { type: integer }
+            - type: 'null'
+        professionCode: { type: [string, 'null'] }
+        districtCode: { type: [string, 'null'] }
+        religionCode: { type: [string, 'null'] }
+        countryCode: { type: string, description: Where the person lives; Bangladesh when none was given. }
+        wants:
+          type: object
+          description: A few words from the person's own partner preferences.
+          required: [ageMin, ageMax, educationMinCode, professionCodes, districtCodes, practiceCodes]
+          properties:
+            ageMin: { type: [integer, 'null'] }
+            ageMax: { type: [integer, 'null'] }
+            educationMinCode: { type: [string, 'null'] }
+            professionCodes: { type: array, items: { type: string } }
+            districtCodes: { type: array, items: { type: string } }
+            practiceCodes: { type: array, items: { type: string } }
+
+    ShowcaseCandidate:
+      type: object
+      required: [profileId, memberCode, fullName, professionCode, districtCode, status, hidden, hasPhoto]
+      properties:
+        profileId: { type: string, format: uuid }
+        memberCode: { type: string }
+        fullName: { type: string }
+        professionCode: { type: [string, 'null'] }
+        districtCode: { type: [string, 'null'] }
+        status: { type: string }
+        hidden: { type: boolean }
+        hasPhoto: { type: boolean }
+
+    ShowcaseOverview:
+      type: object
+      required: [settings, entries, eligible, newLeads]
+      properties:
+        settings:
+          type: object
+          required: [enabled, limit]
+          properties:
+            enabled: { type: boolean }
+            limit: { type: integer }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/ShowcaseCandidate' }
+        eligible:
+          type: array
+          items: { $ref: '#/components/schemas/ShowcaseCandidate' }
+        newLeads: { type: integer }
+
+    Lead:
+      type: object
+      required: [id, name, phone, status, note, createdAt, about]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        phone: { type: string }
+        status: { type: string, enum: [new, contacted, closed] }
+        note: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        about:
+          anyOf:
+            - type: object
+              required: [profileId, memberCode, professionCode]
+              properties:
+                profileId: { type: string, format: uuid }
+                memberCode: { type: string }
+                professionCode: { type: [string, 'null'] }
+            - type: 'null'
     Self:
       type: object
       required: [id, agencyId, role, displayName]
@@ -7804,6 +8432,10 @@ components:
     RelocationOption:
       type: string
       enum: [no, within_country, abroad]
+    Country:
+      type: string
+      description: The country a person lives in; empty means Bangladesh.
+      enum: [bangladesh, united_states, united_kingdom, canada, australia, saudi_arabia, united_arab_emirates, qatar, kuwait, oman, malaysia, singapore, japan, italy, germany, france, other]
     ManagedFor:
       type: string
       enum: [self, child, sibling, relative, other]
@@ -7935,6 +8567,7 @@ components:
         childrenCode: { anyOf: [{ $ref: '#/components/schemas/ChildrenStatus' }, { type: 'null' }] }
         relocationCode:
           { anyOf: [{ $ref: '#/components/schemas/RelocationOption' }, { type: 'null' }] }
+        countryCode: { anyOf: [{ $ref: '#/components/schemas/Country' }, { type: 'null' }] }
         hobbies: { type: [string, 'null'], maxLength: 500 }
         aboutMe: { type: [string, 'null'], maxLength: 2000 }
 
@@ -8171,6 +8804,53 @@ components:
       required: [phone]
       properties:
         phone: { type: string, description: The number the code proved, in E.164 form. }
+    PhoneCheck:
+      type: object
+      required: [phone, confirmed, how, confirmedAt]
+      properties:
+        phone: { type: [string, 'null'], description: The mobile number on the profile (E.164). }
+        confirmed: { type: boolean }
+        how: { type: [string, 'null'], enum: [code, staff, null], description: A text-message code proved it, or staff reached it. }
+        confirmedAt: { type: [string, 'null'], format: date-time, description: When staff marked it. }
+    RegistrationDetails:
+      type: object
+      additionalProperties: false
+      required: [managedFor, fullName, dateOfBirth, gender, maritalStatus, religionCode, countryCode, highestDegreeCode, occupationCode, phone]
+      description: |
+        The answers of the first registration steps. Nothing is stored until the account exists; then
+        they become the member's draft profile (My Profile opens filled in). Problems come back as
+        field codes: `required`, `tooLong`, `invalidOption`, `invalidPhone`, `invalidDate`,
+        `underAge`, `tooOld`.
+      properties:
+        managedFor: { $ref: '#/components/schemas/ManagedFor' }
+        fullName: { type: string, minLength: 1, maxLength: 100, description: The name of the person the profile is for. }
+        dateOfBirth: { type: string, format: date, description: Checked against the age limits (18 to 100). }
+        gender: { $ref: '#/components/schemas/Gender' }
+        maritalStatus: { $ref: '#/components/schemas/MaritalStatus' }
+        religionCode: { $ref: '#/components/schemas/Religion' }
+        countryCode: { $ref: '#/components/schemas/Country' }
+        districtCode: { $ref: '#/components/schemas/District', description: Needed when the country is Bangladesh and ignored otherwise. }
+        highestDegreeCode: { $ref: '#/components/schemas/Degree' }
+        occupationCode: { $ref: '#/components/schemas/Occupation' }
+        professionCode: { $ref: '#/components/schemas/Profession' }
+        phone: { type: string, maxLength: 40, description: 'The mobile number the agency will call. Checked for its shape and never by a text message; it is shown to staff as not confirmed until they reach it.' }
+    RegistrationDetailsBase:
+      type: object
+      additionalProperties: false
+      required: [managedFor, fullName, dateOfBirth, gender, maritalStatus, religionCode, countryCode, highestDegreeCode, occupationCode]
+      description: The same answers without the number, for registering by phone (the number is the one the code proved).
+      properties:
+        managedFor: { $ref: '#/components/schemas/ManagedFor' }
+        fullName: { type: string, minLength: 1, maxLength: 100, description: The name of the person the profile is for. }
+        dateOfBirth: { type: string, format: date, description: Checked against the age limits (18 to 100). }
+        gender: { $ref: '#/components/schemas/Gender' }
+        maritalStatus: { $ref: '#/components/schemas/MaritalStatus' }
+        religionCode: { $ref: '#/components/schemas/Religion' }
+        countryCode: { $ref: '#/components/schemas/Country' }
+        districtCode: { $ref: '#/components/schemas/District', description: Needed when the country is Bangladesh and ignored otherwise. }
+        highestDegreeCode: { $ref: '#/components/schemas/Degree' }
+        occupationCode: { $ref: '#/components/schemas/Occupation' }
+        professionCode: { $ref: '#/components/schemas/Profession' }
     PhoneSignupInput:
       type: object
       additionalProperties: false
@@ -8190,6 +8870,7 @@ components:
         acceptPrivacy: { type: boolean, default: false }
         onBehalfOfOther: { type: boolean, default: false }
         confirmAuthority: { type: boolean, default: false }
+        details: { $ref: '#/components/schemas/RegistrationDetailsBase' }
     SignInMethods:
       type: object
       required: [email, emailVerified, phone, hasPassword, google]
@@ -8226,6 +8907,7 @@ components:
         acceptPrivacy: { type: boolean, default: false }
         onBehalfOfOther: { type: boolean, default: false }
         confirmAuthority: { type: boolean, default: false }
+        details: { $ref: '#/components/schemas/RegistrationDetails' }
     GoogleLinkInput:
       type: object
       additionalProperties: false
@@ -8247,6 +8929,7 @@ components:
         acceptPrivacy: { type: boolean, default: false }
         onBehalfOfOther: { type: boolean, default: false }
         confirmAuthority: { type: boolean, default: false }
+        details: { $ref: '#/components/schemas/RegistrationDetails' }
     LinkToken:
       type: object
       additionalProperties: false
@@ -8260,7 +8943,7 @@ components:
       type: object
       additionalProperties: false
       required: [password]
-      description: Exactly one of `email` and `phone`.
+      description: Exactly one of `email`, `phone` and `memberCode`.
       properties:
         email: { type: string, maxLength: 254, description: Trimmed and lower-cased by the server. }
         phone:
@@ -8268,6 +8951,13 @@ components:
             type: string,
             maxLength: 40,
             description: A Bangladeshi mobile number or any number with its + and country code. Bengali digits are accepted.,
+          }
+        memberCode:
+          {
+            type: string,
+            maxLength: 20,
+            pattern: '^[Mm][0-9]{7}$',
+            description: The member ID of the profile, M and seven digits (M1234567). Either letter case.,
           }
         password: { type: string, minLength: 1, maxLength: 256 }
     ForgotPasswordInput:
@@ -8328,6 +9018,7 @@ components:
             default: false,
             description: Required when registering for someone else.,
           }
+        details: { $ref: '#/components/schemas/RegistrationDetails' }
     PhotoState:
       type: string
       enum: [waiting, approved, rejected]

@@ -42,6 +42,8 @@ const phone = z.string().max(40);
 const branch = z.object({
   name: localizedText,
   address: localizedText.optional(),
+  /** When the office is open, as the admin writes it (for example Sat to Thu, 10am to 6pm). */
+  hours: localizedText.optional(),
   phone: phone.optional().catch(undefined),
   mapUrl: httpsUrl.optional().catch(undefined),
 });
@@ -50,6 +52,17 @@ const successStory = z.object({
   names: localizedText,
   story: localizedText.optional(),
   year: z.number().int().min(1900).max(2100).optional().catch(undefined),
+  /** The couple's photo, served only while the story is published. */
+  photoUrl: z
+    .string()
+    .regex(/^\/api\/v1\/public\/story-photos\/story-[0-9a-f-]{36}\.webp$/)
+    .optional()
+    .catch(undefined),
+  weddingDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
 });
 
 /** Keeps the valid items (up to `max`) and drops the rest instead of rejecting the list. */
@@ -73,14 +86,26 @@ export const THEME_IDS = ['classic', 'modern', 'warm', 'royal'] as const;
 
 /** The parts of the home page below the first screen, in their default order. The first screen always comes first. */
 export const HOME_SECTION_IDS = [
+  'stories',
+  'gallery',
+  'members',
   'village',
+  'stats',
   'how',
+  'about',
   'why',
   'trust',
-  'stories',
+  'offices',
   'agency',
   'final',
 ] as const;
+
+/** The single pictures an admin can upload for the home page (the gallery holds many). */
+export const SITE_IMAGE_SLOTS = ['hero', 'about', 'cta'] as const;
+export const MAX_GALLERY_IMAGES = 24;
+
+/** A picture the platform stored for this agency (see SiteContentService), as the public site addresses it. */
+const siteImageUrl = z.string().regex(/^\/api\/v1\/public\/branding\/img-[0-9a-f-]{36}\.webp$/);
 
 const sectionItem = z.object({
   title: localizedText.optional(),
@@ -93,7 +118,7 @@ const homeSection = z.object({
   visible: z.boolean().optional().catch(undefined),
   title: localizedText.optional(),
   text: localizedText.optional(),
-  items: lenientList(sectionItem, 4),
+  items: lenientList(sectionItem, 8),
 });
 
 const publicConfigSchema = z
@@ -132,6 +157,18 @@ const publicConfigSchema = z
       .optional()
       .catch(undefined),
     about: localizedText.optional(),
+    images: z
+      .object({
+        hero: siteImageUrl.optional().catch(undefined),
+        about: siteImageUrl.optional().catch(undefined),
+        cta: siteImageUrl.optional().catch(undefined),
+        gallery: lenientList(
+          z.object({ url: siteImageUrl, caption: localizedText.optional() }),
+          MAX_GALLERY_IMAGES,
+        ),
+      })
+      .optional()
+      .catch(undefined),
     branches: lenientList(branch, 3),
     successStories: lenientList(successStory, 6),
   })

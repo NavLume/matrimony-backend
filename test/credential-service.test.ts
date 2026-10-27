@@ -30,6 +30,7 @@ async function setup(record: Partial<CredentialRecord> | null, passwordHash?: st
     {
       byEmail: async () => stored,
       byPhone: async () => stored,
+      byMemberCode: async () => stored,
       byId: async () => stored,
       rehash: async (_agency, _id, next, expected) => {
         if (rehashFails) throw new Error('database down');
@@ -192,4 +193,25 @@ await test('a disabled account is refused by phone only after the right password
     (error) =>
       error instanceof AppError && error.status === 403 && error.code === 'ACCOUNT_NOT_ACTIVE',
   );
+});
+
+await test('a member ID and the right password give the account; an unknown ID, no password and a wrong password fail alike', async () => {
+  const right = await setup({});
+  assert.deepEqual(
+    await right.service.verifyMemberCode(agency, 'M1234567', 'the right password'),
+    account,
+  );
+  const cases: [string, Awaited<ReturnType<typeof setup>>][] = [
+    ['unknown', await setup(null)],
+    ['no password', await setup({}, null)],
+    ['wrong', await setup({})],
+  ];
+  for (const [name, { service, dummyChecks }] of cases) {
+    await assert.rejects(
+      () => service.verifyMemberCode(agency, 'M1234567', 'a wrong password'),
+      code(401, 'INVALID_CREDENTIALS'),
+      name,
+    );
+    if (name !== 'wrong') assert.equal(dummyChecks(), 1, name);
+  }
 });

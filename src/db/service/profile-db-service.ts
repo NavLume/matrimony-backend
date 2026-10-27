@@ -2,6 +2,7 @@ import type { WorkflowEvent } from '../../bo/event.js';
 import type { ProfileData, ProposedChanges } from '../../bo/profile.js';
 import type {
   OwnProfileState,
+  PhoneCheck,
   ProfileRecord,
   ReviewKind,
   ReviewRecord,
@@ -57,6 +58,8 @@ export interface ProfileUnit {
   pendingReview(agencyId: string, profileId: string): Promise<ReviewRecord | null>;
   cancelReview(agencyId: string, reviewId: string): Promise<void>;
   lastDecision(agencyId: string, profileId: string): Promise<ReviewRecord | null>;
+  phoneCheck(agencyId: string, profileId: string): Promise<PhoneCheck>;
+  confirmPhone(agencyId: string, profileId: string, by: string): Promise<boolean>;
   appendEvent(event: WorkflowEvent): Promise<void>;
 }
 
@@ -91,6 +94,8 @@ export class ProfileDbService {
       pendingReview: (agencyId, profileId) => repo.pendingReview(tx, agencyId, profileId),
       cancelReview: (agencyId, reviewId) => repo.cancelReview(tx, agencyId, reviewId),
       lastDecision: (agencyId, profileId) => repo.lastDecision(tx, agencyId, profileId),
+      phoneCheck: (agencyId, profileId) => repo.phoneCheck(tx, agencyId, profileId),
+      confirmPhone: (agencyId, profileId, by) => repo.confirmPhone(tx, agencyId, profileId, by),
       appendEvent: (event) => this.events.append(tx, event),
     };
   }

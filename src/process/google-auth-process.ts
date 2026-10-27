@@ -111,6 +111,7 @@ export class GoogleAuthProcess {
               onBehalfOfOther: input.onBehalfOfOther,
               termsVersion: versions!.terms,
               privacyVersion: versions!.privacy,
+              details: input.details,
             },
           }
         : {}),
@@ -263,6 +264,7 @@ export class GoogleAuthProcess {
       onBehalfOfOther: input.onBehalfOfOther,
       termsVersion: versions.terms,
       privacyVersion: versions.privacy,
+      ...(input.details ? { details: input.details } : {}),
     };
     const created = await this.registrations.registerExternal(
       agencyId,

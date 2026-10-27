@@ -25,6 +25,32 @@ export class SiteContentDbService {
     );
   }
 
+  /** Sets a story's photo and/or wedding date and records the event together; undefined when there is no such story. */
+  setStoryDetails(
+    agencyId: string,
+    storyId: string,
+    change: { photoFile?: string | null; weddingDate?: string | null },
+    event: WorkflowEvent,
+  ) {
+    return this.db.transaction(agencyId, async (tx) => {
+      const result = await this.repository.setStoryDetails(tx, agencyId, storyId, change);
+      if (result) await this.events.append(tx, event);
+      return result;
+    });
+  }
+
+  storyPhotoFile(agencyId: string, storyId: string) {
+    return this.db.transaction(agencyId, (tx) =>
+      this.repository.storyPhotoFile(tx, agencyId, storyId),
+    );
+  }
+
+  isPublishedPhoto(agencyId: string, file: string) {
+    return this.db.transaction(agencyId, (tx) =>
+      this.repository.isPublishedPhoto(tx, agencyId, file),
+    );
+  }
+
   /** Changes the content and records the event together. */
   update(
     agencyId: string,

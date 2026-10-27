@@ -42,7 +42,10 @@ const secret = () => randomBytes(32).toString('base64url');
  */
 export class AuthProcess {
   constructor(
-    private readonly credentials: Pick<CredentialService, 'verify' | 'verifyPhone'>,
+    private readonly credentials: Pick<
+      CredentialService,
+      'verify' | 'verifyPhone' | 'verifyMemberCode'
+    >,
     private readonly accessTokens: Pick<AccessTokens, 'issue' | 'verify'>,
     private readonly sessions: Pick<
       SessionRepository,
@@ -64,9 +67,11 @@ export class AuthProcess {
    * has no account.
    */
   async login(agencyId: string, input: LoginInput, correlationId: string) {
-    const account = input.phone
-      ? await this.checkPhonePassword(agencyId, input.phone, input.password)
-      : await this.checkPassword(agencyId, input.email!, input.password);
+    const account = input.memberCode
+      ? await this.checkMemberCodePassword(agencyId, input.memberCode, input.password)
+      : input.phone
+        ? await this.checkPhonePassword(agencyId, input.phone, input.password)
+        : await this.checkPassword(agencyId, input.email!, input.password);
     return this.startSession(agencyId, account, correlationId);
   }
 
@@ -85,6 +90,20 @@ export class AuthProcess {
   async checkPhonePassword(agencyId: string, phone: string, password: string): Promise<Account> {
     return this.guarded(agencyId, digest(`phone:${phone}`), () =>
       this.credentials.verifyPhone(agencyId, phone, password),
+    );
+  }
+
+  /**
+   * The same for a member ID. The ID is printed on photos and shared with other members, so the
+   * password carries all the protection, and the same pause applies to it.
+   */
+  async checkMemberCodePassword(
+    agencyId: string,
+    memberCode: string,
+    password: string,
+  ): Promise<Account> {
+    return this.guarded(agencyId, digest(`member:${memberCode}`), () =>
+      this.credentials.verifyMemberCode(agencyId, memberCode, password),
     );
   }
 

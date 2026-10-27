@@ -1,6 +1,11 @@
 import { divisionOf } from '../../../bo/dictionaries.js';
 import type { ProfileData, ProposedChanges } from '../../../bo/profile.js';
-import type { ProfileRecord, ReviewKind, ReviewRecord } from '../../../bo/profile-state.js';
+import type {
+  PhoneCheck,
+  ProfileRecord,
+  ReviewKind,
+  ReviewRecord,
+} from '../../../bo/profile-state.js';
 import type { Transaction } from '../../config/database.js';
 import { mapProfile, mapReview } from '../mapper/profile.js';
 import { notifyReviewers } from './notice.js';
@@ -22,6 +27,26 @@ const divisionFor = (data: ProfileData) => divisionOf(data.profile.currentDistri
 
 /** All profile reads and writes. Every method runs inside the transaction it is given. */
 export class ProfileRepository {
+  async phoneCheck(tx: Transaction, agencyId: string, profileId: string): Promise<PhoneCheck> {
+    const found = await tx.query(profileQueries.phoneCheck, [agencyId, profileId]);
+    const row = found.rows[0];
+    if (!row?.phone) return { phone: null, confirmed: false, how: null, confirmedAt: null };
+    const how = row.by_code ? 'code' : row.by_staff ? 'staff' : null;
+    return {
+      phone: row.phone as string,
+      confirmed: how !== null,
+      how,
+      confirmedAt:
+        how === 'staff' && row.confirmed_at ? new Date(row.confirmed_at).toISOString() : null,
+    };
+  }
+
+  /** True when a number was on the profile to confirm. */
+  async confirmPhone(tx: Transaction, agencyId: string, profileId: string, by: string) {
+    const result = await tx.query(profileQueries.confirmPhone, [agencyId, profileId, by]);
+    return result.rowCount === 1;
+  }
+
   async findByOwner(
     tx: Transaction,
     agencyId: string,

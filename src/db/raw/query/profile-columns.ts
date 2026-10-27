@@ -64,6 +64,7 @@ export const PROFILE_COLUMNS: readonly ColumnSpec[] = [
   text('smokingCode', 'smoking_code'),
   text('childrenCode', 'children_code'),
   text('relocationCode', 'relocation_code'),
+  text('countryCode', 'country_code'),
   text('hobbies', 'hobbies'),
   text('aboutMe', 'about_me'),
 ];

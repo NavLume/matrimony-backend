@@ -6,7 +6,7 @@ import type { CredentialRecord } from '../src/bo/credentials-record.js';
 import type { Account } from '../src/bo/identity.js';
 import type { Registration } from '../src/bo/registration.js';
 import type { FoundAccount } from '../src/db/raw/repository/registration-repository.js';
-import type { GoogleStartInput } from '../src/bo/google.js';
+import type { GoogleSignupInput, GoogleStartInput } from '../src/bo/google.js';
 import { AppError } from '../src/exception/app-error.js';
 import { GoogleAuthProcess, GoogleSignInError } from '../src/process/google-auth-process.js';
 import type {
@@ -593,6 +593,26 @@ await test('the page that asks for the agreements is told who Google says is sig
   const everything = JSON.stringify([...f.stored.values()]);
   assert.equal(everything.includes('google-sub-1'), false);
   assert.equal(everything.includes('rahim@example.com'), false);
+});
+
+await test('the answers given on the agreements page travel with the registration, so the draft profile can start', async () => {
+  const f = setup();
+  const id = await waitingToSignUp(f);
+  const details: GoogleSignupInput['details'] = {
+    managedFor: 'self',
+    fullName: 'Rahim Uddin',
+    dateOfBirth: '1995-04-02',
+    gender: 'male',
+    maritalStatus: 'never_married',
+    religionCode: 'islam',
+    countryCode: 'bangladesh',
+    districtCode: 'dhaka',
+    highestDegreeCode: 'bachelors',
+    occupationCode: 'salaried',
+    phone: '+8801712345678',
+  };
+  await f.process.signup(agency, id, { ...agreed, details }, 'req-d');
+  assert.deepEqual(f.registered[0]!.registration.details, details);
 });
 
 await test('the pending sign-up is unknown to another agency and to a made-up id', async () => {

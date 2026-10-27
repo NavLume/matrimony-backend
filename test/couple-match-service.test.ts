@@ -76,17 +76,20 @@ function setup(
       id === ID(400) ? { changed: true } : id === ID(401) ? { changed: false } : null,
     removeStory: async (_a: string, id: string) =>
       id === ID(400) ? 'removed' : id === ID(402) ? 'already' : 'missing',
+    storyPhotoFile: async () => 'story-00000000-0000-4000-8000-000000000001.webp' as string | null,
     appendEvent: async (event: WorkflowEvent) => void events.push(event),
   };
   const db = {
     inTransaction: async <T>(_agency: string, work: (u: CoupleMatchUnit) => Promise<T>) =>
       work(unit as unknown as CoupleMatchUnit),
   };
+  const deleted: string[] = [];
   return {
     calls,
     events,
     stories,
     fees,
+    deleted,
     service: new CoupleMatchService(
       db,
       () => new Date('2026-10-20T10:00:00Z'),
@@ -94,6 +97,7 @@ function setup(
         let n = 500;
         return () => ID(n++);
       })(),
+      { delete: async (key: string) => void deleted.push(key) },
     ),
   };
 }
@@ -234,7 +238,7 @@ await test('only an admin publishes or hides a story, and it needs both clients 
 });
 
 await test('only an admin removes a story for good, with a reason, and it is recorded', async () => {
-  const { service, events } = setup();
+  const { service, events, deleted } = setup();
   await assert.rejects(
     () => service.removeStory(actor('agent', SALMA), ID(400), 'The family asked', 'r'),
     code(403, 'ROLE_FORBIDDEN'),
@@ -253,6 +257,8 @@ await test('only an admin removes a story for good, with a reason, and it is rec
     events.map((e) => e.type),
     ['story.removed'],
   );
+  // the couple's photo file is deleted with the story
+  assert.deepEqual(deleted, [`${agency}/stories/story-00000000-0000-4000-8000-000000000001.webp`]);
 });
 
 await test('the request is checked: fees are whole taka within range, notes are trimmed, at most two fees', () => {
