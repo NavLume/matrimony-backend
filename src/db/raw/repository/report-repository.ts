@@ -61,7 +61,9 @@ export class ReportRepository {
       `SELECT
          (SELECT count(*) FROM matrimony.profile_reviews WHERE agency_id = $1 AND status = 'pending')::int AS profile_reviews,
          (SELECT count(*) FROM matrimony.interests WHERE agency_id = $1 AND status = 'in_review')::int AS proposal_reviews,
-         (SELECT count(*) FROM matrimony.profile_cvs WHERE agency_id = $1 AND status = 'pending')::int AS cvs`,
+         (SELECT count(*) FROM matrimony.profile_cvs WHERE agency_id = $1 AND status = 'pending')::int AS cvs,
+         (SELECT count(*) FROM matrimony.member_profiles WHERE agency_id = $1 AND assigned_agent_id IS NULL
+            AND status <> 'closed' AND erased_at IS NULL)::int AS unassigned_clients`,
       [agencyId],
     );
     const row = result.rows[0] as Row;
@@ -69,6 +71,7 @@ export class ReportRepository {
       profileReviews: num(row.profile_reviews),
       proposalReviews: num(row.proposal_reviews),
       cvs: num(row.cvs),
+      unassignedClients: num(row.unassigned_clients),
     };
   }
 

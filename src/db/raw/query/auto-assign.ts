@@ -1,7 +1,8 @@
 /**
  * Gives a profile that has no agent to the active agent who looks after the fewest clients (the
  * earliest account breaks a tie), records it in the history and tells that agent. Does nothing when
- * the profile already has an agent or the agency has no active agent. $1 agency, $2 profile.
+ * the profile already has an agent, the agency has no active agent, or the agency assigns by hand (its setting
+ * `assignment.mode` is 'manual': an admin then chooses from the clients nobody looks after). $1 agency, $2 profile.
  * Returns the agent chosen, or no row.
  */
 export const autoAssign = `WITH chosen AS (
@@ -16,6 +17,7 @@ export const autoAssign = `WITH chosen AS (
     UPDATE matrimony.member_profiles p SET assigned_agent_id = (SELECT id FROM chosen)
      WHERE p.agency_id = $1 AND p.id = $2 AND p.assigned_agent_id IS NULL
        AND EXISTS (SELECT 1 FROM chosen)
+       AND coalesce((SELECT g.settings #>> '{assignment,mode}' FROM matrimony.agencies g WHERE g.id = $1), 'automatic') <> 'manual'
     RETURNING p.id, p.assigned_agent_id
   ), recorded AS (
     INSERT INTO matrimony.client_assignments (agency_id, profile_id, from_agent_id, to_agent_id, changed_by_account_id, reason)

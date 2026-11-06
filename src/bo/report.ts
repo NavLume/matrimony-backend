@@ -96,7 +96,12 @@ export interface SummaryReport {
     admins: number;
     profilesByStatus: Record<string, number>;
   };
-  waiting: { profileReviews: number; proposalReviews: number; cvs: number };
+  waiting: {
+    profileReviews: number;
+    proposalReviews: number;
+    cvs: number;
+    unassignedClients: number;
+  };
   proposals: {
     total: number;
     byStatus: Record<ProposalStatus, number>;

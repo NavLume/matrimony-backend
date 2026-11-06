@@ -6844,11 +6844,12 @@ components:
         waiting:
           type: object
           additionalProperties: false
-          required: [profileReviews, proposalReviews, cvs]
+          required: [profileReviews, proposalReviews, cvs, unassignedClients]
           properties:
             profileReviews: { type: integer }
             proposalReviews: { type: integer }
             cvs: { type: integer }
+            unassignedClients: { type: integer, description: 'Clients no agent looks after yet (open profiles). Only above zero where an admin assigns clients by hand, or when the agency has no active agent.' }
         proposals:
           type: object
           additionalProperties: false
@@ -7573,12 +7574,13 @@ components:
         profile:
           type: object
           additionalProperties: false
-          required: [id, memberCode, fullName, status]
+          required: [id, memberCode, fullName, status, hasAgent]
           properties:
             id: { type: string, format: uuid }
             memberCode: { type: string }
             fullName: { type: string }
             status: { type: string }
+            hasAgent: { type: boolean, description: 'Whether an agent looks after the client. False while an agency that assigns clients by hand has not chosen one yet.' }
         summary:
           type: object
           additionalProperties: false
@@ -7945,9 +7947,15 @@ components:
     AgencySettings:
       type: object
       additionalProperties: false
-      required: [attention, messaging]
+      required: [attention, messaging, assignment]
       properties:
         attention: { $ref: '#/components/schemas/AttentionLimits' }
+        assignment:
+          type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: { type: string, enum: [automatic, manual], description: 'How a new client gets an agent. automatic (default): the platform gives the profile to the active agent with the fewest clients at once. manual: the client starts with no agent and an admin chooses one from the list of clients nobody looks after.' }
         messaging:
           type: object
           additionalProperties: false

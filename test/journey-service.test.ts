@@ -31,7 +31,13 @@ const profile: JourneyProfile = {
   ownerAccountId: MEMBER,
 };
 const empty = (staff: boolean): Journey => ({
-  profile: { id: CLIENT, memberCode: 'M1', fullName: staff ? 'Rahim' : 'Rahim', status: 'active' },
+  profile: {
+    id: CLIENT,
+    memberCode: 'M1',
+    fullName: staff ? 'Rahim' : 'Rahim',
+    status: 'active',
+    hasAgent: true,
+  },
   summary: { released: 0, proposalsSent: 0, proposalsReceived: 0, accepted: 0, meetings: 0 },
   waiting: { onAgency: [], onYou: [], onOthers: [] },
   events: [],

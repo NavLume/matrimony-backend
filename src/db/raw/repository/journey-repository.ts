@@ -230,6 +230,7 @@ export class JourneyRepository {
         memberCode: profile.memberCode,
         fullName: profile.fullName,
         status: profile.status,
+        hasAgent: profile.assignedAgentId !== null,
       },
       summary: {
         released: Number(c.released),

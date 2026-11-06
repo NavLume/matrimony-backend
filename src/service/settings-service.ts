@@ -29,6 +29,7 @@ export class SettingsService {
       const settings: AgencySettings = {
         attention: input.attention,
         messaging: input.messaging,
+        assignment: input.assignment,
       };
       await unit.save(actor.agencyId, settings);
       await unit.appendEvent({

@@ -65,14 +65,33 @@ export const messagingSettingsSchema = z
   .strict();
 export type MessagingSettings = z.output<typeof messagingSettingsSchema>;
 
+/**
+ * How a new client gets an agent. Automatic (the default): the platform gives the profile to the active agent with
+ * the fewest clients, the moment it is created. Manual: it starts with no agent and an admin chooses one from the
+ * list of clients nobody looks after; the client is told so, and told who once an admin has chosen.
+ */
+export const ASSIGNMENT_MODES = ['automatic', 'manual'] as const;
+export type AssignmentMode = (typeof ASSIGNMENT_MODES)[number];
+export const DEFAULT_ASSIGNMENT_MODE: AssignmentMode = 'automatic';
+
+export const assignmentSettingsSchema = z
+  .object({ mode: z.enum(ASSIGNMENT_MODES, fail('invalid')) })
+  .strict();
+export type AssignmentSettings = z.output<typeof assignmentSettingsSchema>;
+
 export const settingsInputSchema = z
-  .object({ attention: attentionLimitsSchema, messaging: messagingSettingsSchema })
+  .object({
+    attention: attentionLimitsSchema,
+    messaging: messagingSettingsSchema,
+    assignment: assignmentSettingsSchema,
+  })
   .strict();
 export type SettingsInput = z.output<typeof settingsInputSchema>;
 
 export interface AgencySettings {
   attention: AttentionLimits;
   messaging: MessagingSettings;
+  assignment: AssignmentSettings;
 }
 
 const lenient = (value: unknown, fallback: number) => {
@@ -97,7 +116,17 @@ export function parseSettings(raw: unknown): AgencySettings {
       : {};
   const limit = messagingSettingsSchema.shape.dailyLimit.safeParse(stored2.dailyLimit);
   const perMember = messagingSettingsSchema.shape.perMemberDaily.safeParse(stored2.perMemberDaily);
+  const assignmentRaw =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>).assignment
+      : undefined;
+  const mode = assignmentSettingsSchema.shape.mode.safeParse(
+    assignmentRaw && typeof assignmentRaw === 'object'
+      ? (assignmentRaw as Record<string, unknown>).mode
+      : undefined,
+  );
   return {
+    assignment: { mode: mode.success ? mode.data : DEFAULT_ASSIGNMENT_MODE },
     messaging: {
       enabled: stored2.enabled === true,
       dailyLimit: limit.success ? limit.data : DEFAULT_DAILY_LIMIT,

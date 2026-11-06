@@ -70,7 +70,14 @@ export interface JourneyWait {
 }
 
 export interface Journey {
-  profile: { id: string; memberCode: string; fullName: string; status: string };
+  profile: {
+    id: string;
+    memberCode: string;
+    fullName: string;
+    status: string;
+    /** Whether an agent looks after the client. False while an agency that assigns by hand has not chosen one. */
+    hasAgent: boolean;
+  };
   summary: {
     released: number;
     proposalsSent: number;

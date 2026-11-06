@@ -18,6 +18,7 @@ const actor = (role: ProfileActor['role']): ProfileActor => ({
 const input = {
   attention: { reviewDays: 1, unansweredDays: 3, noCandidatesDays: 2, noMeetingDays: 5 },
   messaging: { enabled: true, dailyLimit: 100, perMemberDaily: 2 },
+  assignment: { mode: 'manual' as const },
 };
 
 function setup() {
@@ -61,6 +62,33 @@ await test('every limit is a whole number of days from 1 to 60', () => {
     assert.equal(settingsInputSchema.safeParse(value).success, false, `${bad} is refused`);
   }
   assert.equal(settingsInputSchema.safeParse({ attention: { reviewDays: 2 } }).success, false);
+});
+
+await test('new clients get an agent automatically unless the admin chose to assign by hand', () => {
+  assert.equal(parseSettings({}).assignment.mode, 'automatic');
+  assert.equal(parseSettings({ assignment: { mode: 'sideways' } }).assignment.mode, 'automatic');
+  assert.equal(parseSettings({ assignment: { mode: 'manual' } }).assignment.mode, 'manual');
+  assert.equal(settingsInputSchema.safeParse(input).success, true);
+  for (const bad of [{ mode: 'random' }, {}, { mode: 'manual', extra: 1 }]) {
+    assert.equal(
+      settingsInputSchema.safeParse({ ...input, assignment: bad }).success,
+      false,
+      'a bad assignment setting is refused',
+    );
+  }
+  assert.equal(
+    settingsInputSchema.safeParse({ attention: input.attention, messaging: input.messaging })
+      .success,
+    false,
+  );
+});
+
+await test('the admin saves the assignment mode and it is read back', async () => {
+  const { service, stored } = setup();
+  assert.equal((await service.get(actor('admin'))).assignment.mode, 'automatic');
+  const saved = await service.save(actor('admin'), input, 'c');
+  assert.equal(saved.assignment.mode, 'manual');
+  assert.equal(stored().assignment.mode, 'manual');
 });
 
 await test('an admin reads and saves the settings, and the change is recorded', async () => {
