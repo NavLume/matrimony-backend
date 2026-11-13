@@ -176,6 +176,56 @@ export interface ProfileDetail {
   /** Present only when the other person shared it and the connection is accepted. */
   contact: SharedContact | null;
   visibleFields: VisibleField[];
+  /** Everything else the person saved, present only once the connection is accepted. Never contact or address. */
+  details: FullDetails | null;
+}
+
+/** What a connected person may read beyond the headline fields. Contact details and the address are never here. */
+export interface FullDetails {
+  weightKg: number | null;
+  complexionCode: string | null;
+  bloodGroup: string | null;
+  sectCode: string | null;
+  countryCode: string | null;
+  currentCity: string | null;
+  institutionName: string | null;
+  fieldOfStudy: string | null;
+  graduationYear: number | null;
+  jobTitle: string | null;
+  employerName: string | null;
+  fatherName: string | null;
+  fatherOccupation: string | null;
+  motherName: string | null;
+  motherOccupation: string | null;
+  siblingCount: number | null;
+  religiousPracticeCode: string | null;
+  dietaryPreferenceCode: string | null;
+  smokingCode: string | null;
+  childrenCode: string | null;
+  relocationCode: string | null;
+  /** What the person looks for in a partner. */
+  preferences: {
+    ageMin: number | null;
+    ageMax: number | null;
+    heightMinCm: number | null;
+    heightMaxCm: number | null;
+    religionCodes: string[];
+    sectCodes: string[];
+    maritalStatusCodes: string[];
+    educationMinCode: string | null;
+    occupationCodes: string[];
+    professionCodes: string[];
+    districtCodes: string[];
+    incomeMinBandCode: string | null;
+    incomeMaxBandCode: string | null;
+    familyStatusMinCode: string | null;
+    complexionCodes: string[];
+    religiousPracticeCodes: string[];
+    dietaryPreferenceCodes: string[];
+    smokingCodes: string[];
+    childrenCodes: string[];
+    relocationCodes: string[];
+  } | null;
 }
 
 /** One released profile. Only the fields staff allowed are present; contact details never are. */

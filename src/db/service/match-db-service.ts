@@ -1,4 +1,10 @@
-import type { ConnectionLink, MatchFilters, MatchItem, SharedContact } from '../../bo/matches.js';
+import type {
+  ConnectionLink,
+  FullDetails,
+  MatchFilters,
+  MatchItem,
+  SharedContact,
+} from '../../bo/matches.js';
 import type { Cursor } from '../../bo/review.js';
 import type { VisibleField } from '../../bo/release.js';
 import type { Database, Transaction } from '../config/database.js';
@@ -33,6 +39,7 @@ export interface MatchUnit {
     today: Date,
   ): Promise<{ item: MatchItem; link: ConnectionLink | null } | null>;
   sharedContact(agencyId: string, clientId: string, otherId: string): Promise<SharedContact | null>;
+  fullDetails(agencyId: string, clientId: string, otherId: string): Promise<FullDetails | null>;
   viewablePhoto(
     agencyId: string,
     clientId: string,
@@ -64,6 +71,8 @@ export class MatchDbService {
         this.matches.person(tx, agencyId, clientId, candidateId, visible, today),
       sharedContact: (agencyId, clientId, otherId) =>
         this.matches.sharedContact(tx, agencyId, clientId, otherId),
+      fullDetails: (agencyId, clientId, otherId) =>
+        this.matches.fullDetails(tx, agencyId, clientId, otherId),
       viewablePhoto: (agencyId, clientId, candidateId) =>
         this.matches.viewablePhoto(tx, agencyId, clientId, candidateId),
     };

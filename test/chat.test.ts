@@ -87,7 +87,8 @@ function fixture(options: { bStatus?: string; bOwner?: string | null; enabled?: 
       });
     },
     activate: async (_a: string, id: string) => {
-      store.get(id)!.status = 'active';
+      // the fake stores its one conversation as c1, whatever id the service generated
+      (store.get(id) ?? store.get('c1')!).status = 'active';
     },
     end: async (_a: string, id: string, reason: ConversationRow['endReason']) => {
       Object.assign(store.get(id)!, { status: 'ended', endReason: reason });
@@ -123,26 +124,21 @@ function fixture(options: { bStatus?: string; bOwner?: string | null; enabled?: 
 const rahim = { agencyId: agency, accountId: ACCOUNT_A, role: 'member' as const };
 const nusrat = { agencyId: agency, accountId: ACCOUNT_B, role: 'member' as const };
 
-await test('a chat starts only when both sides agree, and the other person is told', async () => {
+await test('connected clients chat at once: nobody asks and nobody answers', async () => {
   const f = fixture();
-  const asked = await f.service.request(rahim, 'i1', 'c');
-  assert.equal(asked.status, 'requested');
-  assert.deepEqual(f.notices, [`chat.requested:${ACCOUNT_B}`]);
-  await assert.rejects(f.service.send(rahim, 'c1', 'hello'), code(409, 'CHAT_NOT_ACTIVE'));
-  await assert.rejects(f.service.respond(rahim, 'c1', true, 'c'), code(409, 'CHAT_NOT_PENDING'));
-  const accepted = await f.service.respond(nusrat, 'c1', true, 'c');
-  assert.equal(accepted.status, 'active');
-  assert.equal(accepted.canSend, true);
-  // Both asking is the same as one asking and the other accepting.
-  const g = fixture();
-  await g.service.request(rahim, 'i1', 'c');
-  assert.equal((await g.service.request(nusrat, 'i1', 'c')).status, 'active');
+  const opened = await f.service.request(rahim, 'i1', 'c');
+  assert.equal(opened.status, 'active');
+  assert.equal(opened.canSend, true);
+  assert.deepEqual(f.notices, []);
+  await assert.rejects(f.service.respond(nusrat, 'c1', true, 'c'), code(409, 'CHAT_NOT_PENDING'));
+  // The other person opening the same chat changes nothing.
+  assert.equal((await f.service.request(nusrat, 'i1', 'c')).status, 'active');
+  assert.equal((await f.service.send(nusrat, 'c1', 'hello')).mine, true);
 });
 
 await test('a message is stored with contacts hidden, and refused when the chat is not usable', async () => {
   const f = fixture();
   await f.service.request(rahim, 'i1', 'c');
-  await f.service.respond(nusrat, 'c1', true, 'c');
   const message = await f.service.send(rahim, 'c1', 'my number is 01712345678');
   assert.equal(message.masked, true);
   assert.deepEqual(f.sent, ['my number is [hidden]']);
@@ -163,9 +159,13 @@ await test('a client with no login, or an agency with chat off, cannot chat', as
   );
 });
 
-await test('a blocked chat cannot be asked for again, a declined one can', async () => {
+await test('after a chat is ended by a member, asking again needs a yes; a blocked chat cannot be asked for again', async () => {
   const f = fixture();
   await f.service.request(rahim, 'i1', 'c');
+  await f.service.end(nusrat, 'c1', false, 'c');
+  assert.equal(f.store.get('c1')!.endReason, 'ended_by_member');
+  assert.equal((await f.service.request(rahim, 'i1', 'c')).status, 'requested');
+  assert.deepEqual(f.notices, [`chat.requested:${ACCOUNT_B}`]);
   await f.service.respond(nusrat, 'c1', false, 'c');
   assert.equal(f.store.get('c1')!.endReason, 'declined');
   assert.equal((await f.service.request(rahim, 'i1', 'c')).status, 'requested');
@@ -190,4 +190,13 @@ await test('staff cannot read a conversation that was not reported; there is no 
   // The invitation of an agent into a chat no longer exists.
   assert.equal('invite' in f.service, false);
   assert.equal('uninvite' in f.service, false);
+});
+
+await test('a chat that ended only because a profile was unavailable continues when both are back', async () => {
+  const f = fixture();
+  await f.service.request(rahim, 'i1', 'c');
+  Object.assign(f.store.get('c1')!, { status: 'ended', endReason: 'profile_unavailable' });
+  const back = await f.service.request(rahim, 'i1', 'c');
+  assert.equal(back.status, 'active');
+  assert.deepEqual(f.notices, []);
 });

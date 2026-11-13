@@ -1,4 +1,4 @@
-import { DEFAULT_VISIBLE_FIELDS, type VisibleField } from '../bo/release.js';
+import { DEFAULT_VISIBLE_FIELDS, VISIBLE_FIELDS, type VisibleField } from '../bo/release.js';
 import {
   PREVIEW_FIELDS,
   hiddenFilters,
@@ -104,16 +104,33 @@ export class MatchService {
       const own = await this.viewedProfile(unit, actor);
       if (!own || own.status !== 'active') throw new AppError(404, 'PROFILE_NOT_FOUND');
       const visible = await this.visibleFields(unit, actor.agencyId, own.id);
-      const found = await unit.person(actor.agencyId, own.id, candidateId, visible, this.now());
+      let found = await unit.person(actor.agencyId, own.id, candidateId, visible, this.now());
       if (!found) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      // Once two people are connected, each may read everything the other saved (contact stays separate:
+      // it is shown only after the person shares it, and the address never).
+      const connected = found.link?.status === 'accepted';
+      if (connected) {
+        const all = await unit.person(
+          actor.agencyId,
+          own.id,
+          candidateId,
+          VISIBLE_FIELDS,
+          this.now(),
+        );
+        if (all) found = all;
+      }
       const contact = found.link?.theyShared
         ? await unit.sharedContact(actor.agencyId, own.id, candidateId)
+        : null;
+      const details = connected
+        ? await unit.fullDetails(actor.agencyId, own.id, candidateId)
         : null;
       return {
         profile: found.item,
         connection: found.link,
         contact,
-        visibleFields: [...visible],
+        visibleFields: connected ? [...VISIBLE_FIELDS] : [...visible],
+        details,
       };
     });
   }

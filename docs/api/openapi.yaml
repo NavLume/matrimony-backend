@@ -9426,7 +9426,7 @@ components:
     ProfileDetail:
       type: object
       additionalProperties: false
-      required: [profile, connection, contact, visibleFields]
+      required: [profile, connection, contact, visibleFields, details]
       properties:
         profile: { $ref: '#/components/schemas/MatchItem' }
         connection:
@@ -9454,6 +9454,62 @@ components:
                 email: { type: [string, 'null'] }
             - { type: 'null' }
         visibleFields: { type: array, items: { $ref: '#/components/schemas/VisibleField' } }
+        details:
+          description: Everything else the person saved, only once the connection is accepted. Never contact or address.
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [weightKg, complexionCode, bloodGroup, sectCode, countryCode, currentCity, institutionName, fieldOfStudy, graduationYear, jobTitle, employerName, fatherName, fatherOccupation, motherName, motherOccupation, siblingCount, religiousPracticeCode, dietaryPreferenceCode, smokingCode, childrenCode, relocationCode, preferences]
+              properties:
+                weightKg: { type: [integer, 'null'] }
+                complexionCode: { type: [string, 'null'] }
+                bloodGroup: { type: [string, 'null'] }
+                sectCode: { type: [string, 'null'] }
+                countryCode: { type: [string, 'null'] }
+                currentCity: { type: [string, 'null'] }
+                institutionName: { type: [string, 'null'] }
+                fieldOfStudy: { type: [string, 'null'] }
+                graduationYear: { type: [integer, 'null'] }
+                jobTitle: { type: [string, 'null'] }
+                employerName: { type: [string, 'null'] }
+                fatherName: { type: [string, 'null'] }
+                fatherOccupation: { type: [string, 'null'] }
+                motherName: { type: [string, 'null'] }
+                motherOccupation: { type: [string, 'null'] }
+                siblingCount: { type: [integer, 'null'] }
+                religiousPracticeCode: { type: [string, 'null'] }
+                dietaryPreferenceCode: { type: [string, 'null'] }
+                smokingCode: { type: [string, 'null'] }
+                childrenCode: { type: [string, 'null'] }
+                relocationCode: { type: [string, 'null'] }
+                preferences:
+                  anyOf:
+                    - type: object
+                      additionalProperties: false
+                      required: [ageMin, ageMax, heightMinCm, heightMaxCm, religionCodes, sectCodes, maritalStatusCodes, educationMinCode, occupationCodes, professionCodes, districtCodes, incomeMinBandCode, incomeMaxBandCode, familyStatusMinCode, complexionCodes, religiousPracticeCodes, dietaryPreferenceCodes, smokingCodes, childrenCodes, relocationCodes]
+                      properties:
+                        ageMin: { type: [integer, 'null'] }
+                        ageMax: { type: [integer, 'null'] }
+                        heightMinCm: { type: [integer, 'null'] }
+                        heightMaxCm: { type: [integer, 'null'] }
+                        religionCodes: { type: array, items: { type: string } }
+                        sectCodes: { type: array, items: { type: string } }
+                        maritalStatusCodes: { type: array, items: { type: string } }
+                        educationMinCode: { type: [string, 'null'] }
+                        occupationCodes: { type: array, items: { type: string } }
+                        professionCodes: { type: array, items: { type: string } }
+                        districtCodes: { type: array, items: { type: string } }
+                        incomeMinBandCode: { type: [string, 'null'] }
+                        incomeMaxBandCode: { type: [string, 'null'] }
+                        familyStatusMinCode: { type: [string, 'null'] }
+                        complexionCodes: { type: array, items: { type: string } }
+                        religiousPracticeCodes: { type: array, items: { type: string } }
+                        dietaryPreferenceCodes: { type: array, items: { type: string } }
+                        smokingCodes: { type: array, items: { type: string } }
+                        childrenCodes: { type: array, items: { type: string } }
+                        relocationCodes: { type: array, items: { type: string } }
+                    - { type: 'null' }
+            - { type: 'null' }
     ConnectionRequestInput:
       type: object
       additionalProperties: false

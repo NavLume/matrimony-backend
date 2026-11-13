@@ -36,4 +36,5 @@ export const profileDetailResponse = (detail: ProfileDetail) => ({
     email: detail.contact.email,
   },
   visibleFields: detail.visibleFields,
+  details: detail.details,
 });

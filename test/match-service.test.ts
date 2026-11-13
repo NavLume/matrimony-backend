@@ -26,9 +26,12 @@ type Start = {
   /** The owner chose blurred photos and no proposal is accepted. */
   blurred?: boolean;
   total?: number;
+  /** The state of the connection with the person looked at. */
+  link?: 'accepted' | 'pending' | null;
 };
 
 function fake(start: Start = {}) {
+  const personCalls: (readonly VisibleField[])[] = [];
   const seen: {
     visible: readonly VisibleField[];
     filters: unknown;
@@ -51,8 +54,47 @@ function fake(start: Start = {}) {
       seen.push({ visible, filters, limit: page.limit, after: page.after });
       return start.rows ?? [];
     },
-    person: async () => null,
+    person: async (_a, _c, id, visible) => {
+      personCalls.push(visible);
+      if (start.link === undefined) return null;
+      return {
+        item: { ...row(1), candidateId: id },
+        link: start.link
+          ? {
+              id: 'c1',
+              status: start.link,
+              direction: 'sent' as const,
+              iShared: false,
+              theyShared: false,
+            }
+          : null,
+      };
+    },
     sharedContact: async () => null,
+    fullDetails: async () => ({
+      weightKg: 70,
+      complexionCode: 'fair',
+      bloodGroup: 'a_pos',
+      sectCode: 'sunni',
+      countryCode: 'bangladesh',
+      currentCity: 'Dhaka',
+      institutionName: 'University',
+      fieldOfStudy: 'Finance',
+      graduationYear: 2019,
+      jobTitle: 'Officer',
+      employerName: 'Bank',
+      fatherName: 'F',
+      fatherOccupation: null,
+      motherName: 'M',
+      motherOccupation: null,
+      siblingCount: 2,
+      religiousPracticeCode: 'practicing',
+      dietaryPreferenceCode: null,
+      smokingCode: 'never',
+      childrenCode: 'none',
+      relocationCode: null,
+      preferences: null,
+    }),
     viewablePhoto: async () => {
       const storageKey = start.photoKey === undefined ? 'k/1' : start.photoKey;
       return storageKey === null
@@ -61,7 +103,7 @@ function fake(start: Start = {}) {
     },
   };
   const service = new MatchService({ inTransaction: async (_agency, work) => work(unit) });
-  return { service, seen };
+  return { service, seen, personCalls };
 }
 
 const row = (n: number): MatchItem => ({
@@ -189,4 +231,29 @@ await test('a photo is only given for a released profile, and only when staff al
     fake({ own: { id: OWN, status: 'draft' } }).service.photoKey(member, OWN),
     refused(404, 'PHOTO_NOT_FOUND'),
   );
+});
+
+await test('a connected person shows everything they saved; anyone else only what staff allowed', async () => {
+  const connected = fake({ visible: ['fullName'], link: 'accepted' });
+  const full = await connected.service.detail(member, 'p1');
+  assert.equal(full.details?.employerName, 'Bank');
+  assert.equal(full.visibleFields.length, 15);
+  // The first read uses the staff choice, the second all the fields.
+  assert.deepEqual(connected.personCalls[0], ['fullName']);
+  assert.equal(connected.personCalls[1]?.length, 15);
+
+  for (const link of ['pending', null] as const) {
+    const other = fake({ visible: ['fullName'], link });
+    const seen = await other.service.detail(member, 'p1');
+    assert.equal(seen.details, null);
+    assert.deepEqual(seen.visibleFields, ['fullName']);
+    assert.equal(other.personCalls.length, 1);
+  }
+});
+
+await test('the answer for a profile carries the full details', async () => {
+  const { profileDetailResponse } = await import('../src/factory/match-response.js');
+  const connected = fake({ visible: ['fullName'], link: 'accepted' });
+  const answer = profileDetailResponse(await connected.service.detail(member, 'p1'));
+  assert.equal(answer.details?.employerName, 'Bank');
 });

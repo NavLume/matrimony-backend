@@ -102,8 +102,10 @@ export class ChatService {
           profileB: interest.recipientProfileId,
           requestedBy: own.id,
         });
-        await this.tell(unit, actor.agencyId, other, 'chat.requested', id, own);
-        await unit.appendEvent(this.event('chat.requested', actor, id, correlationId));
+        // Both people already agreed to the introduction, so the chat opens at once: nobody has to
+        // ask and nobody has to answer. (Asking again after a chat was ended still needs a yes below.)
+        await unit.activate(actor.agencyId, id);
+        await unit.appendEvent(this.event('chat.accepted', actor, id, correlationId));
       } else if (conversation.status === 'requested') {
         if (conversation.requestedBy !== own.id) {
           await unit.activate(actor.agencyId, conversation.id);
@@ -126,9 +128,21 @@ export class ChatService {
           )
         )
           throw new AppError(409, 'CHAT_NOT_ALLOWED');
+        const endedBecauseUnavailable = conversation.endReason === 'profile_unavailable';
         await unit.reopen(actor.agencyId, conversation.id, own.id);
-        await this.tell(unit, actor.agencyId, other, 'chat.requested', conversation.id, own);
-        await unit.appendEvent(this.event('chat.requested', actor, conversation.id, correlationId));
+        if (endedBecauseUnavailable) {
+          // It ended only because a profile was unpublished or matched, and both are published and
+          // connected again: nobody chose to stop, so the chat simply continues.
+          await unit.activate(actor.agencyId, conversation.id);
+          await unit.appendEvent(
+            this.event('chat.accepted', actor, conversation.id, correlationId),
+          );
+        } else {
+          await this.tell(unit, actor.agencyId, other, 'chat.requested', conversation.id, own);
+          await unit.appendEvent(
+            this.event('chat.requested', actor, conversation.id, correlationId),
+          );
+        }
       }
       conversation = (await unit.byInterest(actor.agencyId, interestId))!;
       return this.summaryOf(unit, actor, own, conversation.id);

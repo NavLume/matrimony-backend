@@ -113,6 +113,25 @@ export const matchQueries = {
      AND (x.status <> 'in_review' OR x.sender_profile_id = $2)
  WHERE ${VIEWABLE}`,
 
+  // $1 agency, $2 client, $3 the other person. Everything the other person saved apart from contact and
+  // address, but only while a connection between the two is accepted.
+  fullDetails: `SELECT m.weight_kg, m.complexion_code, m.blood_group, m.sect_code, m.country_code, m.current_city,
+       m.institution_name, m.field_of_study, m.graduation_year, m.job_title, m.employer_name,
+       m.father_name, m.father_occupation, m.mother_name, m.mother_occupation, m.sibling_count,
+       m.religious_practice_code, m.dietary_preference_code, m.smoking_code, m.children_code, m.relocation_code,
+       (p.profile_id IS NOT NULL) AS has_preferences, p.age_min, p.age_max, p.height_min_cm, p.height_max_cm,
+       p.religion_codes, p.sect_codes, p.marital_status_codes, p.education_min_code, p.occupation_codes,
+       p.profession_codes, p.district_codes, p.income_min_band_code, p.income_max_band_code,
+       p.family_status_min_code, p.complexion_codes, p.religious_practice_codes, p.dietary_preference_codes,
+       p.smoking_codes, p.children_codes, p.relocation_codes
+  FROM matrimony.member_profiles m
+  LEFT JOIN matrimony.partner_preferences p ON p.agency_id = m.agency_id AND p.profile_id = m.id
+ WHERE m.agency_id = $1 AND m.id = $3 AND m.status = 'active'
+   AND EXISTS (SELECT 1 FROM matrimony.interests x
+                WHERE x.agency_id = m.agency_id AND x.status = 'accepted'
+                  AND ((x.sender_profile_id = $2 AND x.recipient_profile_id = m.id)
+                    OR (x.sender_profile_id = m.id AND x.recipient_profile_id = $2)))`,
+
   // $1 agency, $2 client profile, $3 candidate. Whether the client may look at this profile at all.
   viewable: `SELECT m.id FROM matrimony.member_profiles m WHERE ${VIEWABLE}`,
 

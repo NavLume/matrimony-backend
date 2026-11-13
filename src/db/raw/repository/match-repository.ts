@@ -1,6 +1,7 @@
 import { EDUCATION_LEVELS, FAMILY_STATUSES, INCOME_BANDS } from '../../../bo/dictionaries.js';
 import type {
   ConnectionLink,
+  FullDetails,
   MatchFilters,
   MatchItem,
   SharedContact,
@@ -139,6 +140,68 @@ export class MatchRepository {
     const result = await tx.query(matchQueries.person(visible), [agencyId, clientId, candidateId]);
     const row = result.rows[0] as Row | undefined;
     return row ? this.item(row, visible, today) : null;
+  }
+
+  /** Everything the other person saved apart from contact and address; null unless the two are connected. */
+  async fullDetails(
+    tx: Transaction,
+    agencyId: string,
+    clientId: string,
+    otherId: string,
+  ): Promise<FullDetails | null> {
+    const result = await tx.query(matchQueries.fullDetails, [agencyId, clientId, otherId]);
+    const r = result.rows[0] as Row | undefined;
+    if (!r) return null;
+    const text = (key: string) => (r[key] as string | null) ?? null;
+    const num = (key: string) => (r[key] === null || r[key] === undefined ? null : Number(r[key]));
+    const list = (key: string) => (r[key] as string[] | null) ?? [];
+    return {
+      weightKg: num('weight_kg'),
+      complexionCode: text('complexion_code'),
+      bloodGroup: text('blood_group'),
+      sectCode: text('sect_code'),
+      countryCode: text('country_code'),
+      currentCity: text('current_city'),
+      institutionName: text('institution_name'),
+      fieldOfStudy: text('field_of_study'),
+      graduationYear: num('graduation_year'),
+      jobTitle: text('job_title'),
+      employerName: text('employer_name'),
+      fatherName: text('father_name'),
+      fatherOccupation: text('father_occupation'),
+      motherName: text('mother_name'),
+      motherOccupation: text('mother_occupation'),
+      siblingCount: num('sibling_count'),
+      religiousPracticeCode: text('religious_practice_code'),
+      dietaryPreferenceCode: text('dietary_preference_code'),
+      smokingCode: text('smoking_code'),
+      childrenCode: text('children_code'),
+      relocationCode: text('relocation_code'),
+      preferences: r.has_preferences
+        ? {
+            ageMin: num('age_min'),
+            ageMax: num('age_max'),
+            heightMinCm: num('height_min_cm'),
+            heightMaxCm: num('height_max_cm'),
+            religionCodes: list('religion_codes'),
+            sectCodes: list('sect_codes'),
+            maritalStatusCodes: list('marital_status_codes'),
+            educationMinCode: text('education_min_code'),
+            occupationCodes: list('occupation_codes'),
+            professionCodes: list('profession_codes'),
+            districtCodes: list('district_codes'),
+            incomeMinBandCode: text('income_min_band_code'),
+            incomeMaxBandCode: text('income_max_band_code'),
+            familyStatusMinCode: text('family_status_min_code'),
+            complexionCodes: list('complexion_codes'),
+            religiousPracticeCodes: list('religious_practice_codes'),
+            dietaryPreferenceCodes: list('dietary_preference_codes'),
+            smokingCodes: list('smoking_codes'),
+            childrenCodes: list('children_codes'),
+            relocationCodes: list('relocation_codes'),
+          }
+        : null,
+    };
   }
 
   /** Whether the client may look at this profile at all (the same rule as `person`). */

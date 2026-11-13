@@ -17,6 +17,14 @@ const WITH_PREFERENCES = `SELECT m.id, m.member_code, m.status, m.version, m.ser
  FROM matrimony.member_profiles m
  LEFT JOIN matrimony.partner_preferences p ON p.agency_id = m.agency_id AND p.profile_id = m.id`;
 
+// A person is suggested to someone else only when they are themselves ready for matching: identity
+// verified and a total fee recorded, or an admin let them through (the migration did that for the
+// clients who existed before the rule). Same two steps as `readiness` below, for the candidate.
+const CANDIDATE_READY = `(m.matching_override_at IS NOT NULL
+     OR (m.verified_at IS NOT NULL
+         AND EXISTS (SELECT 1 FROM matrimony.client_agreements ag
+                      WHERE ag.agency_id = m.agency_id AND ag.profile_id = m.id AND ag.stage = 'total')))`;
+
 export const candidateQueries = {
   // $1 agency, $2 client. Locks the client's row so two runs for one client go one after the other.
   client: `${WITH_PREFERENCES} WHERE m.agency_id = $1 AND m.id = $2 FOR UPDATE OF m`,
@@ -28,6 +36,7 @@ export const candidateQueries = {
   pool: `${WITH_PREFERENCES}
  WHERE m.agency_id = $1 AND m.status = 'active' AND m.id <> $2
    AND m.gender IS NOT NULL AND m.gender <> $3
+   AND ${CANDIDATE_READY}
    AND NOT EXISTS (
      SELECT 1 FROM matrimony.client_candidates c
       WHERE c.agency_id = m.agency_id AND c.client_profile_id = $2
@@ -114,7 +123,7 @@ export const candidateQueries = {
   releasable: `SELECT c.candidate_profile_id AS id FROM matrimony.client_candidates c
    JOIN matrimony.member_profiles m ON m.agency_id = c.agency_id AND m.id = c.candidate_profile_id
   WHERE c.agency_id = $1 AND c.client_profile_id = $2 AND c.state = 'proposed'
-    AND m.status = 'active' AND c.candidate_profile_id = ANY($3::uuid[])`,
+    AND m.status = 'active' AND ${CANDIDATE_READY} AND c.candidate_profile_id = ANY($3::uuid[])`,
 
   // $1 agency, $2 client, $3 candidates, $4 who. Only what is still proposed moves.
   markReleased: `UPDATE matrimony.client_candidates
