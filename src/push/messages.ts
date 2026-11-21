@@ -32,6 +32,18 @@ const BY_KIND: Record<string, Record<Locale, string>> = {
     bn: 'আপনার একটি অনুরোধের উত্তর এসেছে।',
     en: 'One of your requests was answered.',
   },
+  'lead.new': {
+    bn: 'ওয়েবসাইট থেকে একটি নতুন অনুসন্ধান আপনার কাছে এসেছে।',
+    en: 'A new website enquiry is yours.',
+  },
+  'lead.overdue': {
+    bn: 'একটি ওয়েবসাইট অনুসন্ধানে সময়মতো কল করা হয়নি।',
+    en: 'A website enquiry has not been called in time.',
+  },
+  'lead.callback': {
+    bn: 'ওয়েবসাইটের একজন দর্শনার্থী যোগাযোগ করতে বলেছেন।',
+    en: 'A website visitor asked to be contacted.',
+  },
   'interest.contact_shared': {
     bn: 'যোগাযোগের তথ্য শেয়ার করা হয়েছে।',
     en: 'Contact details were shared with you.',

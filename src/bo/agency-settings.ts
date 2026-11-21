@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { normaliseHost } from './consultation.js';
+import {
+  DEFAULT_FOLLOW_UP_HOURS,
+  MAX_FOLLOW_UP_HOURS,
+  MIN_FOLLOW_UP_HOURS,
+} from './lead-follow-up.js';
 import {
   DEFAULT_DAILY_LIMIT,
   DEFAULT_PER_MEMBER_DAILY,
@@ -79,11 +85,51 @@ export const assignmentSettingsSchema = z
   .strict();
 export type AssignmentSettings = z.output<typeof assignmentSettingsSchema>;
 
+/**
+ * Leads (21 November 2026): the addresses of the agency's old website, so a visitor who clicks through from it is
+ * counted as coming from the old site even when the link carries no tag. Typed as domains or full addresses; kept
+ * as bare hosts without "www.". And how many office hours staff have to call a new enquiry (default 2).
+ */
+export const MAX_OLD_SITE_HOSTS = 5;
+export const leadSettingsSchema = z
+  .object({
+    oldSiteHosts: z
+      .array(
+        z
+          .string(fail('invalid'))
+          .max(200, fail('tooLong'))
+          .transform((value, ctx) => {
+            const host = normaliseHost(value);
+            if (!host) ctx.addIssue({ code: 'custom', message: 'invalid' });
+            return host ?? '';
+          }),
+        fail('invalid'),
+      )
+      .max(MAX_OLD_SITE_HOSTS, fail('outOfRange'))
+      .transform((hosts) => [...new Set(hosts)])
+      .optional(),
+    followUpHours: z
+      .number(fail('invalid'))
+      .int(fail('invalid'))
+      .min(MIN_FOLLOW_UP_HOURS, fail('outOfRange'))
+      .max(MAX_FOLLOW_UP_HOURS, fail('outOfRange'))
+      .optional(),
+  })
+  .strict();
+/** Each part is optional when saving: a part left out keeps what is stored. */
+export type LeadSettingsInput = z.output<typeof leadSettingsSchema>;
+export interface LeadSettings {
+  oldSiteHosts: string[];
+  followUpHours: number;
+}
+
 export const settingsInputSchema = z
   .object({
     attention: attentionLimitsSchema,
     messaging: messagingSettingsSchema,
     assignment: assignmentSettingsSchema,
+    /** Optional so an older page that does not know it keeps what is stored. */
+    leads: leadSettingsSchema.optional(),
   })
   .strict();
 export type SettingsInput = z.output<typeof settingsInputSchema>;
@@ -92,6 +138,7 @@ export interface AgencySettings {
   attention: AttentionLimits;
   messaging: MessagingSettings;
   assignment: AssignmentSettings;
+  leads: LeadSettings;
 }
 
 const lenient = (value: unknown, fallback: number) => {
@@ -125,7 +172,30 @@ export function parseSettings(raw: unknown): AgencySettings {
       ? (assignmentRaw as Record<string, unknown>).mode
       : undefined,
   );
+  const leadsRaw =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>).leads
+      : undefined;
+  const hostsRaw =
+    leadsRaw && typeof leadsRaw === 'object'
+      ? (leadsRaw as Record<string, unknown>).oldSiteHosts
+      : undefined;
+  const oldSiteHosts = Array.isArray(hostsRaw)
+    ? [
+        ...new Set(
+          hostsRaw
+            .map((value) => (typeof value === 'string' ? normaliseHost(value) : null))
+            .filter((host): host is string => host !== null),
+        ),
+      ].slice(0, MAX_OLD_SITE_HOSTS)
+    : [];
+  const hours = leadSettingsSchema.shape.followUpHours.safeParse(
+    leadsRaw && typeof leadsRaw === 'object'
+      ? (leadsRaw as Record<string, unknown>).followUpHours
+      : undefined,
+  );
   return {
+    leads: { oldSiteHosts, followUpHours: hours.data ?? DEFAULT_FOLLOW_UP_HOURS },
     assignment: { mode: mode.success ? mode.data : DEFAULT_ASSIGNMENT_MODE },
     messaging: {
       enabled: stored2.enabled === true,

@@ -16,6 +16,8 @@ export function startMessageRounds(
   agencies: readonly string[],
   logger: Logger,
   everyMs: number = MESSAGE_ROUND_EVERY_MS,
+  /** Website enquiries nobody has called within the agency's time limit. */
+  leads?: { remindOverdue(agencyId: string, correlationId: string): Promise<number> },
 ): () => void {
   let running = false;
   const tick = async () => {
@@ -28,6 +30,11 @@ export function startMessageRounds(
           if (reminded > 0) logger.info({ agencyId, reminded }, 'Meeting reminders added');
           const sent = await outside.sweep(agencyId);
           if (sent > 0) logger.info({ agencyId, sent }, 'Held texts sent');
+          if (leads) {
+            const overdue = await leads.remindOverdue(agencyId, `leads-${randomUUID()}`);
+            if (overdue > 0)
+              logger.info({ agencyId, overdue }, 'Enquiry follow-up reminders added');
+          }
         } catch {
           logger.error({ agencyId, code: 'MESSAGE_ROUND_FAILED' }, 'Message round failed');
         }

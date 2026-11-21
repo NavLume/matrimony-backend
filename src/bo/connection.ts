@@ -110,6 +110,9 @@ export const NOTIFICATION_GROUP_KINDS: Record<
     'candidates_released',
     'client_assigned',
     'client_update',
+    'lead_new',
+    'lead_callback',
+    'lead_overdue',
     'concern_reported',
     'concern_resolved',
     'staff_joined',
@@ -250,6 +253,12 @@ export type NotificationKind =
   | 'candidates_released'
   /** An agent: a new client was given to them. */
   | 'client_assigned'
+  /** Staff: a website enquiry was given to them (or, with no adviser, to every admin). `what` is its reference. */
+  | 'lead_new'
+  /** Staff: a website visitor asked their adviser to call. `what` is the reference. */
+  | 'lead_callback'
+  /** Staff: an enquiry nobody has tried to call within the agency's time limit. `what` is the reference. */
+  | 'lead_overdue'
   /** A client with a login: something staff did that they must know about (the line says what in `what`). */
   | 'client_update'
   /** A member sent a private concern (an admin is told). */

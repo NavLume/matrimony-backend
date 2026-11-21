@@ -25,11 +25,15 @@ export class SettingsService {
   ): Promise<AgencySettings> {
     if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      await unit.get(actor.agencyId, true);
+      const current = await unit.get(actor.agencyId, true);
       const settings: AgencySettings = {
         attention: input.attention,
         messaging: input.messaging,
         assignment: input.assignment,
+        leads: {
+          oldSiteHosts: input.leads?.oldSiteHosts ?? current.leads.oldSiteHosts,
+          followUpHours: input.leads?.followUpHours ?? current.leads.followUpHours,
+        },
       };
       await unit.save(actor.agencyId, settings);
       await unit.appendEvent({

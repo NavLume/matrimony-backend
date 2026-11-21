@@ -32,6 +32,9 @@ import { registerAgreementController } from './agreement-controller.js';
 import { registerLegalController } from './legal-controller.js';
 import { registerSiteContentController } from './site-content-controller.js';
 import { registerShowcaseController } from './showcase-controller.js';
+import { registerConsultationController } from './consultation-controller.js';
+import { registerCampaignLinkController } from './campaign-link-controller.js';
+import { registerLeadReportController } from './lead-report-controller.js';
 import { registerCoupleMatchController } from './couple-match-controller.js';
 import { registerActivityController } from './activity-controller.js';
 import { registerGuardianController } from './guardian-controller.js';
@@ -176,6 +179,10 @@ export interface AppDependencies {
     Pick<SiteContentService, 'withStories'>;
   showcase?: Parameters<typeof registerShowcaseController>[1];
   showcaseProcess?: Parameters<typeof registerShowcaseController>[2];
+  consultations?: Parameters<typeof registerConsultationController>[1];
+  consultationProcess?: Parameters<typeof registerConsultationController>[2];
+  campaignLinks?: Parameters<typeof registerCampaignLinkController>[1];
+  leadReports?: Parameters<typeof registerLeadReportController>[1];
   clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
   /** Undefined in tests that do not need it. */
   deletions?: Pick<AccountDeletionProcess, 'request'>;
@@ -370,6 +377,10 @@ export async function buildApp(deps: AppDependencies) {
   if (deps.siteContent) registerSiteContentController(app, deps.siteContent);
   if (deps.showcase && deps.showcaseProcess)
     registerShowcaseController(app, deps.showcase, deps.showcaseProcess);
+  if (deps.consultations && deps.consultationProcess)
+    registerConsultationController(app, deps.consultations, deps.consultationProcess);
+  if (deps.campaignLinks) registerCampaignLinkController(app, deps.campaignLinks);
+  if (deps.leadReports) registerLeadReportController(app, deps.leadReports);
   if (deps.legal) registerLegalController(app, deps.legal);
   if (deps.agreements) registerAgreementController(app, deps.agreements);
   if (deps.mobile) registerMobileController(app, deps.mobile);

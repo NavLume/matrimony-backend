@@ -58,6 +58,16 @@ import { ShowcaseService } from './service/showcase-service.js';
 import { ShowcaseDbService } from './db/service/showcase-db-service.js';
 import { ShowcaseRepository } from './db/raw/repository/showcase-repository.js';
 import { ShowcaseProcess } from './process/showcase-process.js';
+import { ConsultationService } from './service/consultation-service.js';
+import { ConsultationDbService } from './db/service/consultation-db-service.js';
+import { ConsultationRepository } from './db/raw/repository/consultation-repository.js';
+import { ConsultationProcess } from './process/consultation-process.js';
+import { CampaignLinkService } from './service/campaign-link-service.js';
+import { LeadReportService } from './service/lead-report-service.js';
+import { LeadReportDbService } from './db/service/lead-report-db-service.js';
+import { LeadReportRepository } from './db/raw/repository/lead-report-repository.js';
+import { CampaignLinkDbService } from './db/service/campaign-link-db-service.js';
+import { CampaignLinkRepository } from './db/raw/repository/campaign-link-repository.js';
 import { SiteContentDbService } from './db/service/site-content-db-service.js';
 import { SiteContentRepository } from './db/raw/repository/site-content-repository.js';
 import { CoupleMatchService } from './service/couple-match-service.js';
@@ -411,6 +421,9 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         new EventRepository(),
       ),
     );
+    const consultations = new ConsultationService(
+      new ConsultationDbService(db, new ConsultationRepository(), new EventRepository()),
+    );
     // Signing in again within the waiting time cancels a deletion.
     auth.afterSignIn = (agencyId, accountId) =>
       deletions.cancelOnSignIn(agencyId, accountId).catch(() => undefined);
@@ -469,6 +482,12 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       siteContent,
       showcase: showcaseService,
       showcaseProcess: new ShowcaseProcess(showcaseService, storage, phone),
+      consultations,
+      consultationProcess: new ConsultationProcess(consultations, phone),
+      leadReports: new LeadReportService(new LeadReportDbService(db, new LeadReportRepository())),
+      campaignLinks: new CampaignLinkService(
+        new CampaignLinkDbService(db, new CampaignLinkRepository(), new EventRepository()),
+      ),
       legal,
       agreements,
       coupleMatches: new CoupleMatchService(

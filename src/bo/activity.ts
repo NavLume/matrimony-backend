@@ -10,7 +10,7 @@ const fail = (key: string) => ({ error: key });
 /** The kinds of events an admin can narrow the log to, by the first part of the event's name. */
 export const ACTIVITY_GROUPS = {
   signins: ['auth'],
-  people: ['account', 'staff', 'client'],
+  people: ['account', 'staff', 'client', 'lead', 'campaign_link'],
   profiles: ['profile', 'cv', 'photo', 'verification', 'candidates'],
   proposals: ['interest', 'match', 'story'],
   meetings: ['meeting', 'note', 'followup'],

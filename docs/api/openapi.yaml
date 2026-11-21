@@ -2728,6 +2728,424 @@ paths:
       responses:
         '201': { description: Received. }
 
+  /api/v1/public/consultations/code:
+    post:
+      tags: [Consultations]
+      summary: Send a visitor a code before they see an adviser number
+      description: Public, same-origin only. Works whether or not the showcase is on. Same limits as other phone codes. With `name`, the enquiry (and its origin) is saved before the text is sent, so a visitor who never types the code is still a lead staff may call; the open enquiry of the same number is reused. Staff are not told until the number is proved or a call is requested.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone, locale]
+              properties:
+                phone: { type: string }
+                locale: { type: string, enum: [bn, en] }
+                name: { type: string, minLength: 2, maxLength: 80 }
+                office: { type: integer, minimum: 0, maximum: 2 }
+                ref: { type: string, format: uuid }
+                intent: { type: string, enum: [call, visit, whatsapp], default: call }
+                origin: { $ref: '#/components/schemas/LeadOrigin' }
+                heardFrom: { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other], description: 'Optional, what the visitor says; kept apart from the origin.' }
+      responses:
+        '202':
+          description: The code was sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  resendAfter: { type: integer }
+                  expiresIn: { type: integer }
+
+  /api/v1/public/consultations:
+    post:
+      tags: [Consultations]
+      summary: A visitor proves their number and is shown the branch number
+      description: Public, same-origin only. The enquiry and its origin are saved before anything is returned (400 `CODE_INVALID` or `CODE_EXPIRED`). The same number with an open enquiry from the last 90 days continues it (200, same reference). `office` is the index of the agency branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, phone, code]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                phone: { type: string }
+                code: { type: string }
+                office: { type: integer, minimum: 0, maximum: 2 }
+                ref: { type: string, format: uuid }
+                intent: { type: string, enum: [call, visit, whatsapp], default: call }
+                origin: { $ref: '#/components/schemas/LeadOrigin' }
+                heardFrom: { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other], description: 'Optional, what the visitor says; kept apart from the origin.' }
+      responses:
+        '200':
+          description: A returning visitor, the same enquiry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsultationResult' }
+        '201':
+          description: A new enquiry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsultationResult' }
+
+  /api/v1/public/consultations/unverified:
+    post:
+      tags: [Consultations]
+      summary: The code never arrived, keep an unverified call request
+      description: Public, same-origin only, 5 per 10 minutes. The same details without a code. Nothing is returned (no reference, no number); an open enquiry for the number is reused. Staff confirm it on the phone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, phone]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                phone: { type: string }
+                office: { type: integer, minimum: 0, maximum: 2 }
+                ref: { type: string, format: uuid }
+                intent: { type: string, enum: [call, visit, whatsapp], default: call }
+                origin: { $ref: '#/components/schemas/LeadOrigin' }
+                heardFrom: { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other], description: 'Optional, what the visitor says; kept apart from the origin.' }
+      responses:
+        '202':
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+
+  /api/v1/public/consultations/{reference}/actions:
+    post:
+      tags: [Consultations]
+      summary: A verified visitor's next step
+      description: Public, same-origin only. Needs the ticket returned with the enquiry (404 otherwise). `callback` asks to be called, `call` records that they dialled the branch, `visit` asks for an office visit at a part of the day (a request, not an appointment), `whatsapp` records that they opened WhatsApp. `forWhom` may come with any of them. A request already made is not made again.
+      parameters:
+        - { name: reference, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ticket, action]
+              properties:
+                ticket: { type: string }
+                action: { type: string, enum: [callback, call, visit, whatsapp] }
+                forWhom: { type: string, enum: [self, child, relative, later] }
+                visitTime: { type: string, enum: [morning, afternoon, any] }
+      responses:
+        '204': { description: Recorded. }
+
+  /api/v1/staff/campaign-links:
+    get:
+      tags: [Consultations]
+      summary: Tagged links and QR codes staff made, with the enquiries each brought
+      description: Agents and admins. Every link of the agency, newest first; `archived=true` lists those put away. `leads` counts enquiries whose campaign is the link's `slug`; `verified` those that proved their number.
+      parameters:
+        - { name: archived, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: The links.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [links]
+                properties:
+                  links: { type: array, items: { $ref: '#/components/schemas/CampaignLink' } }
+    post:
+      tags: [Consultations]
+      summary: Make a tagged link (and QR code) for one place the agency shares its site
+      description: Agents and admins. The tags come from `kind`; the campaign name (`slug`) from `name` (a taken one gets -2, -3...; a name with no Latin letters gets the kind and four random characters). `office` (0-2) is required for `office_qr` and refused otherwise.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [kind, name]
+              properties:
+                kind: { $ref: '#/components/schemas/CampaignLinkKind' }
+                name: { type: string, minLength: 2, maxLength: 80 }
+                office: { type: integer, minimum: 0, maximum: 2 }
+                locale: { type: string, enum: [bn, en], default: bn }
+      responses:
+        '201':
+          description: The new link.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link]
+                properties:
+                  link: { $ref: '#/components/schemas/CampaignLink' }
+
+  /api/v1/staff/campaign-links/{id}/archived:
+    put:
+      tags: [Consultations]
+      summary: Put a link away, or bring it back
+      description: An admin, or the agent who made it (403 otherwise). The link keeps working either way; printed QR codes cannot be taken back.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [archived]
+              properties:
+                archived: { type: boolean }
+      responses:
+        '200':
+          description: The link.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link]
+                properties:
+                  link: { $ref: '#/components/schemas/CampaignLink' }
+
+  /api/v1/staff/leads/{id}/calls:
+    post:
+      tags: [Consultations]
+      summary: Write down a call to an enquiry and what came of it
+      description: The admin, or the agent the enquiry is given to (404 otherwise). The first call is the first contact and stops the follow-up reminders; any outcome but no_answer moves a new enquiry to contacted. callAgainAt only with call_later, and in the future (400 otherwise). Event lead.called.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [outcome]
+              properties:
+                outcome: { type: string, enum: [no_answer, interested, not_interested, call_later, visit_booked, wrong_number] }
+                note: { type: string, maxLength: 500 }
+                callAgainAt: { type: string, format: date-time }
+      responses:
+        '201':
+          description: The enquiry with the call.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lead]
+                properties:
+                  lead: { $ref: '#/components/schemas/StaffLead' }
+
+  /api/v1/staff/leads/{id}/client:
+    put:
+      tags: [Consultations]
+      summary: Link an enquiry to the client it became, by member code
+      description: The admin, or the agent the enquiry is given to (404 otherwise). For a client who registered with another number, or a number several clients share. Replaces an automatic link; recorded as event lead.linked.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [memberCode]
+              properties:
+                memberCode: { type: string, description: 'M and seven digits.' }
+      responses:
+        '200':
+          description: The enquiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lead]
+                properties:
+                  lead: { $ref: '#/components/schemas/StaffLead' }
+        '404': { description: 'PROFILE_NOT_FOUND (no client with that code) or NOT_FOUND (enquiry).' }
+
+  /api/v1/admin/leads/{id}/client:
+    delete:
+      tags: [Consultations]
+      summary: Undo an enquiry's link to a client
+      description: Admin only. The enquiry is then never linked automatically again (staff may still link it by member code).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The enquiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lead]
+                properties:
+                  lead: { $ref: '#/components/schemas/StaffLead' }
+
+  /api/v1/staff/clients/{profileId}/leads:
+    get:
+      tags: [Consultations]
+      summary: The website enquiries a client came through
+      description: The admin, or the agent who looks after the client (404 PROFILE_NOT_FOUND otherwise). Oldest first. Waiting enquiries are linked by number first.
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The enquiries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leads]
+                properties:
+                  leads: { type: array, items: { $ref: '#/components/schemas/StaffLead' } }
+
+  /api/v1/public/visits:
+    post:
+      tags: [Consultations]
+      summary: Count one arrival on the public site by its source
+      description: Public, same-origin, 20 a minute per address. The browser sends it once per new arrival (the first, or a new tagged one) with the same origin an enquiry carries. Only a count per Bangladesh day, source and campaign is kept; nothing about the person. A broken origin counts as direct.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                origin: { $ref: '#/components/schemas/LeadOrigin' }
+      responses:
+        '204': { description: Counted. }
+
+  /api/v1/admin/reports/leads:
+    get:
+      tags: [Consultations]
+      summary: The lead funnel by source and by campaign
+      description: Admin only. For enquiries made from `from` to `to` (Bangladesh days; default the last 30 days) visits, enquiries, numbers proved, called, became a client, paid and the money paid after the enquiry (a client's payments counted once, on their first enquiry in the period; cancelled payments never). Visits were only counted from 21 November 2026.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: The funnel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadFunnel' }
+
+  /api/v1/admin/reports/revenue-share:
+    get:
+      tags: [Consultations]
+      summary: The payments of a month counted for the revenue share, and the platform's share
+      description: Admin only. Payments recorded in the month (default this month), not cancelled, by clients linked to a website enquiry made on or before the payment's day. percent is the agreed platform share (30). clientBeforeLead marks a client whose profile existed before the enquiry (an open question with the agency); such payments are included and also totalled apart.
+      parameters:
+        - { name: month, in: query, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' } }
+      responses:
+        '200':
+          description: The month.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RevenueShare' }
+
+  /api/v1/staff/leads:
+    get:
+      tags: [Consultations]
+      summary: Website enquiries (admin all, agent only their own)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [new, contacted, closed] } }
+        - { name: source, in: query, schema: { type: string, enum: [qr, google, facebook, whatsapp, old_site, other_site, direct] } }
+        - { name: campaign, in: query, description: "A staff-made link's campaign name (utm_campaign): only the enquiries it brought.", schema: { type: string, maxLength: 100 } }
+        - { name: q, in: query, description: 'Reference, name or phone digits.', schema: { type: string, maxLength: 80 } }
+      responses:
+        '200':
+          description: Newest first, at most 200.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leads]
+                properties:
+                  leads: { type: array, items: { $ref: '#/components/schemas/StaffLead' } }
+
+  /api/v1/staff/leads/{id}:
+    put:
+      tags: [Consultations]
+      summary: Set an enquiry status and note (admin, or the agent it was given to)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: { type: string, enum: [new, contacted, closed] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: The enquiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lead]
+                properties:
+                  lead: { $ref: '#/components/schemas/StaffLead' }
+
+  /api/v1/admin/leads/{id}/agent:
+    put:
+      tags: [Consultations]
+      summary: Give an enquiry to an agent (admin)
+      description: 404 `AGENT_NOT_FOUND` when the account is not an active agent. The agent is told.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [agentId]
+              properties:
+                agentId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The enquiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lead]
+                properties:
+                  lead: { $ref: '#/components/schemas/StaffLead' }
+
   /api/v1/admin/showcase:
     get:
       tags: [Showcase]
@@ -7964,6 +8382,22 @@ components:
             enabled: { type: boolean, description: 'Whether the agency sends texts outside the app (SMS) at all. Off unless its admin turns it on, because every text costs money. While off, members cannot choose a channel and none is sent.' }
             dailyLimit: { type: integer, minimum: 0, maximum: 5000, description: 'When on, the most texts the agency sends in a day. 0 sends none. Usually 300.' }
             perMemberDaily: { type: integer, minimum: 1, maximum: 20, description: 'When on, the most texts one member gets in a day; further lines stay in the app inbox. Usually 3.' }
+        leads:
+          type: object
+          additionalProperties: false
+          required: [oldSiteHosts, followUpHours]
+          description: Always returned in full. When saving, the object and each field are optional; what is left out keeps the stored value.
+          properties:
+            oldSiteHosts:
+              type: array
+              maxItems: 5
+              items: { type: string, maxLength: 200 }
+              description: "The agency's old website addresses (domains or full addresses, stored as bare hosts without www). A visitor the browser says came from one of them (or a subdomain) is counted as source old_site."
+            followUpHours:
+              type: integer
+              minimum: 1
+              maximum: 48
+              description: Office hours (10:00 to 20:00 Bangladesh time) staff have to call a new enquiry. Default 2. Past it the agent is reminded; past twice it the admins are told.
     PaymentLedger:
       type: object
       additionalProperties: false
@@ -8332,6 +8766,291 @@ components:
           items: { $ref: '#/components/schemas/ShowcaseCandidate' }
         newLeads: { type: integer }
 
+    LeadOrigin:
+      type: object
+      description: What the browser remembered of the first visit. Anything invalid is dropped, never refused.
+      properties:
+        utmSource: { type: string, maxLength: 100 }
+        utmMedium: { type: string, maxLength: 100 }
+        utmCampaign: { type: string, maxLength: 100 }
+        utmContent: { type: string, maxLength: 100 }
+        referrer: { type: string, maxLength: 2000 }
+        landingPath: { type: string, maxLength: 300 }
+        firstSeenAt: { type: string, format: date-time }
+        clickId: { type: string, enum: [facebook, google], description: 'The landing address carried fbclid (facebook) or gclid/gbraid/wbraid (google). The id itself is never sent.' }
+    ConsultationResult:
+      type: object
+      required: [reference, officePhone, ticket, returning, callbackRequested, visitRequested]
+      properties:
+        reference: { type: string, description: 'For example 7KQ3-9XAB.' }
+        officePhone:
+          type: [string, 'null']
+          description: The chosen branch number, else the agency number. Never a staff member's.
+        ticket: { type: string, description: 'Kept by the browser for the next step.' }
+        returning: { type: boolean }
+        callbackRequested: { type: boolean }
+        visitRequested: { type: boolean }
+    CampaignLinkKind:
+      type: string
+      enum: [facebook_ad, facebook_post, whatsapp, old_site, event_qr, office_qr, other]
+      description: "Where the link is put. Tags (utm_source / utm_medium): facebook_ad facebook/ad, facebook_post facebook/post, whatsapp whatsapp/share, old_site old_site/button, event_qr qr/event, office_qr qr/office, other link/other."
+    CampaignLink:
+      type: object
+      additionalProperties: false
+      required: [id, kind, name, slug, office, locale, path, createdBy, createdAt, archivedAt, leads, verified]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/CampaignLinkKind' }
+        name: { type: string }
+        slug: { type: string, description: 'The campaign name (utm_campaign), unique in the agency.' }
+        office: { type: [integer, 'null'] }
+        locale: { type: string, enum: [bn, en] }
+        path: { type: string, description: "Path and query on the agency's site, for example /bn/talk-to-us?utm_source=qr&utm_medium=event&utm_campaign=wedding-fair. The page adds the site's address." }
+        createdBy:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        createdAt: { type: string, format: date-time }
+        archivedAt: { type: [string, 'null'], format: date-time }
+        leads: { type: integer }
+        verified: { type: integer }
+    LeadCall:
+      type: object
+      required: [id, outcome, note, callAgainAt, calledBy, calledAt]
+      properties:
+        id: { type: string, format: uuid }
+        outcome: { type: string, enum: [no_answer, interested, not_interested, call_later, visit_booked, wrong_number] }
+        note: { type: [string, 'null'] }
+        callAgainAt: { type: [string, 'null'], format: date-time }
+        calledBy: { type: [string, 'null'] }
+        calledAt: { type: string, format: date-time }
+    FunnelCounts:
+      type: object
+      required: [visits, leads, verified, contacted, clients, paying, paid]
+      properties:
+        visits: { type: integer }
+        leads: { type: integer }
+        verified: { type: integer }
+        contacted: { type: integer }
+        clients: { type: integer }
+        paying: { type: integer }
+        paid: { type: integer, description: 'Whole taka.' }
+    LeadFunnel:
+      type: object
+      required: [from, to, total, bySource, byCampaign]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        total: { $ref: '#/components/schemas/FunnelCounts' }
+        bySource:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/FunnelCounts'
+              - type: object
+                required: [source]
+                properties:
+                  source: { type: string, enum: [qr, google, facebook, whatsapp, old_site, other_site, direct] }
+        byCampaign:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/FunnelCounts'
+              - type: object
+                required: [campaign, source]
+                properties:
+                  campaign: { type: string }
+                  source:
+                    anyOf:
+                      - { type: string, enum: [qr, google, facebook, whatsapp, old_site, other_site, direct] }
+                      - type: 'null'
+    RevenueShare:
+      type: object
+      required: [month, percent, payments, total, share, agency, clientBeforeLeadTotal]
+      properties:
+        month: { type: string }
+        percent: { type: integer }
+        total: { type: integer }
+        share: { type: integer }
+        agency: { type: integer }
+        clientBeforeLeadTotal: { type: integer }
+        payments:
+          type: array
+          items:
+            type: object
+            required: [id, paidOn, amount, stage, method, client, lead, clientBeforeLead]
+            properties:
+              id: { type: string, format: uuid }
+              paidOn: { type: string, format: date }
+              amount: { type: integer }
+              stage: { type: string }
+              method: { type: [string, 'null'] }
+              clientBeforeLead: { type: boolean }
+              client:
+                type: object
+                required: [profileId, memberCode, name]
+                properties:
+                  profileId: { type: string, format: uuid }
+                  memberCode: { type: string }
+                  name: { type: [string, 'null'] }
+              lead:
+                type: object
+                required: [reference, source, campaign, createdAt]
+                properties:
+                  reference: { type: [string, 'null'] }
+                  source:
+                    anyOf:
+                      - { type: string, enum: [qr, google, facebook, whatsapp, old_site, other_site, direct] }
+                      - type: 'null'
+                  campaign: { type: [string, 'null'] }
+                  createdAt: { type: string, format: date-time }
+    StaffLead:
+      type: object
+      required:
+        [
+          id,
+          kind,
+          reference,
+          name,
+          phone,
+          status,
+          note,
+          createdAt,
+          lastVerifiedAt,
+          visits,
+          office,
+          intent,
+          forWhom,
+          heardFrom,
+          verifiedAt,
+          codeSentAt,
+          callbackRequestedAt,
+          callClickedAt,
+          visitRequestedAt,
+          visitTime,
+          whatsappOpenedAt,
+          adviser,
+          handledBy,
+          handledAt,
+          origin,
+          about,
+          client,
+          phoneMatches,
+          firstContactAt,
+          followUp,
+          calls,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [showcase, consultation] }
+        reference: { type: [string, 'null'] }
+        name: { type: string }
+        phone: { type: string }
+        status: { type: string, enum: [new, contacted, closed] }
+        note: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        lastVerifiedAt: { type: [string, 'null'], format: date-time }
+        visits: { type: integer }
+        office: { type: [string, 'null'] }
+        intent:
+          anyOf:
+            - { type: string, enum: [call, visit, whatsapp] }
+            - type: 'null'
+        forWhom:
+          anyOf:
+            - { type: string, enum: [self, child, relative, later] }
+            - type: 'null'
+        heardFrom:
+          anyOf:
+            - { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other] }
+            - type: 'null'
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the number was first proved; null for an unverified call request or a code never typed.
+        codeSentAt:
+          type: [string, 'null']
+          format: date-time
+          description: When a code was last asked for. With verifiedAt and callbackRequestedAt both null, the visitor asked for a code and never typed it.
+        callbackRequestedAt: { type: [string, 'null'], format: date-time }
+        callClickedAt: { type: [string, 'null'], format: date-time }
+        visitRequestedAt: { type: [string, 'null'], format: date-time }
+        visitTime:
+          anyOf:
+            - { type: string, enum: [morning, afternoon, any] }
+            - type: 'null'
+        whatsappOpenedAt: { type: [string, 'null'], format: date-time }
+        adviser:
+          anyOf:
+            - type: object
+              required: [id, name]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+            - type: 'null'
+        handledBy: { type: [string, 'null'] }
+        handledAt: { type: [string, 'null'], format: date-time }
+        origin:
+          type: object
+          required: [source, utmSource, utmMedium, utmCampaign, utmContent, referrerHost, landingPath, firstSeenAt, clickId]
+          properties:
+            source:
+              anyOf:
+                - { type: string, enum: [qr, google, facebook, whatsapp, old_site, other_site, direct] }
+                - type: 'null'
+            utmSource: { type: [string, 'null'] }
+            utmMedium: { type: [string, 'null'] }
+            utmCampaign: { type: [string, 'null'] }
+            utmContent: { type: [string, 'null'] }
+            referrerHost: { type: [string, 'null'] }
+            landingPath: { type: [string, 'null'] }
+            firstSeenAt: { type: [string, 'null'], format: date-time }
+            clickId:
+              anyOf:
+                - { type: string, enum: [facebook, google] }
+                - type: 'null'
+        client:
+          description: "The client this enquiry became: found by its mobile number (auto, when exactly one client has it: their login number or the profile's contact number) or linked by staff by member code. createdAt is the profile's own creation, so the order can be shown."
+          anyOf:
+            - type: object
+              required: [profileId, memberCode, name, createdAt, linkedAt, method, linkedBy]
+              properties:
+                profileId: { type: string, format: uuid }
+                memberCode: { type: string }
+                name: { type: [string, 'null'] }
+                createdAt: { type: string, format: date-time }
+                linkedAt: { type: string, format: date-time }
+                method: { type: string, enum: [auto, staff] }
+                linkedBy: { type: [string, 'null'] }
+            - type: 'null'
+        firstContactAt:
+          type: [string, 'null']
+          format: date-time
+          description: The first call written down, or the first move away from new.
+        followUp:
+          type: object
+          required: [state, dueAt]
+          description: Against the agency's limit for the first call (followUpHours of office time from the enquiry). contacted once a call is written down or the status moved on; overdue past the limit; escalated past twice the limit.
+          properties:
+            state: { type: string, enum: [contacted, waiting, overdue, escalated] }
+            dueAt: { type: [string, 'null'], format: date-time }
+        calls:
+          type: array
+          description: The calls written down, newest first, at most 20.
+          items: { $ref: '#/components/schemas/LeadCall' }
+        phoneMatches:
+          type: integer
+          description: Not linked yet, how many clients have this number; 2 or more means staff must choose (never linked automatically). 0 once linked.
+        about:
+          anyOf:
+            - type: object
+              required: [profileId, memberCode]
+              properties:
+                profileId: { type: string, format: uuid }
+                memberCode: { type: string }
+            - type: 'null'
     Lead:
       type: object
       required: [id, name, phone, status, note, createdAt, about]
@@ -9674,6 +10393,9 @@ components:
                 candidates_released,
                 client_assigned,
                 client_update,
+                lead_new,
+                lead_callback,
+                lead_overdue,
                 concern_reported,
                 concern_resolved,
                 chat_requested,
