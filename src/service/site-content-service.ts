@@ -1,5 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { MAX_GALLERY_IMAGES, parsePublicConfig, type PublicConfig } from '../bo/public-config.js';
+import {
+  type ImageFocus,
+  MAX_GALLERY_IMAGES,
+  parsePublicConfig,
+  type PublicConfig,
+} from '../bo/public-config.js';
 import {
   LOGO_FILE,
   MAX_LOGO_BYTES,
@@ -93,6 +98,7 @@ export class SiteContentService {
         hero: parsed.images?.hero,
         about: parsed.images?.about,
         cta: parsed.images?.cta,
+        focus: parsed.images?.focus ?? {},
         gallery: parsed.images?.gallery ?? [],
       },
       branches: parsed.branches,
@@ -350,6 +356,32 @@ export class SiteContentService {
     await this.deleteStored(actor.agencyId, previous);
   }
 
+  /**
+   * Where the subject of one single picture is (left, centre or right), so the looks' crops keep it in view. Saved
+   * on its own, like the picture; centre is the default and is not stored.
+   */
+  async setImageFocus(
+    actor: ProfileActor,
+    slot: SiteImageSlot,
+    focus: ImageFocus,
+    correlationId: string,
+  ): Promise<void> {
+    this.adminOnly(actor);
+    await this.db.update(
+      actor.agencyId,
+      (current) => {
+        const stored = asObject(asObject(current.images).focus);
+        return withImageFocus(current, {
+          hero: stored.hero as ImageFocus | undefined,
+          about: stored.about as ImageFocus | undefined,
+          cta: stored.cta as ImageFocus | undefined,
+          [slot]: focus,
+        });
+      },
+      this.event(actor, correlationId),
+    );
+  }
+
   /** Adds a picture at the end of the gallery (up to 24). */
   async addGalleryImage(
     actor: ProfileActor,
@@ -496,7 +528,22 @@ function mergeContent(
   set('auth', pruned(input.auth));
   set('about', pruned(input.about));
   set('branches', input.branches?.map((branch) => pruned(branch)).filter(Boolean));
-  return input.gallery ? withGallery(next, input.gallery) : next;
+  const withFocus = input.imageFocus ? withImageFocus(next, input.imageFocus) : next;
+  return input.gallery ? withGallery(withFocus, input.gallery) : withFocus;
+}
+
+/** Where the subject of each single picture is; centre is the default and is not stored. */
+function withImageFocus(
+  config: Record<string, unknown>,
+  focus: NonNullable<SiteContentInput['imageFocus']>,
+): Record<string, unknown> {
+  const images = { ...asObject(config.images) };
+  const kept = Object.fromEntries(
+    Object.entries(focus).filter(([, value]) => value !== undefined && value !== 'center'),
+  );
+  if (Object.keys(kept).length > 0) images.focus = kept;
+  else delete images.focus;
+  return withImages(config, images);
 }
 
 /**

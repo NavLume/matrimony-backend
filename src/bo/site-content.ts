@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   HOME_SECTION_IDS,
+  IMAGE_FOCUS,
   MAX_GALLERY_IMAGES,
   SITE_IMAGE_SLOTS,
   THEME_IDS,
@@ -124,6 +125,15 @@ export const siteContentSchema = z
     branches: z.array(branch).max(3, fail('tooMany')).optional(),
     /** The gallery's order and captions; the pictures themselves are uploaded one by one. */
     gallery: gallerySchema.optional(),
+    /** Which part of each single picture matters, so the looks' crops keep it in view. Left out: kept as stored. */
+    imageFocus: z
+      .object({
+        hero: z.enum(IMAGE_FOCUS, fail('invalidOption')).optional(),
+        about: z.enum(IMAGE_FOCUS, fail('invalidOption')).optional(),
+        cta: z.enum(IMAGE_FOCUS, fail('invalidOption')).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type SiteContentInput = z.output<typeof siteContentSchema>;
@@ -148,6 +158,11 @@ export interface SiteContent {
     hero?: string;
     about?: string;
     cta?: string;
+    focus: {
+      hero?: 'left' | 'center' | 'right';
+      about?: 'left' | 'center' | 'right';
+      cta?: 'left' | 'center' | 'right';
+    };
     gallery: { url: string; caption?: { bn?: string; en?: string } }[];
   };
   branches: {

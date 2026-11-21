@@ -101,6 +101,10 @@ export const HOME_SECTION_IDS = [
 ] as const;
 
 /** The single pictures an admin can upload for the home page (the gallery holds many). */
+/** Where the subject of a picture is, so a crop keeps it in view. Centre when not set. */
+export const IMAGE_FOCUS = ['left', 'center', 'right'] as const;
+export type ImageFocus = (typeof IMAGE_FOCUS)[number];
+
 export const SITE_IMAGE_SLOTS = ['hero', 'about', 'cta'] as const;
 export const MAX_GALLERY_IMAGES = 24;
 
@@ -162,6 +166,18 @@ const publicConfigSchema = z
         hero: siteImageUrl.optional().catch(undefined),
         about: siteImageUrl.optional().catch(undefined),
         cta: siteImageUrl.optional().catch(undefined),
+        /**
+         * Which part of each single picture matters (24 November 2026): the looks crop pictures into ovals, arches and
+         * slanted panels, so a couple standing at one side of a wide photo must stay in view.
+         */
+        focus: z
+          .object({
+            hero: z.enum(IMAGE_FOCUS).optional().catch(undefined),
+            about: z.enum(IMAGE_FOCUS).optional().catch(undefined),
+            cta: z.enum(IMAGE_FOCUS).optional().catch(undefined),
+          })
+          .optional()
+          .catch(undefined),
         gallery: lenientList(
           z.object({ url: siteImageUrl, caption: localizedText.optional() }),
           MAX_GALLERY_IMAGES,

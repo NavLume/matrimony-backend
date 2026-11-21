@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { IMAGE_FOCUS } from '../bo/public-config.js';
 import { AppError } from '../exception/app-error.js';
 import { z } from 'zod';
 import {
@@ -13,6 +14,8 @@ import {
 import type { SiteContentService } from '../service/site-content-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
 import './context.js';
+
+const imageFocusSchema = z.object({ focus: z.enum(IMAGE_FOCUS) }).strict();
 
 const adminOnly = { roles: ['admin' as const] };
 
@@ -31,6 +34,7 @@ export function registerSiteContentController(
     | 'addGalleryImage'
     | 'setGallery'
     | 'removeGalleryImage'
+    | 'setImageFocus'
     | 'setStoryPhoto'
     | 'removeStoryPhoto'
     | 'setStoryWeddingDate'
@@ -96,6 +100,13 @@ export function registerSiteContentController(
     if (!slot.success) throw new AppError(404, 'NOT_FOUND');
     if (!Buffer.isBuffer(req.body)) throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE');
     return { url: await content.setImage(actor(req), slot.data, req.body, req.id) };
+  });
+  app.put('/api/v1/admin/site-images/:slot/focus', imageRoute, async (req, reply) => {
+    const slot = siteImageSlotSchema.safeParse((req.params as { slot: string }).slot);
+    if (!slot.success) throw new AppError(404, 'NOT_FOUND');
+    const { focus } = imageFocusSchema.parse(req.body);
+    await content.setImageFocus(actor(req), slot.data, focus, req.id);
+    return reply.code(204).send();
   });
   app.delete('/api/v1/admin/site-images/:slot', imageRoute, async (req, reply) => {
     const slot = siteImageSlotSchema.safeParse((req.params as { slot: string }).slot);

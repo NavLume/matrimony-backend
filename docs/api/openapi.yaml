@@ -2445,6 +2445,26 @@ paths:
       responses:
         '204': { description: Removed. }
 
+  /api/v1/admin/site-images/{slot}/focus:
+    put:
+      tags: [Site content]
+      summary: Say where the subject of one single picture is
+      description: Admin only. left, center or right; the looks' oval, arch and slanted crops of the picture follow it. Center is the default and is not stored. 404 for an unknown slot.
+      parameters:
+        - { name: slot, in: path, required: true, schema: { type: string, enum: [hero, about, cta] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [focus]
+              properties:
+                focus: { type: string, enum: [left, center, right] }
+      responses:
+        '204': { description: Saved. }
+
   /api/v1/admin/gallery:
     put:
       tags: [Site content]
@@ -8508,6 +8528,13 @@ components:
         hero: { type: string, description: Replaces the first screen's illustration. }
         about: { type: string }
         cta: { type: string, description: The background of the closing call to action. }
+        focus:
+          type: object
+          description: Where the subject of each single picture is (left, center or right), so the looks' oval, arch and slanted crops keep it in view. Not set means center.
+          properties:
+            hero: { type: string, enum: [left, center, right] }
+            about: { type: string, enum: [left, center, right] }
+            cta: { type: string, enum: [left, center, right] }
         gallery:
           type: array
           maxItems: 24
@@ -8636,6 +8663,14 @@ components:
             properties:
               url: { type: string }
               caption: { $ref: '#/components/schemas/LocalizedText' }
+        imageFocus:
+          type: object
+          additionalProperties: false
+          description: Where the subject of each single picture is. Left out, the stored value is kept; center is the default and is not stored.
+          properties:
+            hero: { type: string, enum: [left, center, right] }
+            about: { type: string, enum: [left, center, right] }
+            cta: { type: string, enum: [left, center, right] }
 
     SiteContent:
       type: object

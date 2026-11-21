@@ -124,6 +124,42 @@ await test('an admin saves the words, empty fields are removed and other setting
   assert.equal(state.events[0]?.actorId, admin.accountId);
 });
 
+await test('where the subject of a picture is: kept beside the pictures, centre not stored, left out kept', async () => {
+  const hero = '/api/v1/public/branding/img-00000000-0000-4000-8000-000000000001.webp';
+  const { service, state } = setup({ images: { hero } });
+  await service.update(
+    admin,
+    siteContentSchema.parse({ imageFocus: { hero: 'right', about: 'center' } }),
+    'req-1',
+  );
+  assert.deepEqual(state.config.images, { hero, focus: { hero: 'right' } });
+  // A save that does not mention the focus keeps it.
+  await service.update(admin, siteContentSchema.parse({ about: { en: 'Hi' } }), 'req-2');
+  assert.deepEqual((state.config.images as Record<string, unknown>).focus, { hero: 'right' });
+  await service.update(admin, siteContentSchema.parse({ imageFocus: { hero: 'center' } }), 'req-3');
+  assert.deepEqual(state.config.images, { hero });
+  assert.throws(() => siteContentSchema.parse({ imageFocus: { hero: 'top' } }));
+});
+
+await test('the focus of one picture is saved on its own and keeps the others', async () => {
+  const hero = '/api/v1/public/branding/img-00000000-0000-4000-8000-000000000001.webp';
+  const { service, state } = setup({
+    about: { en: 'Kept' },
+    images: { hero, focus: { about: 'left' } },
+  });
+  await service.setImageFocus(admin, 'hero', 'right', 'req-1');
+  assert.deepEqual(state.config, {
+    about: { en: 'Kept' },
+    images: { hero, focus: { about: 'left', hero: 'right' } },
+  });
+  await service.setImageFocus(admin, 'about', 'center', 'req-2');
+  assert.deepEqual((state.config.images as Record<string, unknown>).focus, { hero: 'right' });
+  await assert.rejects(
+    service.setImageFocus({ ...admin, role: 'agent' }, 'hero', 'left', 'req-3'),
+    (e: { status: number }) => e.status === 403,
+  );
+});
+
 await test('only an admin reads or changes the site content', async () => {
   const { service } = setup();
   await assert.rejects(() => service.get(agent), { code: 'ROLE_FORBIDDEN' });
