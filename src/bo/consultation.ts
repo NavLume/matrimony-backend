@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_BRANCHES } from './branch-slug.js';
 import { memberCodeSchema } from './credentials.js';
 import type { FollowUpState, LeadCall } from './lead-follow-up.js';
 import { phoneCodeSchema } from './phone.js';
@@ -107,8 +108,13 @@ const nameSchema = z
 const detailsShape = {
   name: nameSchema,
   phone: phoneSchema,
-  /** The position of the office the visitor chose in the agency's list (0, 1 or 2), if they chose one. */
-  office: z.number().int().min(0).max(2).optional(),
+  /** The position of the office the visitor chose in the agency's list (0 up to the most branches), if they chose one. */
+  office: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_BRANCHES - 1)
+    .optional(),
   /** The showcase card they were looking at, if they came from one. */
   ref: z.uuid(fail('invalid')).optional(),
   intent: z.enum(INTENTS, fail('invalidOption')).default('call'),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_BRANCHES, MAX_SLUG_LENGTH, assignSlugs, isBranchSlug } from './branch-slug.js';
 
 /**
  * An agency's `public_config`: the non-secret content of its public site. See PublicConfig
@@ -40,6 +41,8 @@ const assetUrl = z.union([
 const phone = z.string().max(40);
 
 const branch = z.object({
+  /** The last part of the office page's address; a branch without one is given it from its name (see branch-slug.ts). */
+  slug: z.string().max(MAX_SLUG_LENGTH).refine(isBranchSlug).optional().catch(undefined),
   name: localizedText,
   address: localizedText.optional(),
   /** When the office is open, as the admin writes it (for example Sat to Thu, 10am to 6pm). */
@@ -185,7 +188,7 @@ const publicConfigSchema = z
       })
       .optional()
       .catch(undefined),
-    branches: lenientList(branch, 3),
+    branches: lenientList(branch, MAX_BRANCHES).transform((list) => assignSlugs(list)),
     successStories: lenientList(successStory, 6),
   })
   // Anything that is not an object at all becomes an empty config.

@@ -70,14 +70,14 @@ await test('valid branches and stories are kept, broken ones dropped, and the li
       { name: { en: 'A' } },
       'not a branch',
       { name: { en: 'B' } },
-      { name: { en: 'C' } },
-      { name: { en: 'D' } },
+      ...Array.from({ length: 14 }, (_, i) => ({ name: { en: `Office ${i}` } })),
     ],
     successStories: Array.from({ length: 9 }, (_, i) => ({ names: { en: `Couple ${i}` } })),
   });
+  assert.equal(config.branches.length, 12);
   assert.deepEqual(
-    config.branches.map((b) => b.name.en),
-    ['A', 'B', 'C'],
+    config.branches.slice(0, 3).map((b) => b.name.en),
+    ['A', 'B', 'Office 0'],
   );
   assert.equal(config.successStories.length, 6);
 });

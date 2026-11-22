@@ -2765,7 +2765,7 @@ paths:
                 phone: { type: string }
                 locale: { type: string, enum: [bn, en] }
                 name: { type: string, minLength: 2, maxLength: 80 }
-                office: { type: integer, minimum: 0, maximum: 2 }
+                office: { type: integer, minimum: 0, maximum: 11 }
                 ref: { type: string, format: uuid }
                 intent: { type: string, enum: [call, visit, whatsapp], default: call }
                 origin: { $ref: '#/components/schemas/LeadOrigin' }
@@ -2799,7 +2799,7 @@ paths:
                 name: { type: string, minLength: 2, maxLength: 80 }
                 phone: { type: string }
                 code: { type: string }
-                office: { type: integer, minimum: 0, maximum: 2 }
+                office: { type: integer, minimum: 0, maximum: 11 }
                 ref: { type: string, format: uuid }
                 intent: { type: string, enum: [call, visit, whatsapp], default: call }
                 origin: { $ref: '#/components/schemas/LeadOrigin' }
@@ -2832,7 +2832,7 @@ paths:
               properties:
                 name: { type: string, minLength: 2, maxLength: 80 }
                 phone: { type: string }
-                office: { type: integer, minimum: 0, maximum: 2 }
+                office: { type: integer, minimum: 0, maximum: 11 }
                 ref: { type: string, format: uuid }
                 intent: { type: string, enum: [call, visit, whatsapp], default: call }
                 origin: { $ref: '#/components/schemas/LeadOrigin' }
@@ -2902,7 +2902,7 @@ paths:
               properties:
                 kind: { $ref: '#/components/schemas/CampaignLinkKind' }
                 name: { type: string, minLength: 2, maxLength: 80 }
-                office: { type: integer, minimum: 0, maximum: 2 }
+                office: { type: integer, minimum: 0, maximum: 11 }
                 locale: { type: string, enum: [bn, en], default: bn }
       responses:
         '201':
@@ -3508,7 +3508,7 @@ paths:
     get:
       tags: [Site content]
       summary: The public site's editable words (admin)
-      description: Contact, home title and subtitle, about text and up to three branches. The name, colours and logo are operator-set; success stories come from Reports.
+      description: Contact, home title and subtitle, about text and up to twelve branches. The name, colours and logo are operator-set; success stories come from Reports.
       security:
         - bearerAuth: []
       responses:
@@ -8547,7 +8547,8 @@ components:
         images: { $ref: '#/components/schemas/SiteImages' }
         branches:
           type: array
-          maxItems: 3
+          maxItems: 12
+          description: The offices, each with the `slug` of its own page (`/{locale}/branches/{slug}`).
           items: { $ref: '#/components/schemas/Branch' }
         successStories:
           type: array
@@ -8684,7 +8685,8 @@ components:
         about: { $ref: '#/components/schemas/LocalizedText' }
         branches:
           type: array
-          maxItems: 3
+          maxItems: 12
+          description: Up to twelve offices. Two offices cannot share a `slug` (400 `duplicate`). A branch saved without a slug is given one.
           items: { $ref: '#/components/schemas/Branch' }
         gallery:
           type: array
@@ -8749,6 +8751,11 @@ components:
       type: object
       required: [name]
       properties:
+        slug:
+          type: string
+          maxLength: 60
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          description: The last part of the office page's address. Typed by the admin, or made once from the English name (`branch-3`, by its place, when there is none) and then kept, so a rename never changes an address. Always present in what is served.
         name: { $ref: '#/components/schemas/LocalizedText' }
         address: { $ref: '#/components/schemas/LocalizedText' }
         hours: { $ref: '#/components/schemas/LocalizedText', description: When the office is open, as written by the admin. }

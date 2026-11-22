@@ -118,7 +118,8 @@ await test('an admin saves the words, empty fields are removed and other setting
     branding: { primaryColor: '#8a1c3c' },
     contact: { phone: '+880 1700-000000' },
     home: { title: { en: 'Hello' } },
-    branches: [{ name: { en: 'Dhaka' } }],
+    // The address name is made from the English name the first time it is saved, and then kept.
+    branches: [{ slug: 'dhaka', name: { en: 'Dhaka' } }],
   });
   assert.equal(state.events[0]?.type, 'site.content_updated');
   assert.equal(state.events[0]?.actorId, admin.accountId);
@@ -168,7 +169,7 @@ await test('only an admin reads or changes the site content', async () => {
   });
 });
 
-await test('a map link must be https, a branch needs a name, at most three branches', () => {
+await test('a map link must be https, a branch needs a name, at most twelve branches', () => {
   const branch = (extra: object) => ({ branches: [{ name: { en: 'A' }, ...extra }] });
   assert.equal(
     siteContentSchema.safeParse(branch({ mapUrl: 'http://x.example/m' })).success,
@@ -188,9 +189,15 @@ await test('a map link must be https, a branch needs a name, at most three branc
   );
   assert.equal(
     siteContentSchema.safeParse({
-      branches: Array.from({ length: 4 }, () => ({ name: { en: 'A' } })),
+      branches: Array.from({ length: 13 }, (_, i) => ({ name: { en: `A${i}` } })),
     }).success,
     false,
+  );
+  assert.equal(
+    siteContentSchema.safeParse({
+      branches: Array.from({ length: 12 }, (_, i) => ({ name: { en: `A${i}` } })),
+    }).success,
+    true,
   );
   assert.equal(siteContentSchema.safeParse({ unknown: 1 }).success, false);
   assert.equal(siteContentSchema.safeParse({ contact: { email: 'not-an-email' } }).success, false);
@@ -521,4 +528,47 @@ await test('the public config keeps only stored picture addresses', () => {
   assert.equal(config.images?.gallery.length, 1);
   assert.equal(config.successStories[0]?.photoUrl, undefined);
   assert.equal(config.successStories[0]?.weddingDate, '2026-02-14');
+});
+
+await test('branch address names: typed ones must be lowercase words with hyphens and different from each other', () => {
+  const slug = (value: string, other = 'x') =>
+    siteContentSchema.safeParse({
+      branches: [
+        { name: { en: 'A' }, slug: value },
+        { name: { en: 'B' }, slug: other },
+      ],
+    }).success;
+  assert.equal(slug('lalmatia'), true);
+  assert.equal(slug('  Lalmatia '), true, 'trimmed and made lowercase');
+  assert.equal(slug('lalmatia-2', 'lalmatia-3'), true);
+  assert.equal(slug('lalmatia', 'lalmatia'), false, 'two offices cannot share an address');
+  assert.equal(slug('lal matia'), false);
+  assert.equal(slug('-lalmatia'), false);
+  assert.equal(slug('lalmatia/../x'), false);
+  assert.equal(slug('লালমাটিয়া'), false);
+  assert.equal(slug('a'.repeat(61)), false);
+});
+
+await test('saving gives every branch its address name, keeps one that was typed, and a rename never changes it', async () => {
+  const { service, state } = setup({
+    branches: [{ slug: 'lalmatia', name: { en: 'Lalmatia' } }],
+  });
+  await service.update(
+    admin,
+    siteContentSchema.parse({
+      branches: [
+        // The stored name is renamed; its address stays what was saved.
+        { slug: 'lalmatia', name: { en: 'Lalmatia office', bn: 'লালমাটিয়া অফিস' } },
+        { name: { en: 'Gulshan' } },
+        { name: { bn: 'কাকরাইল' } },
+        { name: { en: 'Gulshan' } },
+      ],
+    }),
+    'req-1',
+  );
+  const branches = state.config.branches as { slug: string }[];
+  assert.deepEqual(
+    branches.map((b) => b.slug),
+    ['lalmatia', 'gulshan', 'branch-3', 'gulshan-2'],
+  );
 });

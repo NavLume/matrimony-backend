@@ -7,3 +7,8 @@ coverage/
 *.log
 .DS_Store
 storage/
+
+# Local Claude Code settings and plugins (per machine, never committed)
+.claude/
+# Claude Security scan reports (they list weaknesses; never committed)
+CLAUDE-SECURITY-*/

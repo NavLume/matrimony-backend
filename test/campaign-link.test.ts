@@ -132,7 +132,10 @@ void test('agents and admins make links; a taken name gets a number; a Bangla na
     service.create(actor('member', OTHER), input('Mine'), 'c'),
     (e: AppError) => e.status === 403,
   );
-  await assert.rejects(service.list(actor('member', OTHER), false), (e: AppError) => e.status === 403);
+  await assert.rejects(
+    service.list(actor('member', OTHER), false),
+    (e: AppError) => e.status === 403,
+  );
 });
 
 void test('only an admin or the maker puts a link away; it can be brought back', async () => {

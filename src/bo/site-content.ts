@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BRANCH_SLUG, MAX_BRANCHES, MAX_SLUG_LENGTH } from './branch-slug.js';
 import {
   HOME_SECTION_IDS,
   IMAGE_FOCUS,
@@ -15,7 +16,7 @@ export type SiteImageSlot = z.output<typeof siteImageSlotSchema>;
 
 /**
  * The words of an agency's public site that its admin edits from the dashboard (20 October 2026):
- * contact details, the home page's title and subtitle, the about text and up to three branches.
+ * contact details, the home page's title and subtitle, the about text and the branches (up to twelve).
  * They are stored inside the agency's `public_config`; its name, colours and logo stay operator-set,
  * and the success stories come from the matched step (published ones are added when the site is
  * served, see SiteContentService). A field left empty is removed so the site falls back to its
@@ -77,6 +78,15 @@ export const gallerySchema = z
 
 const branch = z
   .object({
+    /** The office page's address name; left empty, it is made from the English name when saved. */
+    slug: z
+      .string(fail('invalid'))
+      .trim()
+      .toLowerCase()
+      .max(MAX_SLUG_LENGTH, fail('tooLong'))
+      .transform((value) => (value === '' ? undefined : value))
+      .refine((value) => value === undefined || BRANCH_SLUG.test(value), fail('invalid'))
+      .optional(),
     name: localized(120),
     address: localized(300),
     hours: localized(160),
@@ -122,7 +132,14 @@ export const siteContentSchema = z
       .strict()
       .optional(),
     about: localized(4000),
-    branches: z.array(branch).max(3, fail('tooMany')).optional(),
+    branches: z
+      .array(branch)
+      .max(MAX_BRANCHES, fail('tooMany'))
+      .refine((list) => {
+        const slugs = list.flatMap((item) => (item.slug ? [item.slug] : []));
+        return new Set(slugs).size === slugs.length;
+      }, fail('duplicate'))
+      .optional(),
     /** The gallery's order and captions; the pictures themselves are uploaded one by one. */
     gallery: gallerySchema.optional(),
     /** Which part of each single picture matters, so the looks' crops keep it in view. Left out: kept as stored. */
@@ -166,6 +183,8 @@ export interface SiteContent {
     gallery: { url: string; caption?: { bn?: string; en?: string } }[];
   };
   branches: {
+    /** Always present when served: the stored one, or the one made from the name. */
+    slug: string;
     name?: { bn?: string; en?: string };
     address?: { bn?: string; en?: string };
     hours?: { bn?: string; en?: string };

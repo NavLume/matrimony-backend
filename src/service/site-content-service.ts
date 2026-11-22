@@ -16,6 +16,7 @@ import {
   type SiteContentInput,
   type SiteImageSlot,
 } from '../bo/site-content.js';
+import { assignSlugs } from '../bo/branch-slug.js';
 import type { StoredPreview } from '../cache/repository/preview-repository.js';
 import { processLogo, processSiteImage } from '../security/image-processor.js';
 import type { FileStorage } from '../storage/service/file-storage.js';
@@ -527,7 +528,15 @@ function mergeContent(
   set('home', pruned(input.home));
   set('auth', pruned(input.auth));
   set('about', pruned(input.about));
-  set('branches', input.branches?.map((branch) => pruned(branch)).filter(Boolean));
+  // Every branch keeps (or is given) its slug here, so an address is fixed the first time it is saved.
+  set(
+    'branches',
+    input.branches
+      ? assignSlugs(input.branches)
+          .map((branch) => pruned(branch))
+          .filter(Boolean)
+      : undefined,
+  );
   const withFocus = input.imageFocus ? withImageFocus(next, input.imageFocus) : next;
   return input.gallery ? withGallery(withFocus, input.gallery) : withFocus;
 }
