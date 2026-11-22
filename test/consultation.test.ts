@@ -161,6 +161,7 @@ function setup(opts: { mode?: 'automatic' | 'manual'; agents?: string[]; now?: (
     events: [] as WorkflowEvent[],
     active: new Set(opts.agents ?? [AGENT]),
     clients: [] as Client[],
+    lookups: [] as { reference: string | null; phone: string | null }[],
   };
   const row = (id: string) => state.rows.find((r) => r.id === id)!;
   const unit = {
@@ -320,6 +321,10 @@ function setup(opts: { mode?: 'automatic' | 'manual'; agents?: string[]; now?: (
     unlinkClient: async (_a: string, id: string) => {
       row(id).client = null;
       row(id).blocked = true;
+    },
+    lookup: async (_a: string, reference: string | null, phone: string | null) => {
+      state.lookups.push({ reference, phone });
+      return [];
     },
     ofClient: async (_a: string, profileId: string) =>
       state.rows.filter((r) => r.client?.profileId === profileId) as never,
@@ -595,15 +600,20 @@ void test('staff link by member code; only an admin undoes a link, and it is not
   state.clients.push({ id: 'p-1', code: 'M1000001', agentId: AGENT, phones: [PHONE] });
   state.clients.push({ id: 'p-9', code: 'M1000009', agentId: OTHER, phones: [] });
   await assert.rejects(
-    service.linkClient(actor('agent', OTHER), id, 'M1000009', 'c'),
+    service.linkClient(actor('agent', OTHER), id, 'M1000001', 'c'),
     (e: AppError) => e.status === 404,
-    'an agent links only an enquiry given to them',
+    "another agent's enquiry goes only to a client of one's own",
   );
   await assert.rejects(
     service.linkClient(actor('agent', AGENT), id, 'M7777777', 'c'),
     (e: AppError) => e.code === 'PROFILE_NOT_FOUND',
   );
   await service.linkClient(actor('agent', AGENT), id, 'M1000009', 'c');
+  await assert.rejects(
+    service.linkClient(actor('agent', OTHER), id, 'M1000009', 'c'),
+    (e: AppError) => e.status === 404,
+    "a linked enquiry of another agent's cannot be moved by an agent",
+  );
   assert.deepEqual(state.rows[0]!.client, { profileId: 'p-9', method: 'staff' });
   await assert.rejects(
     service.unlinkClient(actor('agent', AGENT), id, 'c'),
@@ -615,6 +625,33 @@ void test('staff link by member code; only an admin undoes a link, and it is not
   assert.deepEqual(
     state.events.map((e) => e.type).filter((t) => t.startsWith('lead.') && t.includes('link')),
     ['lead.linked', 'lead.unlinked'],
+  );
+});
+
+void test('an agent links an unlinked enquiry of another agent to the client they just created', async () => {
+  const { state, service } = setup({ agents: [AGENT, OTHER] });
+  await service.start(AGENCY, input, null);
+  const id = state.rows[0]!.id;
+  assert.equal(state.rows[0]!.agentId, AGENT);
+  state.clients.push({ id: 'p-9', code: 'M1000009', agentId: OTHER, phones: [] });
+  await service.linkClient(actor('agent', OTHER), id, 'M1000009', 'c');
+  assert.deepEqual(state.rows[0]!.client, { profileId: 'p-9', method: 'staff' });
+  assert.equal(state.rows[0]!.agentId, AGENT, 'the enquiry stays with its agent');
+});
+
+void test('the office looks up an enquiry by exact reference or full number, never by partial text', async () => {
+  const { state, service } = setup();
+  const lookups = state.lookups;
+  assert.deepEqual(await service.lookup(actor('agent', AGENT), 'abcd efgh'), []);
+  assert.deepEqual(lookups.at(-1), { reference: 'ABCD-EFGH', phone: null });
+  await service.lookup(actor('admin', ADMIN), '01711-000000');
+  assert.deepEqual(lookups.at(-1), { reference: null, phone: '+8801711000000' });
+  const before = lookups.length;
+  assert.deepEqual(await service.lookup(actor('agent', AGENT), 'Rahima'), []);
+  assert.equal(lookups.length, before, 'a name is not looked up');
+  await assert.rejects(
+    service.lookup(actor('member', 'm-1'), '01711000000'),
+    (e: AppError) => e.status === 403,
   );
 });
 

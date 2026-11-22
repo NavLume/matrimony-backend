@@ -169,6 +169,13 @@ export function referenceFrom(bytes: Uint8Array): string {
   return out;
 }
 
+/** A reference typed by staff ("abcd efgh", "ABCD-EFGH") in its stored form, or null when it cannot be one. */
+export function typedReference(input: string): string | null {
+  const compact = input.toUpperCase().replace(/[\s-]/g, '');
+  if (compact.length !== 8 || [...compact].some((char) => !ALPHABET.includes(char))) return null;
+  return `${compact.slice(0, 4)}-${compact.slice(4)}`;
+}
+
 /** The host of a referrer address, lower case, without "www."; null when it is not a web address. */
 export function referrerHost(referrer: string | undefined): string | null {
   if (!referrer) return null;
@@ -277,6 +284,28 @@ export const staffLeadUpdateSchema = z
   .strict();
 
 export const leadAssignSchema = z.object({ agentId: z.uuid(fail('invalid')) }).strict();
+
+/**
+ * At the office, before a new client is added: find the website enquiry they made, by its reference (with or without
+ * the dash) or by the full mobile number. Exact matches only, so it cannot be used to browse other people's enquiries.
+ */
+export const leadLookupQuerySchema = z
+  .object({ q: z.string(fail('invalid')).trim().min(4, fail('tooShort')).max(40, fail('tooLong')) })
+  .strict();
+
+/** What the office needs to recognise an enquiry and join the new client to it. */
+export interface LeadMatch {
+  id: string;
+  reference: string | null;
+  name: string;
+  phone: string;
+  createdAt: string;
+  source: LeadSource | null;
+  campaign: string | null;
+  adviser: string | null;
+  /** Already joined to a client (then it is shown, not offered). */
+  clientCode: string | null;
+}
 
 /** Staff link an enquiry to a client by member code (when the client registered with another number). */
 export const leadLinkSchema = z.object({ memberCode: memberCodeSchema }).strict();

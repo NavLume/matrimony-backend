@@ -7,7 +7,9 @@ import {
   referrerHost,
   REPEAT_WINDOW_DAYS,
   sourceOf,
+  typedReference,
   type ConsultationAction,
+  type LeadMatch,
   type ConsultationResult,
   type StaffLead,
   type StaffLeadQuery,
@@ -15,6 +17,7 @@ import {
   type UnverifiedInput,
 } from '../bo/consultation.js';
 import { followUpState, type LeadCallInput } from '../bo/lead-follow-up.js';
+import { normalizePhone } from '../bo/phone-number.js';
 import { parsePublicConfig } from '../bo/public-config.js';
 import type {
   ConsultationDbService,
@@ -252,8 +255,25 @@ export class ConsultationService {
   }
 
   /**
-   * Staff link an enquiry to a client by member code: the admin, or the agent the enquiry is given to. A link made
-   * automatically may be changed this way too (the number belonged to someone else); the change is recorded.
+   * The office looks up an enquiry while creating a client (the visitor walked in or phoned with their reference):
+   * by the exact reference, or the full number. Any admin or agent may look, since the visitor may reach whoever is
+   * at the desk; partial text finds nothing, so the list cannot be browsed this way.
+   */
+  async lookup(actor: ProfileActor, q: string): Promise<LeadMatch[]> {
+    this.scope(actor);
+    const reference = typedReference(q);
+    const phone = normalizePhone(q);
+    if (!reference && !phone) return [];
+    return this.db.inTransaction(actor.agencyId, (unit) =>
+      unit.lookup(actor.agencyId, reference, phone),
+    );
+  }
+
+  /**
+   * Staff link an enquiry to a client by member code: the admin, or the agent the enquiry is given to. An agent may
+   * also link an enquiry nobody has linked yet to a client of their own (found through the lookup when creating
+   * that client). A link made automatically may be changed this way too (the number belonged to someone else); the
+   * change is recorded.
    */
   async linkClient(
     actor: ProfileActor,
@@ -261,10 +281,15 @@ export class ConsultationService {
     memberCode: string,
     correlationId: string,
   ): Promise<StaffLead> {
+    const agentId = this.scope(actor);
     return this.db.inTransaction(actor.agencyId, async (unit) => {
-      const lead = await this.find(unit, actor, id);
+      const lead = await unit.one(actor.agencyId, id);
+      if (!lead) throw new AppError(404, 'NOT_FOUND');
       const profile = await unit.profileByCode(actor.agencyId, memberCode);
       if (!profile) throw new AppError(404, 'PROFILE_NOT_FOUND');
+      const allowed =
+        !agentId || lead.adviser?.id === agentId || (!lead.client && profile.agentId === agentId);
+      if (!allowed) throw new AppError(404, 'NOT_FOUND');
       if (lead.client?.profileId !== profile.id) {
         await unit.linkClient(actor.agencyId, id, profile.id, actor.accountId);
         await unit.appendEvent(

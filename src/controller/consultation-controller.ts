@@ -6,6 +6,7 @@ import {
   consultationInputSchema,
   leadAssignSchema,
   leadLinkSchema,
+  leadLookupQuerySchema,
   referenceSchema,
   staffLeadQuerySchema,
   staffLeadUpdateSchema,
@@ -38,6 +39,7 @@ export function registerConsultationController(
     | 'update'
     | 'assign'
     | 'ofClient'
+    | 'lookup'
     | 'linkClient'
     | 'unlinkClient'
     | 'addCall'
@@ -128,6 +130,16 @@ export function registerConsultationController(
   app.get('/api/v1/staff/leads', { config: staffOnly }, async (req) => ({
     leads: await service.list(actor(req), staffLeadQuerySchema.parse(req.query)),
   }));
+
+  // The office finds an enquiry by its reference or full number while creating a client.
+  app.get(
+    '/api/v1/staff/leads/lookup',
+    { config: { ...staffOnly, ...write } },
+    async (req, reply) =>
+      reply.header('cache-control', 'no-store').send({
+        matches: await service.lookup(actor(req), leadLookupQuerySchema.parse(req.query).q),
+      }),
+  );
 
   app.put('/api/v1/staff/leads/:id', { config: { ...staffOnly, ...write } }, async (req) => ({
     lead: await service.update(

@@ -2,6 +2,7 @@ import type { Transaction } from '../../config/database.js';
 import type {
   Intent,
   HeardFrom,
+  LeadMatch,
   LeadSource,
   StaffLead,
   StaffLeadQuery,
@@ -517,6 +518,38 @@ export class ConsultationRepository {
     return (result.rows as Row[]).map((row) => ({
       id: row.id as string,
       profileId: row.client_profile_id as string,
+    }));
+  }
+
+  /** Enquiries an office looks up when it creates a client: by exact reference or full number, newest first. */
+  async lookup(
+    tx: Transaction,
+    agencyId: string,
+    reference: string | null,
+    phone: string | null,
+  ): Promise<LeadMatch[]> {
+    const result = await tx.query(
+      `SELECT l.id, l.reference, l.name, l.phone_e164, l.created_at, l.source, l.utm_campaign,
+              ag.display_name AS agent_name, cp.member_code AS client_code
+         FROM matrimony.website_leads l
+         LEFT JOIN matrimony.accounts ag ON ag.agency_id = l.agency_id AND ag.id = l.assigned_agent_id
+         LEFT JOIN matrimony.member_profiles cp ON cp.agency_id = l.agency_id AND cp.id = l.client_profile_id
+        WHERE l.agency_id = $1 AND l.kind = 'consultation'
+          AND (l.reference = $2 OR l.phone_e164 = $3)
+        ORDER BY l.created_at DESC, l.id
+        LIMIT 5`,
+      [agencyId, reference, phone],
+    );
+    return (result.rows as Row[]).map((row) => ({
+      id: row.id as string,
+      reference: text(row.reference),
+      name: (row.name as string | null) ?? '',
+      phone: row.phone_e164 as string,
+      createdAt: iso(row.created_at) ?? '',
+      source: (row.source as LeadSource | null) ?? null,
+      campaign: text(row.utm_campaign),
+      adviser: text(row.agent_name),
+      clientCode: text(row.client_code),
     }));
   }
 

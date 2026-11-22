@@ -2973,11 +2973,45 @@ paths:
                 properties:
                   lead: { $ref: '#/components/schemas/StaffLead' }
 
+  /api/v1/staff/leads/lookup:
+    get:
+      tags: [Consultations]
+      summary: Find an enquiry by its exact reference or full number (while creating a client)
+      description: Any admin or agent (the visitor may reach whoever is at the desk). Text that is neither a reference nor a mobile number finds nothing, so the list cannot be browsed this way. At most 5, newest first.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 4, maxLength: 40 } }
+      responses:
+        '200':
+          description: The matches (may be empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matches]
+                properties:
+                  matches:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: object
+                      required: [id, reference, name, phone, createdAt, source, campaign, adviser, clientCode]
+                      properties:
+                        id: { type: string, format: uuid }
+                        reference: { type: [string, 'null'] }
+                        name: { type: string }
+                        phone: { type: string }
+                        createdAt: { type: string, format: date-time }
+                        source: { type: [string, 'null'] }
+                        campaign: { type: [string, 'null'] }
+                        adviser: { type: [string, 'null'], description: The agent's name. }
+                        clientCode: { type: [string, 'null'], description: Member code of the client it is already linked to. }
+        '403': { description: ROLE_FORBIDDEN (not staff). }
+
   /api/v1/staff/leads/{id}/client:
     put:
       tags: [Consultations]
       summary: Link an enquiry to the client it became, by member code
-      description: The admin, or the agent the enquiry is given to (404 otherwise). For a client who registered with another number, or a number several clients share. Replaces an automatic link; recorded as event lead.linked.
+      description: The admin, the agent the enquiry is given to, or (for an enquiry not yet linked) the agent who looks after that client; 404 otherwise. For a client who registered with another number, a number several clients share, or an enquiry found through the lookup while creating a client. Replaces an automatic link; recorded as event lead.linked.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
