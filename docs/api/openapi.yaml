@@ -2596,6 +2596,7 @@ paths:
       description: Public, for the agency of the request's host, and only while the story is published (404 otherwise). Cached for five minutes so that hiding a story makes the photo vanish quickly.
       parameters:
         - { name: file, in: path, required: true, schema: { type: string } }
+        - { name: w, in: query, required: false, description: 'A smaller copy of the picture, this many pixels wide (never larger than the original). Only 160, 320, 640, 960 or 1280; anything else is refused.', schema: { type: integer, enum: [160, 320, 640, 960, 1280] } }
       responses:
         '200':
           description: The photo as WebP.
@@ -2610,6 +2611,7 @@ paths:
       description: Public, for the agency of the request's host. The file name is a random id, so the response is cached for a year.
       parameters:
         - { name: file, in: path, required: true, schema: { type: string } }
+        - { name: w, in: query, required: false, description: 'A smaller copy of the picture, this many pixels wide (never larger than the original). Only 160, 320, 640, 960 or 1280; anything else is refused.', schema: { type: integer, enum: [160, 320, 640, 960, 1280] } }
       responses:
         '200':
           description: The logo as WebP.

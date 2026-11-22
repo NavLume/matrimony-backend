@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { IMAGE_FOCUS } from '../bo/public-config.js';
 import { AppError } from '../exception/app-error.js';
 import { z } from 'zod';
+import { isImageWidth, resizedImage } from '../security/image-processor.js';
 import {
   brandingSchema,
   gallerySchema,
@@ -16,6 +17,11 @@ import type { ProfileActor } from '../service/profile-service.js';
 import './context.js';
 
 const imageFocusSchema = z.object({ focus: z.enum(IMAGE_FOCUS) }).strict();
+
+/** `?w=320`: a smaller copy of a public picture. Only the listed widths are served; anything else is refused. */
+const widthQuery = z
+  .object({ w: z.coerce.number().int().refine(isImageWidth, 'Unsupported width').optional() })
+  .strict();
 
 const adminOnly = { roles: ['admin' as const] };
 
@@ -179,6 +185,7 @@ export function registerSiteContentController(
   });
   app.get('/api/v1/public/story-photos/:file', { config: { public: true } }, async (req, reply) => {
     const { file } = req.params as { file: string };
+    const { w } = widthQuery.parse(req.query ?? {});
     const bytes = await content.storyPhotoFile(req.tenant!.id, file);
     if (!bytes) throw new AppError(404, 'NOT_FOUND');
     // Not cached for long: hiding the story must make the photo vanish.
@@ -186,19 +193,20 @@ export function registerSiteContentController(
       .header('content-type', 'image/webp')
       .header('cache-control', 'public, max-age=300')
       .header('x-content-type-options', 'nosniff')
-      .send(bytes);
+      .send(w ? await resizedImage(`${req.tenant!.id}/${file}`, bytes, w) : bytes);
   });
 
   // The logo of the agency for the request's host. The file name is a random id, so it can be cached for good.
   app.get('/api/v1/public/branding/:file', { config: { public: true } }, async (req, reply) => {
     const { file } = req.params as { file: string };
+    const { w } = widthQuery.parse(req.query ?? {});
     const bytes = await content.logoFile(req.tenant!.id, file);
     if (!bytes) throw new AppError(404, 'NOT_FOUND');
     return reply
       .header('content-type', 'image/webp')
       .header('cache-control', 'public, max-age=31536000, immutable')
       .header('x-content-type-options', 'nosniff')
-      .send(bytes);
+      .send(w ? await resizedImage(`${req.tenant!.id}/${file}`, bytes, w) : bytes);
   });
 
   // A draft of the public site to look at before saving; kept for 30 minutes under a random link.

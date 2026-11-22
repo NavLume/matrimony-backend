@@ -139,3 +139,46 @@ export async function processLogo(input: Buffer): Promise<Buffer> {
     throw new AppError(422, 'LOGO_INVALID');
   }
 }
+
+/**
+ * The widths a public picture may be asked for (`?w=320`), so a thumbnail does not download the full picture.
+ * A fixed list keeps the number of different files small (they are cached and shared) and keeps anyone from
+ * making the server resize to thousands of odd sizes.
+ */
+export const IMAGE_WIDTHS = [160, 320, 640, 960, 1280] as const;
+export type ImageWidth = (typeof IMAGE_WIDTHS)[number];
+
+export function isImageWidth(value: number): value is ImageWidth {
+  return (IMAGE_WIDTHS as readonly number[]).includes(value);
+}
+
+const RESIZED_MAX_ENTRIES = 300;
+const resized = new Map<string, Buffer>();
+
+/**
+ * A smaller copy of an already stored (WebP) site picture, never larger than the original and with the same
+ * transparency. The copies are kept in memory (the newest 300) because the pictures never change under the same
+ * file name, so a busy page does not make the server resize again for every visitor.
+ */
+export async function resizedImage(key: string, bytes: Buffer, width: ImageWidth): Promise<Buffer> {
+  const id = `${key}@${width}`;
+  const hit = resized.get(id);
+  if (hit) {
+    // Newest at the end, so the oldest is the one dropped when the memory is full.
+    resized.delete(id);
+    resized.set(id, hit);
+    return hit;
+  }
+  let out: Buffer;
+  try {
+    out = await sharp(bytes, { limitInputPixels: MAX_PIXELS, failOn: 'error' })
+      .resize({ width, withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer();
+  } catch {
+    throw new AppError(422, 'IMAGE_INVALID');
+  }
+  resized.set(id, out);
+  if (resized.size > RESIZED_MAX_ENTRIES) resized.delete(resized.keys().next().value as string);
+  return out;
+}

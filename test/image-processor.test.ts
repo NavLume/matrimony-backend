@@ -2,7 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { AppError } from '../src/exception/app-error.js';
-import { processImage } from '../src/security/image-processor.js';
+import {
+  IMAGE_WIDTHS,
+  isImageWidth,
+  processImage,
+  resizedImage,
+} from '../src/security/image-processor.js';
 
 /** A plain picture of the given size, as a file of the given format. */
 const picture = (width: number, height: number, format: 'jpeg' | 'png' | 'webp' | 'gif' = 'jpeg') =>
@@ -110,4 +115,38 @@ await test('a small file that expands into an enormous picture is refused', asyn
     .toBuffer();
   assert.ok(bomb.length < 5 * 1024 * 1024, 'small enough to be uploaded');
   await refused(processImage(bomb), 422, 'PHOTO_INVALID');
+});
+
+await test('resizedImage makes a smaller WebP, never a larger one, and only for the listed widths', async () => {
+  const original = await sharp({
+    create: { width: 1200, height: 800, channels: 3, background: '#a33' },
+  })
+    .webp()
+    .toBuffer();
+  const small = await resizedImage('agency/a.webp', original, 320);
+  const meta = await sharp(small).metadata();
+  assert.equal(meta.format, 'webp');
+  assert.equal(meta.width, 320);
+  assert.ok(small.length < original.length);
+  // A picture narrower than the request is not stretched.
+  const narrow = await sharp({
+    create: { width: 100, height: 100, channels: 3, background: '#000' },
+  })
+    .webp()
+    .toBuffer();
+  assert.equal(
+    (await sharp(await resizedImage('agency/b.webp', narrow, 640)).metadata()).width,
+    100,
+  );
+  assert.deepEqual([...IMAGE_WIDTHS], [160, 320, 640, 960, 1280]);
+  assert.equal(isImageWidth(320), true);
+  assert.equal(isImageWidth(321), false);
+  assert.equal(isImageWidth(5000), false);
+});
+
+await test('resizedImage refuses bytes that are not a picture', async () => {
+  await assert.rejects(
+    () => resizedImage('agency/c.webp', Buffer.from('not an image'), 160),
+    (err: unknown) => err instanceof AppError && err.code === 'IMAGE_INVALID',
+  );
 });
