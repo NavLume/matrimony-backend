@@ -30,9 +30,12 @@ export const VISIBLE_FIELDS = [
 ] as const;
 export type VisibleField = (typeof VISIBLE_FIELDS)[number];
 
-/** What a client sees until staff choose otherwise. */
+/**
+ * What a client sees until staff choose otherwise. The name is not in it: names stay hidden until a
+ * proposal is accepted (the owner's decision of 12 October 2026), so a profile shows its member code
+ * and staff turn the name on only for a client they want to show it to.
+ */
 export const DEFAULT_VISIBLE_FIELDS: readonly VisibleField[] = [
-  'fullName',
   'age',
   'photo',
   'aboutMe',

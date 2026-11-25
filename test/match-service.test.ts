@@ -155,7 +155,9 @@ await test('the staff-chosen fields (or the defaults) are the only ones asked fo
   assert.deepEqual(chosen.seen[0]?.visible, ['fullName', 'photo']);
   const defaults = fake({ visible: null });
   await defaults.service.page(member, query());
-  assert.ok(defaults.seen[0]!.visible.includes('fullName'));
+  // The name is not in the defaults: names stay hidden until a proposal is accepted.
+  assert.ok(!defaults.seen[0]!.visible.includes('fullName'));
+  assert.ok(defaults.seen[0]!.visible.includes('age'));
   assert.ok(!defaults.seen[0]!.visible.includes('hobbies'));
 });
 

@@ -114,7 +114,9 @@ await test('without settings a client gets the defaults, and the window count is
   assert.equal(settings.cap, 50);
   assert.equal(settings.isDefault, true);
   assert.equal(settings.releasedCount, 1);
-  assert.ok(settings.visibleFields.includes('fullName'));
+  // Names stay hidden until a proposal is accepted, so the default leaves the name out.
+  assert.ok(!settings.visibleFields.includes('fullName'));
+  assert.ok(settings.visibleFields.includes('age'));
   assert.ok(!settings.visibleFields.includes('hobbies'));
 });
 
