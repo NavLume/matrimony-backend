@@ -47,6 +47,11 @@ import {
 } from '../bo/credentials.js';
 import { registrationInputSchema } from '../bo/registration.js';
 import './context.js';
+/** Sign-ins a minute from one address: an office of thirty people starts work together. */
+const OFFICE_LOGINS_PER_MINUTE = 30;
+/** Session restores and token refreshes a minute from one address (page reloads, tabs, 10-minute refreshes). */
+const OFFICE_SESSIONS_PER_MINUTE = 60;
+
 export function registerAuthController(
   app: FastifyInstance,
   auth: Pick<AuthProcess, 'login' | 'bootstrap' | 'refresh' | 'logout'>,
@@ -207,7 +212,9 @@ export function registerAuthController(
   app.post(
     '/api/v1/auth/login',
     {
-      config: { public: true, rateLimit: { max: 10, timeWindow: 60000 } },
+      // Counted by address, and an office shares one: room for thirty people starting work together.
+      // Guessing a password is stopped per account (a pause after five wrong ones), not by this.
+      config: { public: true, rateLimit: { max: OFFICE_LOGINS_PER_MINUTE, timeWindow: 60000 } },
       schema: { response: { 200: tokensResponseSchema } },
     },
     async (req, reply) => {
@@ -606,7 +613,7 @@ export function registerAuthController(
   app.post(
     '/api/v1/auth/session',
     {
-      config: { public: true, rateLimit: { max: 10, timeWindow: 60000 } },
+      config: { public: true, rateLimit: { max: OFFICE_SESSIONS_PER_MINUTE, timeWindow: 60000 } },
       schema: { response: { 200: tokensResponseSchema } },
     },
     async (req) => {
@@ -618,7 +625,7 @@ export function registerAuthController(
   app.post(
     '/api/v1/auth/refresh',
     {
-      config: { public: true, rateLimit: { max: 10, timeWindow: 60000 } },
+      config: { public: true, rateLimit: { max: OFFICE_SESSIONS_PER_MINUTE, timeWindow: 60000 } },
       schema: { response: { 200: tokensResponseSchema } },
     },
     async (req) => {

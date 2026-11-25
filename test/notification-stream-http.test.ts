@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { connect, type AddressInfo } from 'node:net';
 import { pino } from 'pino';
 import type { Redis } from 'ioredis';
 import { buildApp } from '../src/controller/app.js';
@@ -30,7 +30,9 @@ const redis = {
   },
 } as unknown as Redis;
 
-async function setup(options: { refuse?: boolean; unreadFails?: boolean } = {}) {
+async function setup(
+  options: { refuse?: boolean; unreadFails?: boolean; connectionTimeoutMs?: number } = {},
+) {
   const listeners: (() => void)[] = [];
   const stopped: number[] = [];
   const state = { unread: 2, asked: [] as ProfileActor[] };
@@ -39,6 +41,7 @@ async function setup(options: { refuse?: boolean; unreadFails?: boolean } = {}) 
     logger: pino({ level: 'silent' }),
     redis,
     ready: async () => {},
+    connectionTimeoutMs: options.connectionTimeoutMs,
     profiles: unusedProfiles,
     reviews: unusedReviews,
     clients: unusedClients,
@@ -163,6 +166,32 @@ await test('the stream sends the unread count at once, and again each time a lin
   assert.ok(state.asked.every((a) => a.accountId === account.id && a.agencyId === agency));
   // Only the count travels: no names, no inbox text.
   assert.equal(/fullName|memberCode|about/.test(stream.text()), false);
+});
+
+await test('a quiet stream is not cut by the server idle limit, but an idle ordinary connection is', async (t) => {
+  // The real limit is 15 s and the first ping comes at 15 s; a short limit shows the same thing fast.
+  const { app, port, listeners, state } = await setup({ connectionTimeoutMs: 300 });
+  t.after(() => app.close());
+  const stream = await open(port);
+  t.after(() => stream.close());
+  await withTimeout(stream.waitFor((text) => text.includes('"unread":2')));
+
+  // Silent for well past the limit: it must still be open and still deliver.
+  await new Promise((r) => setTimeout(r, 900));
+  state.unread = 7;
+  listeners[0]!();
+  await withTimeout(stream.waitFor((text) => text.includes('"unread":7')));
+
+  // An ordinary connection that sends nothing is closed by the same server.
+  const idle = await new Promise<boolean>((resolve) => {
+    const socket = connect(port, '127.0.0.1');
+    socket.on('close', () => resolve(true));
+    setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, 2000);
+  });
+  assert.equal(idle, true);
 });
 
 await test('closing the stream lets go of the listener', async (t) => {

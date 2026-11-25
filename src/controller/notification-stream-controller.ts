@@ -15,7 +15,8 @@ const anyRole = {
 
 /** A stream ends after this long and the page opens a new one, so it never outlives its sign-in. */
 export const STREAM_MAX_MS = 10 * 60 * 1000;
-const HEARTBEAT_MS = 20_000;
+/** Short enough that no proxy in front (Cloudflare closes an idle connection after 100 s) cuts a quiet stream. */
+const HEARTBEAT_MS = 15_000;
 
 /**
  * Live notifications: a server-sent event stream for the signed-in account.
@@ -24,7 +25,9 @@ const HEARTBEAT_MS = 20_000;
  *   way, with its own sign-in, so no inbox text is ever sent here.
  * - One event is sent at once (the count now), and another each time an inbox line is added for
  *   the account, or the connection to the database came back after a gap.
- * - A comment goes out every 20 seconds so proxies keep the connection open.
+ * - A comment goes out every 15 seconds so proxies keep the connection open. The server's usual
+ *   idle limit for a connection (`connectionTimeout`, 15 s) is switched off for this one socket,
+ *   otherwise a quiet stream would be cut before the first ping.
  * - An account may keep five streams open. A stream ends after ten minutes, which is as long as an
  *   access token lives, and the page reconnects with a fresh one.
  */
@@ -88,6 +91,9 @@ export function registerNotificationStream(app: FastifyInstance, live: Notificat
       }
 
       reply.hijack();
+      // The stream is meant to sit quiet between events: no idle limit on this socket. It ends by
+      // `STREAM_MAX_MS`, by the page closing it, or when the account is turned off.
+      req.raw.socket.setTimeout(0);
       raw.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-store, no-transform',

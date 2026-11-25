@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { parseSigningKey } from '../security/access-token.js';
 
@@ -17,6 +18,20 @@ const tenantMap = z
   })
   .pipe(z.record(z.string().regex(/^[a-z0-9.-]+$/), z.uuid()))
   .refine((v) => Object.keys(v).length > 0);
+/**
+ * Whether a connection URL points at a service on this machine: `localhost`, a loopback address, or a
+ * one-word name (a container on the private network, such as `postgres`). A dotted name or any other
+ * address is somewhere else on a network and needs TLS.
+ */
+const isLocalService = (value: string): boolean => {
+  const host = new URL(value).hostname.toLowerCase();
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '[::1]' ||
+    /^[a-z][a-z0-9_-]*$/.test(host)
+  );
+};
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -86,6 +101,43 @@ const schema = z
     APP_LATEST_VERSION_ANDROID: appVersion.optional(),
     APP_STORE_URL_IOS: url.optional(),
     APP_STORE_URL_ANDROID: url.optional(),
+    // Which machines in front of the API may say who the visitor really is (through `X-Forwarded-For`).
+    // `false` (the default): nobody, the address is whoever connected. A number: that many proxies in
+    // front (1 when only the website's proxy sits in front). Or a list of addresses and ranges
+    // (`127.0.0.1,10.0.0.0/8`) of the proxies to believe. Never "trust everyone": a visitor could then
+    // claim any address and walk around the request limits.
+    TRUST_PROXY: z
+      .string()
+      .default('false')
+      .transform((value, ctx): false | number | string[] => {
+        const text = value.trim();
+        if (text === '' || text === 'false') return false;
+        if (/^[1-9]$/.test(text)) return Number(text);
+        const entries = text.split(',').map((entry) => entry.trim());
+        const valid = entries.every((entry) => {
+          const [address, prefix, ...rest] = entry.split('/');
+          const kind = isIP(address ?? '');
+          if (kind === 0 || rest.length > 0) return false;
+          if (prefix === undefined) return true;
+          return /^[0-9]{1,3}$/.test(prefix) && Number(prefix) <= (kind === 4 ? 32 : 128);
+        });
+        if (!valid) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Expected false, a number from 1 to 9, or a list of addresses and ranges',
+          });
+          return z.NEVER;
+        }
+        return entries;
+      }),
+    // Production normally demands verified TLS to PostgreSQL, Redis and MongoDB. When all of them run on
+    // the same machine (or the same private container network) and nothing is published to the
+    // internet, set this to `true`: plain connections are then accepted, but only to `localhost`,
+    // a loopback address or a one-word container name such as `postgres`. Any other host still needs TLS.
+    ALLOW_PLAINTEXT_LOCAL_SERVICES: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     SESSION_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
     SESSION_TTL_SECONDS: integer(28800, 300, 86400),
     // How long a mobile app stays signed in without signing in again (default 30 days).
@@ -194,18 +246,26 @@ const schema = z
           path: ['STORAGE_DRIVER'],
           message: 'Production needs shared storage (s3), not a local disk',
         });
-      if (c.DB_SSL !== 'verify-full')
+      // TLS protects traffic that crosses a network. A service on this same machine (or its private
+      // container network) is reached without leaving it, so the deployment may say so explicitly with
+      // ALLOW_PLAINTEXT_LOCAL_SERVICES. Then plain connections are accepted only to such a host;
+      // anything else (a managed database, another server) still needs verified TLS.
+      const plainOk = (url: string) => c.ALLOW_PLAINTEXT_LOCAL_SERVICES && isLocalService(url);
+      if (c.DB_SSL !== 'verify-full' && !plainOk(c.DATABASE_URL))
         ctx.addIssue({ code: 'custom', path: ['DB_SSL'], message: 'Verified TLS required' });
-      if (!c.REDIS_URL.startsWith('rediss:'))
+      if (!c.REDIS_URL.startsWith('rediss:') && !plainOk(c.REDIS_URL))
         ctx.addIssue({ code: 'custom', path: ['REDIS_URL'], message: 'TLS required' });
       const mongo = new URL(c.MONGO_URL);
+      const mongoTls =
+        mongo.protocol === 'mongodb+srv:' || mongo.searchParams.get('tls') === 'true';
       if (
-        !(mongo.protocol === 'mongodb+srv:' || mongo.searchParams.get('tls') === 'true') ||
+        !(mongoTls || plainOk(c.MONGO_URL)) ||
+        // Turning checks off on a TLS connection is never allowed, local or not.
         mongo.searchParams.has('tlsAllowInvalidCertificates') ||
         mongo.searchParams.has('tlsInsecure') ||
         mongo.searchParams.has('tlsAllowInvalidHostnames') ||
-        mongo.searchParams.get('tls') === 'false' ||
-        mongo.searchParams.get('ssl') === 'false'
+        ((mongo.searchParams.get('tls') === 'false' || mongo.searchParams.get('ssl') === 'false') &&
+          !plainOk(c.MONGO_URL))
       )
         ctx.addIssue({ code: 'custom', path: ['MONGO_URL'], message: 'Verified TLS required' });
     }

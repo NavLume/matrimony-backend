@@ -68,11 +68,14 @@ export function registerDeviceAuthController(
   };
   const limit = { max: 10, timeWindow: 60000 };
   const slow = { max: 10, timeWindow: 600000 };
+  // The app's sign-in and refresh are counted by address, which an office shares (see auth-controller).
+  const login = { max: 30, timeWindow: 60000 };
+  const refresh = { max: 60, timeWindow: 60000 };
 
   app.post(
     '/api/v1/auth/device/login',
     {
-      config: { public: true, rateLimit: limit },
+      config: { public: true, rateLimit: login },
       schema: { response: { 200: deviceTokensSchema } },
     },
     async (req) => {
@@ -163,7 +166,7 @@ export function registerDeviceAuthController(
   app.post(
     '/api/v1/auth/device/refresh',
     {
-      config: { public: true, rateLimit: limit },
+      config: { public: true, rateLimit: refresh },
       schema: { response: { 200: deviceTokensSchema } },
     },
     async (req) => {

@@ -221,26 +221,45 @@ export interface AppDependencies {
   /** Whether a client's mobile number was reached; the routes exist only when it is given. */
   phoneChecks?: Pick<ProfileService, 'phoneCheck' | 'confirmPhone'>;
   ready: () => Promise<void>;
+  /** How long a connection may sit idle before the server closes it; only tests change it. */
+  connectionTimeoutMs?: number;
 }
+/** Requests a minute for one signed-in person across the routes with no limit of their own. */
+const SIGNED_IN_MAX = 300;
+
+/** Believe the nearest `count` machines in front of the API: 1 is the website's proxy alone. */
+const trustFirst = (count: number) => (_address: string, hop: number) => hop < count;
+
 export async function buildApp(deps: AppDependencies) {
   const { config } = deps;
   const app = Fastify({
     loggerInstance: deps.logger as FastifyBaseLogger,
     genReqId: () => randomUUID(),
     requestIdHeader: false,
-    trustProxy: false,
+    // Off unless the deployment names the proxies in front of the API (`TRUST_PROXY`); then `req.ip`
+    // is the visitor's address as that proxy reports it, and nobody else can claim one.
+    trustProxy:
+      typeof config.TRUST_PROXY === 'number' ? trustFirst(config.TRUST_PROXY) : config.TRUST_PROXY,
     bodyLimit: 1024 * 1024,
     requestTimeout: 15000,
-    connectionTimeout: 15000,
+    connectionTimeout: deps.connectionTimeoutMs ?? 15000,
+    // A live notification stream never goes idle, so on shutdown it would hold the process until the
+    // deadline. Closing every connection lets a restart finish at once; the page reconnects.
+    forceCloseConnections: true,
   });
   await app.register(cookie);
   await app.register(helmet, { referrerPolicy: { policy: 'no-referrer' } });
   await app.register(rateLimit, {
     redis: deps.redis,
-    max: 120,
+    // A signed-in person is counted on their own, so thirty agents in one office, who all reach the
+    // site from one address, do not use up each other's allowance. Everyone else (signing in,
+    // registering, public pages) is counted by address. The sign-in check has already run when this
+    // does, because a route's own hooks come after the app-wide ones.
+    max: (req) => (req.principal ? SIGNED_IN_MAX : 120),
     timeWindow: 60000,
     skipOnError: false,
-    keyGenerator: (req) => req.ip,
+    keyGenerator: (req) =>
+      req.principal ? `u:${req.principal.agencyId}:${req.principal.id}` : req.ip,
     nameSpace: 'matrimony:rate:',
   });
   app.decorateRequest('tenant', null);
