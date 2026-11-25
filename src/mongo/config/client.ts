@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
 import type { AppConfig } from '../../config/env.js';
 export function createMongo(config: AppConfig) {
+  if (!config.MONGO_URL) throw new Error('MONGO_URL is not set');
   return new MongoClient(config.MONGO_URL, {
     maxPoolSize: config.MONGO_POOL_MAX,
     minPoolSize: 0,

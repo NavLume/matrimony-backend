@@ -110,3 +110,26 @@ await test('the switch only accepts true or false', () => {
   assert.equal(loadConfig(env).ALLOW_PLAINTEXT_LOCAL_SERVICES, false);
   assert.throws(() => loadConfig({ ...env, ALLOW_PLAINTEXT_LOCAL_SERVICES: 'yes' }));
 });
+
+await test('without MONGO_URL production starts: the event copy to MongoDB is optional', () => {
+  const without = (extra: Record<string, string>) => {
+    const all: Record<string, string | undefined> = { ...production, ...extra };
+    delete all.MONGO_URL;
+    return loadConfig(all as NodeJS.ProcessEnv);
+  };
+  assert.equal(without(managed).MONGO_URL, undefined);
+  // The same holds on one machine with plain local services.
+  assert.doesNotThrow(() => without(onThisMachine));
+});
+
+await test('a MONGO_URL that is set is still checked in production', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        ...production,
+        ...managed,
+        MONGO_URL: 'mongodb://mongo.example.com:27017/events',
+      }),
+    /MONGO_URL/,
+  );
+});

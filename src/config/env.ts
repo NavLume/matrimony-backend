@@ -44,7 +44,9 @@ const schema = z
     DB_STATEMENT_TIMEOUT_MS: integer(10000),
     DB_LOCK_TIMEOUT_MS: integer(3000),
     DB_SSL: z.enum(['disable', 'verify-full']).default('verify-full'),
-    MONGO_URL: url,
+    // The event copy in MongoDB is optional: the events are kept in the PostgreSQL outbox either way. Left out,
+    // the worker does not start and nothing else changes; set it (and run the worker) to copy events to MongoDB.
+    MONGO_URL: url.optional(),
     MONGO_DATABASE: z
       .string()
       .regex(/^[a-zA-Z0-9_-]+$/)
@@ -171,7 +173,9 @@ const schema = z
     const protocols: [string, string, string[]][] = [
       ['DATABASE_URL', c.DATABASE_URL, ['postgres:', 'postgresql:']],
       ['REDIS_URL', c.REDIS_URL, ['redis:', 'rediss:']],
-      ['MONGO_URL', c.MONGO_URL, ['mongodb:', 'mongodb+srv:']],
+      ...(c.MONGO_URL
+        ? [['MONGO_URL', c.MONGO_URL, ['mongodb:', 'mongodb+srv:']] as [string, string, string[]]]
+        : []),
     ];
     for (const [field, value, allowed] of protocols) {
       if (!allowed.includes(new URL(value).protocol))
@@ -255,17 +259,21 @@ const schema = z
         ctx.addIssue({ code: 'custom', path: ['DB_SSL'], message: 'Verified TLS required' });
       if (!c.REDIS_URL.startsWith('rediss:') && !plainOk(c.REDIS_URL))
         ctx.addIssue({ code: 'custom', path: ['REDIS_URL'], message: 'TLS required' });
-      const mongo = new URL(c.MONGO_URL);
+      const mongoUrl = c.MONGO_URL;
+      const mongo = mongoUrl ? new URL(mongoUrl) : undefined;
       const mongoTls =
-        mongo.protocol === 'mongodb+srv:' || mongo.searchParams.get('tls') === 'true';
+        mongo?.protocol === 'mongodb+srv:' || mongo?.searchParams.get('tls') === 'true';
       if (
-        !(mongoTls || plainOk(c.MONGO_URL)) ||
-        // Turning checks off on a TLS connection is never allowed, local or not.
-        mongo.searchParams.has('tlsAllowInvalidCertificates') ||
-        mongo.searchParams.has('tlsInsecure') ||
-        mongo.searchParams.has('tlsAllowInvalidHostnames') ||
-        ((mongo.searchParams.get('tls') === 'false' || mongo.searchParams.get('ssl') === 'false') &&
-          !plainOk(c.MONGO_URL))
+        mongoUrl &&
+        mongo &&
+        (!(mongoTls || plainOk(mongoUrl)) ||
+          // Turning checks off on a TLS connection is never allowed, local or not.
+          mongo.searchParams.has('tlsAllowInvalidCertificates') ||
+          mongo.searchParams.has('tlsInsecure') ||
+          mongo.searchParams.has('tlsAllowInvalidHostnames') ||
+          ((mongo.searchParams.get('tls') === 'false' ||
+            mongo.searchParams.get('ssl') === 'false') &&
+            !plainOk(mongoUrl)))
       )
         ctx.addIssue({ code: 'custom', path: ['MONGO_URL'], message: 'Verified TLS required' });
     }

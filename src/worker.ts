@@ -5,6 +5,14 @@ import { runEventScheduler } from './scheduler/event-scheduler.js';
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config);
+  // The worker only copies events to MongoDB. Without MONGO_URL there is nothing for it to do, and the events stay in the
+  // PostgreSQL outbox, so it ends here instead of failing to connect.
+  if (!config.MONGO_URL) {
+    process.stderr.write(
+      'MONGO_URL is not set: the event copy to MongoDB is off, so the worker has nothing to do.\n',
+    );
+    return;
+  }
   const container = await createWorkerContainer(config, logger);
   const stop = new AbortController();
   let deadline: NodeJS.Timeout | undefined;
