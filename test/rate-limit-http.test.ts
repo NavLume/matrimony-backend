@@ -40,7 +40,7 @@ function countingRedis() {
   return { redis, asked };
 }
 
-async function setup(appConfig = config) {
+async function setup(appConfig = config, withSiteContent = false) {
   const { redis, asked } = countingRedis();
   const app = await buildApp({
     config: appConfig,
@@ -69,6 +69,17 @@ async function setup(appConfig = config) {
     },
     auth: authFor(async () => ({ ...account, role: 'member' as const })),
     access: unusedAccess,
+    // Only what the public picture routes read; every other method is not reached by these tests.
+    ...(withSiteContent
+      ? {
+          siteContent: {
+            logoFile: async () => null,
+            storyPhotoFile: async () => null,
+            readPreview: async () => null,
+            withStories: async (_id: string, config: unknown) => config,
+          } as never,
+        }
+      : {}),
   });
   return { app, asked };
 }
@@ -128,6 +139,19 @@ await test('the agency lookup every page makes has a roomier allowance than othe
     remoteAddress: '198.51.100.7',
   });
   assert.equal(asked.at(-1)!.max, 1200);
+});
+
+await test('the public pictures and the draft a preview reads have a roomier allowance too', async (t) => {
+  const { app, asked } = await setup(config, true);
+  t.after(() => app.close());
+  for (const url of [
+    '/api/v1/public/branding/img-x.webp',
+    '/api/v1/public/story-photos/story-x.webp',
+    '/api/v1/public/preview/0123456789abcdef0123456789abcdef',
+  ]) {
+    await app.inject({ url, headers: { host: 'localhost' }, remoteAddress: '198.51.100.7' });
+    assert.equal(asked.at(-1)!.max, 1200, url);
+  }
 });
 
 await test('a forwarded address is ignored unless the proxy is named in TRUST_PROXY', async (t) => {

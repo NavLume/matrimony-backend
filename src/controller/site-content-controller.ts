@@ -19,6 +19,12 @@ import './context.js';
 const imageFocusSchema = z.object({ focus: z.enum(IMAGE_FOCUS) }).strict();
 
 /** `?w=320`: a smaller copy of a public picture. Only the listed widths are served; anything else is refused. */
+/**
+ * The public pictures and the agency lookup are read by every page and cached for a long time (a picture's name is a random id),
+ * so they get a roomier allowance than the usual 120 a minute: one home page asks for about thirty pictures, and a whole
+ * office or a mobile network can share one address.
+ */
+const publicRead = { max: 1200, timeWindow: 60000 };
 const widthQuery = z
   .object({ w: z.coerce.number().int().refine(isImageWidth, 'Unsupported width').optional() })
   .strict();
@@ -183,31 +189,39 @@ export function registerSiteContentController(
     );
     return reply.code(204).send();
   });
-  app.get('/api/v1/public/story-photos/:file', { config: { public: true } }, async (req, reply) => {
-    const { file } = req.params as { file: string };
-    const { w } = widthQuery.parse(req.query ?? {});
-    const bytes = await content.storyPhotoFile(req.tenant!.id, file);
-    if (!bytes) throw new AppError(404, 'NOT_FOUND');
-    // Not cached for long: hiding the story must make the photo vanish.
-    return reply
-      .header('content-type', 'image/webp')
-      .header('cache-control', 'public, max-age=300')
-      .header('x-content-type-options', 'nosniff')
-      .send(w ? await resizedImage(`${req.tenant!.id}/${file}`, bytes, w) : bytes);
-  });
+  app.get(
+    '/api/v1/public/story-photos/:file',
+    { config: { public: true, rateLimit: publicRead } },
+    async (req, reply) => {
+      const { file } = req.params as { file: string };
+      const { w } = widthQuery.parse(req.query ?? {});
+      const bytes = await content.storyPhotoFile(req.tenant!.id, file);
+      if (!bytes) throw new AppError(404, 'NOT_FOUND');
+      // Not cached for long: hiding the story must make the photo vanish.
+      return reply
+        .header('content-type', 'image/webp')
+        .header('cache-control', 'public, max-age=300')
+        .header('x-content-type-options', 'nosniff')
+        .send(w ? await resizedImage(`${req.tenant!.id}/${file}`, bytes, w) : bytes);
+    },
+  );
 
   // The logo of the agency for the request's host. The file name is a random id, so it can be cached for good.
-  app.get('/api/v1/public/branding/:file', { config: { public: true } }, async (req, reply) => {
-    const { file } = req.params as { file: string };
-    const { w } = widthQuery.parse(req.query ?? {});
-    const bytes = await content.logoFile(req.tenant!.id, file);
-    if (!bytes) throw new AppError(404, 'NOT_FOUND');
-    return reply
-      .header('content-type', 'image/webp')
-      .header('cache-control', 'public, max-age=31536000, immutable')
-      .header('x-content-type-options', 'nosniff')
-      .send(w ? await resizedImage(`${req.tenant!.id}/${file}`, bytes, w) : bytes);
-  });
+  app.get(
+    '/api/v1/public/branding/:file',
+    { config: { public: true, rateLimit: publicRead } },
+    async (req, reply) => {
+      const { file } = req.params as { file: string };
+      const { w } = widthQuery.parse(req.query ?? {});
+      const bytes = await content.logoFile(req.tenant!.id, file);
+      if (!bytes) throw new AppError(404, 'NOT_FOUND');
+      return reply
+        .header('content-type', 'image/webp')
+        .header('cache-control', 'public, max-age=31536000, immutable')
+        .header('x-content-type-options', 'nosniff')
+        .send(w ? await resizedImage(`${req.tenant!.id}/${file}`, bytes, w) : bytes);
+    },
+  );
 
   // A draft of the public site to look at before saving; kept for 30 minutes under a random link.
   const previewSchema = z
@@ -227,15 +241,19 @@ export function registerSiteContentController(
           ),
         ),
   );
-  app.get('/api/v1/public/preview/:id', { config: { public: true } }, async (req) => {
-    const { id } = req.params as { id: string };
-    const preview = await content.readPreview(req.tenant!.id, id);
-    if (!preview) throw new AppError(404, 'PREVIEW_NOT_FOUND');
-    return {
-      id: req.tenant!.id,
-      name: preview.name,
-      locale: preview.locale,
-      content: preview.content,
-    };
-  });
+  app.get(
+    '/api/v1/public/preview/:id',
+    { config: { public: true, rateLimit: publicRead } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const preview = await content.readPreview(req.tenant!.id, id);
+      if (!preview) throw new AppError(404, 'PREVIEW_NOT_FOUND');
+      return {
+        id: req.tenant!.id,
+        name: preview.name,
+        locale: preview.locale,
+        content: preview.content,
+      };
+    },
+  );
 }
