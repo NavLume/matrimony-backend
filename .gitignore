@@ -12,3 +12,6 @@ storage/
 .claude/
 # Claude Security scan reports (they list weaknesses; never committed)
 CLAUDE-SECURITY-*/
+
+# Redis data dumps (sessions, codes); never commit
+*.rdb
