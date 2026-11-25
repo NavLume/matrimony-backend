@@ -358,14 +358,21 @@ export async function buildApp(deps: AppDependencies) {
       }
     },
   );
-  app.get('/api/v1/public/tenant', { config: { public: true } }, async (req) => ({
-    id: req.tenant!.id,
-    name: req.tenant!.name,
-    locale: req.tenant!.locale,
-    content: deps.siteContent
-      ? await deps.siteContent.withStories(req.tenant!.id, req.tenant!.publicConfig)
-      : req.tenant!.publicConfig,
-  }));
+  // Every page the website draws asks for the agency first. It is a cached read, so it gets a roomier
+  // allowance than the usual 120 a minute: one address (an office, or the website's own server when no
+  // visitor address is passed on) must not be able to take the whole site down by browsing.
+  app.get(
+    '/api/v1/public/tenant',
+    { config: { public: true, rateLimit: { max: 1200, timeWindow: 60000 } } },
+    async (req) => ({
+      id: req.tenant!.id,
+      name: req.tenant!.name,
+      locale: req.tenant!.locale,
+      content: deps.siteContent
+        ? await deps.siteContent.withStories(req.tenant!.id, req.tenant!.publicConfig)
+        : req.tenant!.publicConfig,
+    }),
+  );
   app.get('/api/v1/me', { schema: { response: { 200: selfResponseSchema } } }, async (req) =>
     accountResponse(req.principal!),
   );

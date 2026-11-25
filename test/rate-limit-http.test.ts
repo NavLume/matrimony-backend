@@ -119,6 +119,17 @@ await test('someone not signed in is still counted by address, with the usual al
   assert.equal(entry.max, 120);
 });
 
+await test('the agency lookup every page makes has a roomier allowance than other public calls', async (t) => {
+  const { app, asked } = await setup();
+  t.after(() => app.close());
+  await app.inject({
+    url: '/api/v1/public/tenant',
+    headers: { host: 'localhost' },
+    remoteAddress: '198.51.100.7',
+  });
+  assert.equal(asked.at(-1)!.max, 1200);
+});
+
 await test('a forwarded address is ignored unless the proxy is named in TRUST_PROXY', async (t) => {
   const forwarded = { host: 'localhost', 'x-forwarded-for': '203.0.113.9' };
 
