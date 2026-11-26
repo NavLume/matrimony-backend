@@ -6,7 +6,7 @@ coverage/
 !.env.example
 *.log
 .DS_Store
-storage/
+/storage/
 
 # Local Claude Code settings and plugins (per machine, never committed)
 .claude/
