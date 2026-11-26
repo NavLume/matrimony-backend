@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { emailSchema, newPasswordSchema } from '../src/bo/credentials.js';
 import { PasswordHasher } from '../src/security/password-hasher.js';
+import { databaseSsl } from '../src/db/config/tls.js';
 
 // Operator tool: sets the password of an account, for example the first administrator, or a staff
 // member who cannot use "forgot password" yet. It uses the migration (owner) connection, never the
@@ -71,7 +72,12 @@ function readHidden(prompt: string): Promise<string> {
 const password = newPasswordSchema.parse(await readHidden('New password (not shown): '));
 const hash = await new PasswordHasher().hash(password);
 
-const pool = new Pool({ connectionString: url, max: 1 });
+// The same TLS rules as the migrations: verified TLS unless DB_SSL=disable, with the managed database's CA file.
+const pool = new Pool({
+  connectionString: url,
+  max: 1,
+  ssl: databaseSsl(process.env.DB_SSL !== 'disable', process.env.DB_CA_FILE || undefined),
+});
 const client = await pool.connect();
 try {
   await client.query('BEGIN');
