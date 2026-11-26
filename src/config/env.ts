@@ -44,6 +44,9 @@ const schema = z
     DB_STATEMENT_TIMEOUT_MS: integer(10000),
     DB_LOCK_TIMEOUT_MS: integer(3000),
     DB_SSL: z.enum(['disable', 'verify-full']).default('verify-full'),
+    // The certificate of the authority that signed the database's certificate, as a file path. Needed for a managed database
+    // whose authority is not in the system's list (DigitalOcean's, for example). Left out, the system's list is used.
+    DB_CA_FILE: z.string().min(1).optional(),
     // The event copy in MongoDB is optional: the events are kept in the PostgreSQL outbox either way. Left out,
     // the worker does not start and nothing else changes; set it (and run the worker) to copy events to MongoDB.
     MONGO_URL: url.optional(),

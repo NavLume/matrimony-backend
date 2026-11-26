@@ -2,6 +2,7 @@ import { Pool, type PoolClient } from 'pg';
 import { z } from 'zod';
 import type { AppConfig } from '../../config/env.js';
 import type { Logger } from 'pino';
+import { databaseSsl } from './tls.js';
 export type Transaction = Pick<PoolClient, 'query'>;
 export class Database {
   constructor(private readonly pool: Pool) {}
@@ -50,7 +51,7 @@ export function createDatabase(config: AppConfig, logger: Logger): Database {
     statement_timeout: config.DB_STATEMENT_TIMEOUT_MS,
     lock_timeout: config.DB_LOCK_TIMEOUT_MS,
     idle_in_transaction_session_timeout: 15000,
-    ssl: config.DB_SSL === 'verify-full' ? { rejectUnauthorized: true } : false,
+    ssl: databaseSsl(config.DB_SSL === 'verify-full', config.DB_CA_FILE),
     application_name: 'matrimony-backend',
   });
   pool.on('error', () =>

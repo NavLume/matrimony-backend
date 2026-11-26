@@ -2,13 +2,14 @@ import { readdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
-export async function migrate(connectionString: string, tls: boolean) {
+import { databaseSsl } from '../src/db/config/tls.js';
+export async function migrate(connectionString: string, tls: boolean, caFile?: string) {
   const pool = new Pool({
     connectionString,
     max: 1,
     connectionTimeoutMillis: 5000,
     statement_timeout: 60000,
-    ssl: tls ? { rejectUnauthorized: true } : false,
+    ssl: databaseSsl(tls, caFile),
   });
   const client = await pool.connect();
   try {
@@ -49,6 +50,6 @@ export async function migrate(connectionString: string, tls: boolean) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const url = process.env.MIGRATION_DATABASE_URL;
   if (!url) throw new Error('MIGRATION_DATABASE_URL is required');
-  await migrate(url, process.env.DB_SSL !== 'disable');
+  await migrate(url, process.env.DB_SSL !== 'disable', process.env.DB_CA_FILE || undefined);
   console.log('Migrations applied');
 }
