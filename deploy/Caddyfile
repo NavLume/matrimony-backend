@@ -1,0 +1,22 @@
+# Caddy in front of the website. Cloudflare sits in front of Caddy (proxied DNS, SSL mode Full (strict)), and the
+# certificate here is Cloudflare's origin certificate, valid only between Cloudflare and this server.
+# The firewall lets only Cloudflare's addresses reach ports 80 and 443 (deploy/README.md).
+{
+	# The certificate is given below, so Caddy never asks Let's Encrypt for one.
+	auto_https disable_certs
+}
+
+msbdmatrimony.com {
+	tls /etc/caddy/origin/cert.pem /etc/caddy/origin/key.pem
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy frontend:3000
+}
+
+www.msbdmatrimony.com {
+	tls /etc/caddy/origin/cert.pem /etc/caddy/origin/key.pem
+	redir https://msbdmatrimony.com{uri} permanent
+}

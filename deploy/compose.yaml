@@ -1,0 +1,114 @@
+# Production on one server: the website, the API, Redis and Caddy, each in its own container.
+# The database is DigitalOcean's managed PostgreSQL and files are in Cloudflare R2, so nothing here needs a backup.
+#
+# Expected layout on the server (see deploy/README.md):
+#   /opt/msbd/backend    this repository (this file is /opt/msbd/backend/deploy/compose.yaml)
+#   /opt/msbd/frontend   the website repository
+#   /etc/msbd/           backend.env, frontend.env, db-ca.crt, origin/cert.pem, origin/key.pem (never in git)
+#
+# Start or update:  docker compose up -d --build
+# Migrations:       docker compose run --rm tools
+
+name: msbd
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: '10m', max-file: '3' }
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /etc/msbd/origin:/etc/caddy/origin:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend: { condition: service_healthy }
+    networks: [web]
+    mem_limit: 128m
+    logging: *logging
+
+  frontend:
+    build: { context: ../../frontend }
+    image: msbd-frontend
+    restart: unless-stopped
+    init: true
+    env_file: /etc/msbd/frontend.env
+    environment:
+      BACKEND_URL: http://backend:3000
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      # Any answer means the server is up; a page's status depends on the agency lookup, which this check does not test.
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/').then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [web, app]
+    mem_limit: 1g
+    logging: *logging
+
+  backend:
+    build: { context: .., target: runtime }
+    image: msbd-backend
+    restart: unless-stopped
+    init: true
+    env_file: /etc/msbd/backend.env
+    volumes:
+      - /etc/msbd/db-ca.crt:/etc/msbd/db-ca.crt:ro
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [app]
+    mem_limit: 768m
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Sessions and rate limits. noeviction: a full Redis refuses writes instead of silently dropping sessions.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '200mb', '--maxmemory-policy', 'noeviction']
+    volumes: ['redis-data:/data']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [app]
+    mem_limit: 256m
+    logging: *logging
+
+  # One-off jobs, never started by `up`: migrations by default, or another script, for example
+  #   docker compose run --rm tools npx tsx scripts/set-password.ts --agency <uuid> --email <email>
+  tools:
+    build: { context: .., target: tools }
+    image: msbd-tools
+    profiles: [tools]
+    env_file: /etc/msbd/backend.env
+    volumes:
+      - /etc/msbd/db-ca.crt:/etc/msbd/db-ca.crt:ro
+    networks: [app]
+    logging: *logging
+
+networks:
+  # Caddy reaches only the website; the API and Redis are not on this network.
+  web: {}
+  # The website, the API and Redis. A fixed range so the API can trust the website's forwarded visitor
+  # address (TRUST_PROXY=172.30.0.0/24 in backend.env) and nobody else's.
+  app:
+    ipam:
+      config: [{ subnet: 172.30.0.0/24 }]
+
+volumes:
+  caddy-data:
+  caddy-config:
+  redis-data:
