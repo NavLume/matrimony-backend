@@ -141,6 +141,7 @@ export const unusedInvitations = {
 /** The auth and access processes for tests about other routes: only the given bearer token works. */
 export const unusedAccess = {
   startRegistration: unused,
+  previewRegistration: unused,
   verifyEmail: unused,
   requestPasswordReset: unused,
   resetPassword: unused,

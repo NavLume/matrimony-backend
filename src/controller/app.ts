@@ -149,6 +149,7 @@ export interface AppDependencies {
   access: Pick<
     AccountAccessProcess,
     | 'startRegistration'
+    | 'previewRegistration'
     | 'verifyEmail'
     | 'requestPasswordReset'
     | 'resetPassword'

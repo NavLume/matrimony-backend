@@ -70,6 +70,7 @@ export function registerAuthController(
   access: Pick<
     AccountAccessProcess,
     | 'startRegistration'
+    | 'previewRegistration'
     | 'verifyEmail'
     | 'requestPasswordReset'
     | 'resetPassword'
@@ -148,6 +149,16 @@ export function registerAuthController(
       requireSameOrigin(req);
       await access.startRegistration(accessContext(req), registrationInputSchema.parse(req.body));
       return reply.code(202).send({ status: 'verification_sent' });
+    },
+  );
+  // Whose account the emailed link is for (name and a partly hidden address), without using the link up.
+  app.post(
+    '/api/v1/auth/verify-email/preview',
+    { config: { public: true, rateLimit: { max: 20, timeWindow: 60000 } } },
+    async (req, reply) => {
+      requireSameOrigin(req);
+      const { token } = verifyEmailInputSchema.parse(req.body);
+      return reply.send(await access.previewRegistration(req.tenant!.id, token));
     },
   );
   app.post(

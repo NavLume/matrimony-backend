@@ -8,7 +8,11 @@ import type { OneTimeTokenRepository } from '../src/cache/repository/one-time-to
 import type { Hits, ThrottleRepository } from '../src/cache/repository/throttle-repository.js';
 import { AppError } from '../src/exception/app-error.js';
 import type { MailMessage } from '../src/mail/mailer.js';
-import { AccountAccessProcess, type AccessContext } from '../src/process/account-access-process.js';
+import {
+  AccountAccessProcess,
+  maskEmail,
+  type AccessContext,
+} from '../src/process/account-access-process.js';
 import { SecretBox } from '../src/security/secret-box.js';
 import type { SignInMethods } from '../src/db/raw/repository/registration-repository.js';
 import type { VerifiedRegistration } from '../src/service/registration-service.js';
@@ -68,7 +72,7 @@ function setup(
   // The same behaviour as the Redis repository: the newest token per scope replaces the older.
   const stored = new Map<string, string>();
   const latest = new Map<string, string>();
-  const tokens: Pick<OneTimeTokenRepository, 'put' | 'take'> = {
+  const tokens: Pick<OneTimeTokenRepository, 'put' | 'take' | 'peek'> = {
     put: async (purpose, scope, digest, sealed) => {
       const pointer = `${purpose}|${scope}`;
       const previous = latest.get(pointer);
@@ -76,6 +80,7 @@ function setup(
       stored.set(`${purpose}|${digest}`, sealed);
       latest.set(pointer, digest);
     },
+    peek: async (purpose, digest) => stored.get(`${purpose}|${digest}`) ?? null,
     take: async (purpose, digest) => {
       const key = `${purpose}|${digest}`;
       const value = stored.get(key) ?? null;
@@ -194,6 +199,26 @@ function setup(
     },
   };
 }
+
+await test('the link can say whose registration it is, without using it up; an unknown link is refused', async () => {
+  const f = setup();
+  await f.settle(f.process.startRegistration(context, input));
+  const token = /token=([A-Za-z0-9_-]{43})/.exec(f.mails[0]!.text)![1]!;
+  const seen = await f.process.previewRegistration(context.agencyId, token);
+  assert.equal(seen.name, 'Rahim');
+  assert.equal(seen.email, 'ra•••@example.com');
+  // Still there: the same link can be previewed again.
+  assert.deepEqual(await f.process.previewRegistration(context.agencyId, token), seen);
+  await assert.rejects(
+    f.process.previewRegistration(context.agencyId, 'x'.repeat(43)),
+    /LINK_INVALID/,
+  );
+});
+
+await test('an address is shown with most of its name hidden', () => {
+  assert.equal(maskEmail('nina@example.com'), 'ni••@example.com');
+  assert.equal(maskEmail('ab@x.com'), 'a••@x.com');
+});
 
 await test('registering emails a link and creates nothing yet', async () => {
   const f = setup();

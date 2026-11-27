@@ -3941,6 +3941,37 @@ paths:
         '409': { description: The email already has an account (`EMAIL_ALREADY_REGISTERED`). }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /api/v1/auth/verify-email/preview:
+    post:
+      tags: [Registration]
+      summary: Whose registration an emailed link is for
+      description: |
+        Public, 20 a minute per client address, same-origin only. Reads the link without using it
+        up, so the page can name the person before they press the button. Gives the name and a
+        partly hidden address only. Unknown or expired is 400 `LINK_INVALID_OR_EXPIRED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: The person the link is for.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [name, email]
+                properties:
+                  name: { type: string }
+                  email: { type: string, description: The address with most of its name hidden. }
+        '400': { $ref: '#/components/responses/Error400' }
   /api/v1/auth/verify-email:
     post:
       tags: [Registration]

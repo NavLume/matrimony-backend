@@ -78,7 +78,7 @@ export class AccountAccessProcess {
       CredentialService,
       'hash' | 'findByEmail' | 'findById' | 'setPassword' | 'verifyAccount'
     >,
-    private readonly tokens: Pick<OneTimeTokenRepository, 'put' | 'take'>,
+    private readonly tokens: Pick<OneTimeTokenRepository, 'put' | 'take' | 'peek'>,
     private readonly throttle: Pick<ThrottleRepository, 'hit'>,
     private readonly sessions: Pick<SessionRepository, 'removeAll'>,
     private readonly auth: Pick<AuthProcess, 'startSession'>,
@@ -156,6 +156,19 @@ export class AccountAccessProcess {
    * gets a session: if the address already has one (another route, or another link), the link is
    * refused like an used one, so a link can never sign anyone into an account it did not create.
    */
+  /**
+   * Whose registration a link is for, without using it up, so the page can say "Finish creating your account" for
+   * the right person. Only the name and a partly hidden address are given: the link travels by email, but a link can
+   * be forwarded. Unknown or expired: 400 LINK_INVALID_OR_EXPIRED, like the confirmation itself.
+   */
+  async previewRegistration(agencyId: string, token: string) {
+    const key = tokenKey(agencyId, token);
+    const sealed = await this.tokens.peek('registration', key);
+    if (!sealed) throw new AppError(400, 'LINK_INVALID_OR_EXPIRED');
+    const pending = pendingRegistrationSchema.parse(JSON.parse(this.box.open(sealed, key)));
+    return { name: pending.registration.displayName, email: maskEmail(pending.email) };
+  }
+
   async verifyEmail(agencyId: string, token: string, correlationId: string) {
     const key = tokenKey(agencyId, token);
     const sealed = await this.tokens.take('registration', key);
@@ -462,4 +475,13 @@ export class AccountAccessProcess {
       .finally(() => this.sending.delete(attempt));
     this.sending.add(attempt);
   }
+}
+
+/** An address with most of its name hidden: "nina@example.com" becomes "ni••@example.com". */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '•••';
+  const name = email.slice(0, at);
+  const shown = name.slice(0, Math.min(2, Math.max(1, name.length - 2)));
+  return `${shown}${'•'.repeat(Math.max(2, name.length - shown.length))}${email.slice(at)}`;
 }

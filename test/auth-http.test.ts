@@ -61,6 +61,7 @@ async function build(
     refresh: [],
     logout: [],
     startRegistration: [],
+    previewRegistration: [],
     verifyEmail: [],
     requestPasswordReset: [],
     resetPassword: [],
@@ -160,6 +161,10 @@ async function build(
         'startRegistration',
         undefined,
       ) as AppDependencies['access']['startRegistration'],
+      previewRegistration: track('previewRegistration', {
+        name: 'Nina',
+        email: 'ni••@example.com',
+      }) as AppDependencies['access']['previewRegistration'],
       verifyEmail: track('verifyEmail', {
         sessionId,
         ...tokens,
