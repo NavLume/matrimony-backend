@@ -49,6 +49,7 @@ export class SmtpMailer implements Mailer {
       to: message.to,
       subject: message.subject,
       text: message.text,
+      ...(message.html ? { html: message.html } : {}),
       // Tells mail systems this is an automatic message, so they do not send auto-replies to it.
       headers: { 'Auto-Submitted': 'auto-generated' },
     });

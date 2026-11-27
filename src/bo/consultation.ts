@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { MAX_BRANCHES } from './branch-slug.js';
+import { CLICK_IDS, originSchema, type Origin } from './lead-origin.js';
 import { memberCodeSchema } from './credentials.js';
 import type { FollowUpState, LeadCall } from './lead-follow-up.js';
 import { phoneCodeSchema } from './phone.js';
 import { phoneSchema } from './phone-number.js';
-import { REGISTRATION_LOCALES } from './registration.js';
+import { REGISTRATION_LOCALES, type RegistrationInput } from './registration.js';
 import { LEAD_STATUSES } from './showcase.js';
 
 /**
@@ -34,8 +35,7 @@ export const LEAD_SOURCES = [
   'other_site',
   'direct',
 ] as const;
-/** The ad network whose own click id (fbclid, gclid) the landing address carried. */
-export const CLICK_IDS = ['facebook', 'google'] as const;
+export { CLICK_IDS } from './lead-origin.js';
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 export const LEAD_KINDS = ['showcase', 'consultation'] as const;
 /** What the visitor chose on the first screen. */
@@ -67,36 +67,7 @@ export type StartMode = 'verified' | 'callback' | 'code';
 /** An open enquiry with the same number found within this many days is the same enquiry. */
 export const REPEAT_WINDOW_DAYS = 90;
 
-const short = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .transform((value) => (value === '' ? undefined : value))
-    .optional()
-    .catch(undefined);
-
-/**
- * What the browser remembered about the visitor's first arrival. Everything is optional and anything odd is dropped
- * rather than refused: a broken tracking value must never stop a person from reaching the agency.
- */
-export const originSchema = z
-  .object({
-    utmSource: short(100),
-    utmMedium: short(100),
-    utmCampaign: short(100),
-    utmContent: short(100),
-    /** The full referrer the browser saw; only its host is kept. */
-    referrer: short(2000),
-    landingPath: short(300),
-    firstSeenAt: z.iso.datetime().optional().catch(undefined),
-    /** The landing address carried an ad network's click id (the id itself is never sent). */
-    clickId: z.enum(CLICK_IDS).optional().catch(undefined),
-  })
-  .partial()
-  .optional()
-  .catch(undefined);
-export type Origin = NonNullable<z.output<typeof originSchema>>;
+export { originSchema, type Origin } from './lead-origin.js';
 
 const nameSchema = z
   .string(fail('required'))
@@ -170,6 +141,47 @@ export type ConsultationInput = z.output<typeof consultationInputSchema>;
 /** The code never arrived: the same details without a code, kept as an unverified call request. */
 export const unverifiedInputSchema = z.object(detailsShape).strict();
 export type UnverifiedInput = z.output<typeof unverifiedInputSchema>;
+
+/** The place step's country (profile codes) as two letters, for the enquiry a registration leaves. */
+const ISO_OF: Record<string, string> = {
+  bangladesh: 'BD',
+  united_states: 'US',
+  united_kingdom: 'GB',
+  canada: 'CA',
+  australia: 'AU',
+  saudi_arabia: 'SA',
+  united_arab_emirates: 'AE',
+  qatar: 'QA',
+  kuwait: 'KW',
+  oman: 'OM',
+  malaysia: 'MY',
+  singapore: 'SG',
+  japan: 'JP',
+  italy: 'IT',
+  germany: 'DE',
+  france: 'FR',
+};
+
+/**
+ * The enquiry a registration by email leaves (Shammo Bhai, 28 November 2026): the person registering (their own name,
+ * not the profile's when it is for a son or daughter), the mobile number and the email, as a call request. Null when the
+ * form carried no number (an older app), since an enquiry is kept by its number.
+ */
+export function leadFromRegistration(input: RegistrationInput): UnverifiedInput | null {
+  const phone = input.details?.phone;
+  if (!phone) return null;
+  const country = phone.startsWith('+880')
+    ? 'BD'
+    : (ISO_OF[input.details?.countryCode ?? ''] ?? 'BD');
+  return {
+    name: input.displayName.slice(0, 80),
+    phone,
+    intent: 'call',
+    origin: input.origin,
+    country,
+    email: input.email,
+  };
+}
 
 /** What a verified visitor does next, with the ticket their browser holds. */
 export const consultationActionSchema = z
@@ -372,6 +384,8 @@ export interface StaffLead {
   verifiedAt: string | null;
   /** When a code was last asked for. With no verifiedAt and no callbackRequestedAt: a code never typed. */
   codeSentAt: string | null;
+  /** When the person filled in the registration form with this number (an email link was sent), if they did. */
+  registrationStartedAt: string | null;
   callbackRequestedAt: string | null;
   callClickedAt: string | null;
   visitRequestedAt: string | null;

@@ -58,7 +58,7 @@ const STAFF_SELECT = `SELECT l.id, l.kind, l.reference, l.name, l.phone_e164, l.
        l.assigned_agent_id, ag.display_name AS agent_name, hb.display_name AS handled_by_name, l.handled_at,
        l.intent, l.for_whom, l.heard_from, l.verified_at, l.visit_requested_at, l.visit_time, l.whatsapp_opened_at,
        l.source, l.utm_source, l.utm_medium, l.utm_campaign, l.utm_content, l.referrer_host, l.landing_path,
-       l.first_seen_at, l.click_id, l.code_sent_at, l.profile_id, m.member_code,
+       l.first_seen_at, l.click_id, l.code_sent_at, l.registration_started_at, l.profile_id, m.member_code,
        l.client_profile_id, l.linked_at, l.link_method, cp.member_code AS client_code,
        cp.full_name AS client_name, cp.created_at AS client_created_at, lb.display_name AS linked_by_name,
        l.first_contact_at,
@@ -133,6 +133,7 @@ const staffLead = (row: Row): StaffLead => ({
   heardFrom: text(row.heard_from) as StaffLead['heardFrom'],
   verifiedAt: iso(row.verified_at),
   codeSentAt: iso(row.code_sent_at),
+  registrationStartedAt: iso(row.registration_started_at),
   callbackRequestedAt: iso(row.callback_requested_at),
   callClickedAt: iso(row.call_clicked_at),
   visitRequestedAt: iso(row.visit_requested_at),
@@ -433,6 +434,16 @@ export class ConsultationRepository {
    * An unverified call request for a number that already has an open enquiry: a call asked for, and one more visit
    * unless the enquiry so far was only a code asked for in this same visit.
    */
+  /** The registration form was sent with this number (the first time is kept). */
+  async markRegistration(tx: Transaction, agencyId: string, id: string) {
+    await tx.query(
+      `UPDATE matrimony.website_leads
+          SET registration_started_at = coalesce(registration_started_at, now())
+        WHERE agency_id = $1 AND id = $2`,
+      [agencyId, id],
+    );
+  }
+
   async requestAgain(tx: Transaction, agencyId: string, id: string) {
     await tx.query(
       `UPDATE matrimony.website_leads

@@ -93,6 +93,12 @@ export class AccountAccessProcess {
   ) {}
 
   /**
+   * Called once the registration link is sent, so the person is kept as an enquiry staff can call even if the link is
+   * never opened (set in the container). A failure is logged and never fails the registration.
+   */
+  afterRegistrationStarted?: (context: AccessContext, input: RegistrationInput) => Promise<void>;
+
+  /**
    * Step one of registering. Nothing is created: the answers and the hashed password are kept,
    * sealed, until the person opens the link sent to their email.
    */
@@ -125,6 +131,16 @@ export class AccountAccessProcess {
       this.box.seal(JSON.stringify(pending), key),
       REGISTRATION_LINK_SECONDS,
     );
+    if (this.afterRegistrationStarted) {
+      try {
+        await this.afterRegistrationStarted(context, input);
+      } catch {
+        this.logger.warn(
+          { code: 'REGISTRATION_LEAD_FAILED' },
+          'Could not keep the registration as an enquiry',
+        );
+      }
+    }
     this.sendInBackground(
       verificationEmail({
         ...common,

@@ -3,6 +3,8 @@ export interface MailMessage {
   subject: string;
   /** Plain text. The links in it carry one-time secrets, so a message is never logged. */
   text: string;
+  /** The same message drawn in the website's look (email-layout.ts). Mail apps that cannot show it use the text. */
+  html?: string;
 }
 
 /**

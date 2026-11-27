@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { emailSchema, newPasswordSchema, passwordMatchesEmail } from './credentials.js';
+import { originSchema } from './lead-origin.js';
 import { registrationDetailsSchema } from './registration-details.js';
 
 /**
@@ -40,6 +41,8 @@ export const registrationInputSchema = z
     confirmAuthority: z.boolean(fail('invalid')).default(false),
     /** The answers of the first steps, which start the member's draft profile. */
     details: registrationDetailsSchema.optional(),
+    /** Where the person first arrived from, so the enquiry saved with the registration keeps its source. */
+    origin: originSchema,
   })
   .strict()
   .superRefine((value, ctx) => {

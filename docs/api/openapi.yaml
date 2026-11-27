@@ -9236,6 +9236,7 @@ components:
           heardFrom,
           verifiedAt,
           codeSentAt,
+          registrationStartedAt,
           callbackRequestedAt,
           callClickedAt,
           visitRequestedAt,
@@ -9288,6 +9289,10 @@ components:
           type: [string, 'null']
           format: date-time
           description: When a code was last asked for. With verifiedAt and callbackRequestedAt both null, the visitor asked for a code and never typed it.
+        registrationStartedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the person filled in the registration form with this number and was emailed a link. The enquiry is a call request from then, whether or not the link was opened.
         callbackRequestedAt: { type: [string, 'null'], format: date-time }
         callClickedAt: { type: [string, 'null'], format: date-time }
         visitRequestedAt: { type: [string, 'null'], format: date-time }
@@ -10067,6 +10072,9 @@ components:
             description: Required when registering for someone else.,
           }
         details: { $ref: '#/components/schemas/RegistrationDetails' }
+        origin:
+          $ref: '#/components/schemas/LeadOrigin'
+          description: Where the person first arrived from. The registration is kept as an enquiry for the mobile number in details (a call request), so it keeps its source even if the link is never opened.
     PhotoState:
       type: string
       enum: [waiting, approved, rejected]

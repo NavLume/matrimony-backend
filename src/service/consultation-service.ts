@@ -151,27 +151,50 @@ export class ConsultationService {
    * request reveals nothing (not even whether the number asked before); an open enquiry for the number is reused.
    */
   async requestUnverified(agencyId: string, input: ConsultationDetails, ownHost: string | null) {
+    await this.db.inTransaction(agencyId, (unit) =>
+      this.keepCallRequest(unit, agencyId, input, ownHost),
+    );
+  }
+
+  /** A call request without a proved number: the open enquiry for the number, or a new one. Returns its id. */
+  private async keepCallRequest(
+    unit: ConsultationUnit,
+    agencyId: string,
+    input: ConsultationDetails,
+    ownHost: string | null,
+  ): Promise<string> {
+    const open = await unit.openByPhone(agencyId, input.phone, REPEAT_WINDOW_DAYS);
+    if (open) {
+      await unit.requestAgain(agencyId, open.id);
+      if (input.email) await unit.setEmail(agencyId, open.id, input.email);
+      if (!open.callbackRequested)
+        await this.tellStaff(unit, agencyId, open.agentId, 'lead.callback', open.reference);
+      await unit.appendEvent(this.event(agencyId, null, open.id, 'lead.callback_requested'));
+      return open.id;
+    }
+    const { manual, officeName, oldSiteHosts } = await this.agency(unit, agencyId, input.office);
+    const agentId = manual ? null : await unit.chooseAdviser(agencyId);
+    const { id, reference } = await this.insert(unit, agencyId, input, ownHost, {
+      agentId,
+      officeName,
+      oldSiteHosts,
+      mode: 'callback',
+      ticketHash: null,
+    });
+    await this.tellStaff(unit, agencyId, agentId, 'lead.callback', reference);
+    await unit.appendEvent(this.event(agencyId, null, id, 'lead.created'));
+    return id;
+  }
+
+  /**
+   * The registration form was sent (an email link is on its way): the person is a lead from now on, even if they never
+   * open the link. Kept as a call request, like a code that never arrived, and marked as coming from the registration;
+   * an open enquiry for the number is reused. Nothing is returned.
+   */
+  async registrationStarted(agencyId: string, input: ConsultationDetails, ownHost: string | null) {
     await this.db.inTransaction(agencyId, async (unit) => {
-      const open = await unit.openByPhone(agencyId, input.phone, REPEAT_WINDOW_DAYS);
-      if (open) {
-        await unit.requestAgain(agencyId, open.id);
-        if (input.email) await unit.setEmail(agencyId, open.id, input.email);
-        if (!open.callbackRequested)
-          await this.tellStaff(unit, agencyId, open.agentId, 'lead.callback', open.reference);
-        await unit.appendEvent(this.event(agencyId, null, open.id, 'lead.callback_requested'));
-        return;
-      }
-      const { manual, officeName, oldSiteHosts } = await this.agency(unit, agencyId, input.office);
-      const agentId = manual ? null : await unit.chooseAdviser(agencyId);
-      const { id, reference } = await this.insert(unit, agencyId, input, ownHost, {
-        agentId,
-        officeName,
-        oldSiteHosts,
-        mode: 'callback',
-        ticketHash: null,
-      });
-      await this.tellStaff(unit, agencyId, agentId, 'lead.callback', reference);
-      await unit.appendEvent(this.event(agencyId, null, id, 'lead.created'));
+      const id = await this.keepCallRequest(unit, agencyId, input, ownHost);
+      await unit.markRegistration(agencyId, id);
     });
   }
 

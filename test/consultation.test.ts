@@ -6,6 +6,7 @@ import {
   consultationActionSchema,
   consultationCodeSchema,
   consultationInputSchema,
+  leadFromRegistration,
   normaliseHost,
   referenceFrom,
   referrerHost,
@@ -140,6 +141,7 @@ interface Row extends NewConsultation {
   status: string;
   client?: { profileId: string; method: 'auto' | 'staff' } | null;
   blocked?: boolean;
+  registration?: Date;
   createdAt: Date;
   contacted: boolean;
   reminded: boolean;
@@ -232,6 +234,8 @@ function setup(opts: { mode?: 'automatic' | 'manual'; agents?: string[]; now?: (
       row(id).callback = true;
     },
     markCodeSent: async (_a: string, id: string) => void row(id).codeSent++,
+    markRegistration: async (_a: string, id: string) =>
+      void (row(id).registration ??= new Date('2026-11-28T05:00:00Z')),
     setEmail: async (_a: string, id: string, email: string) => void (row(id).email = email),
     addCall: async (_a: string, id: string, call: { outcome: string }) => {
       row(id).callLog.push(call.outcome);
@@ -425,6 +429,55 @@ void test('when the code never arrives the request is kept unverified, as a call
   const proved = await service.start(AGENCY, input, null);
   assert.equal(proved.reference, state.rows[0]!.reference);
   assert.equal(proved.callbackRequested, true);
+});
+
+void test('a registration by email is kept as a call request marked as coming from the form, once per number', async () => {
+  const { state, service } = setup();
+  await service.registrationStarted(
+    AGENCY,
+    { ...input, email: 'nina@example.com', origin: { referrer: 'https://msbd-old.test/' } },
+    null,
+  );
+  assert.equal(state.rows.length, 1);
+  assert.equal(state.rows[0]!.callback, true);
+  assert.equal(state.rows[0]!.verified, false);
+  assert.equal(state.rows[0]!.email, 'nina@example.com');
+  assert.equal(state.rows[0]!.source, 'old_site');
+  assert.ok(state.rows[0]!.registration);
+  assert.equal(state.notes[0]!.template, 'lead.callback');
+  // Registering again (or a talk-to-an-adviser enquiry first) reuses the open enquiry of the number.
+  await service.registrationStarted(AGENCY, input, null);
+  assert.equal(state.rows.length, 1);
+  assert.equal(state.notes.length, 1);
+});
+
+void test('leadFromRegistration names the person registering, keeps the number, email and source, and needs a number', () => {
+  const base = {
+    email: 'abba@example.com',
+    password: 'x'.repeat(12),
+    displayName: 'Abba Rahman',
+    locale: 'en' as const,
+    acceptTerms: true as const,
+    acceptPrivacy: true as const,
+    onBehalfOfOther: true,
+    confirmAuthority: true,
+    origin: { utmSource: 'facebook' },
+  };
+  assert.equal(leadFromRegistration(base), null);
+  const lead = leadFromRegistration({
+    ...base,
+    details: { phone: '+447700900123', countryCode: 'united_kingdom' } as never,
+  })!;
+  assert.equal(lead.name, 'Abba Rahman');
+  assert.equal(lead.phone, '+447700900123');
+  assert.equal(lead.email, 'abba@example.com');
+  assert.equal(lead.country, 'GB');
+  assert.deepEqual(lead.origin, { utmSource: 'facebook' });
+  const bd = leadFromRegistration({
+    ...base,
+    details: { phone: '+8801712345678', countryCode: 'united_kingdom' } as never,
+  })!;
+  assert.equal(bd.country, 'BD');
 });
 
 void test('asking for a code saves the lead at once; typing it later proves the same enquiry', async () => {

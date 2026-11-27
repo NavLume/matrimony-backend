@@ -145,6 +145,7 @@ import { RegistrationRepository } from './db/raw/repository/registration-reposit
 import { RegistrationDbService } from './db/service/registration-db-service.js';
 import { RegistrationService } from './service/registration-service.js';
 import { detailsToProfileInput } from './bo/registration-details.js';
+import { leadFromRegistration } from './bo/consultation.js';
 import { ReviewRepository } from './db/raw/repository/review-repository.js';
 import { ReviewDbService } from './db/service/review-db-service.js';
 import { ReviewService } from './service/review-service.js';
@@ -431,6 +432,18 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
     const consultations = new ConsultationService(
       new ConsultationDbService(db, new ConsultationRepository(), new EventRepository()),
     );
+    // A registration by email is a lead from the moment the form is sent, even if the link is never opened.
+    access.afterRegistrationStarted = async (context, input) => {
+      const lead = leadFromRegistration(input);
+      if (!lead) return;
+      let ownHost: string | null = null;
+      try {
+        ownHost = new URL(context.origin).hostname.toLowerCase().replace(/^www\./, '');
+      } catch {
+        ownHost = null;
+      }
+      await consultations.registrationStarted(context.agencyId, lead, ownHost);
+    };
     // Signing in again within the waiting time cancels a deletion.
     auth.afterSignIn = (agencyId, accountId) =>
       deletions.cancelOnSignIn(agencyId, accountId).catch(() => undefined);

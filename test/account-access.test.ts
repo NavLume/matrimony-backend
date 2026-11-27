@@ -207,6 +207,25 @@ await test('registering emails a link and creates nothing yet', async () => {
   assert.match(mail.subject, /MSBD/);
 });
 
+await test('registering keeps the person as an enquiry once the link is stored, and a failure there never stops the email', async () => {
+  const f = setup();
+  const seen: string[] = [];
+  f.process.afterRegistrationStarted = async (ctx, registered) => {
+    seen.push(`${ctx.agencyId}:${registered.email}`);
+  };
+  await f.settle(f.process.startRegistration(context, input));
+  assert.deepEqual(seen, [`${context.agencyId}:rahim@example.com`]);
+  assert.equal(f.mails.length, 1);
+
+  const g = setup();
+  g.process.afterRegistrationStarted = async () => {
+    throw new Error('database down');
+  };
+  await g.settle(g.process.startRegistration(context, input));
+  assert.equal(g.mails.length, 1);
+  assert.ok(g.logs.some((line) => line.includes('REGISTRATION_LEAD_FAILED')));
+});
+
 await test('the email is in the language the person registered in', async () => {
   const f = setup();
   await f.settle(f.process.startRegistration(context, { ...input, locale: 'en' }));
