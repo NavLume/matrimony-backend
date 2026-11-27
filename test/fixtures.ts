@@ -147,6 +147,9 @@ export const unusedAccess = {
   sendReauthCode: unused,
   startAddEmail: unused,
   confirmAddEmail: unused,
+  confirmAddEmailCode: unused,
+  requestPhoneReset: unused,
+  resetPasswordByPhone: unused,
   changePassword: unused,
 };
 export const authFor = (authenticate: (agencyId: string, token: string) => Promise<Account>) => ({

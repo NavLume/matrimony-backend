@@ -62,6 +62,8 @@ export interface ClientLoginStatus {
   invitedByName: string | null;
   /** The display name of the client's account, once it exists. */
   accountName: string | null;
+  /** The number the client's account signs in with, once it exists (staff only; an admin changes it). */
+  accountPhone: string | null;
 }
 
 /** What the person who opens the link is shown before choosing a password. */

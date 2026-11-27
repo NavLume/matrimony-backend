@@ -68,6 +68,9 @@ async function build(
     startAddEmail: [],
     confirmAddEmail: [],
     changePassword: [],
+    confirmAddEmailCode: [],
+    requestPhoneReset: [],
+    resetPasswordByPhone: [],
     googleStart: [],
     googleComplete: [],
     googlePending: [],
@@ -185,6 +188,18 @@ async function build(
         'changePassword',
         undefined,
       ) as AppDependencies['access']['changePassword'],
+      confirmAddEmailCode: track(
+        'confirmAddEmailCode',
+        undefined,
+      ) as AppDependencies['access']['confirmAddEmailCode'],
+      requestPhoneReset: track('requestPhoneReset', {
+        resendAfter: 60,
+        expiresIn: 300,
+      }) as AppDependencies['access']['requestPhoneReset'],
+      resetPasswordByPhone: track(
+        'resetPasswordByPhone',
+        undefined,
+      ) as AppDependencies['access']['resetPasswordByPhone'],
     },
   });
   const post = (url: string, body?: unknown, headers: Record<string, string> = {}) =>
@@ -668,6 +683,7 @@ await test('the page is told which ways of signing in are on', async (t) => {
       google: true,
       phone: false,
       phoneCountries: ['880'],
+      turnstileSiteKey: null,
     },
   );
   const off = await build({ google: false });
@@ -679,6 +695,7 @@ await test('the page is told which ways of signing in are on', async (t) => {
       google: false,
       phone: false,
       phoneCountries: ['880'],
+      turnstileSiteKey: null,
     },
   );
 });

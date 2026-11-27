@@ -6,7 +6,9 @@ export type TokenPurpose =
   | 'google-link'
   | 'google-signup'
   | 'phone-signup'
-  | 'email-add';
+  | 'email-add'
+  | 'email-code-add'
+  | 'email-code-password';
 
 /**
  * Single-use secrets that travel by email (a link to open). Only the SHA-256 of the secret is

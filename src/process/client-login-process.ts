@@ -8,6 +8,7 @@ import type { Mailer } from '../mail/mailer.js';
 import { digest } from '../security/secret-box.js';
 import type { CredentialService } from '../service/credential-service.js';
 import type { ClientLoginService, LoginActor } from '../service/client-login-service.js';
+import type { RegistrationService } from '../service/registration-service.js';
 import { clientLoginMessage } from '../sms/messages.js';
 import type { SmsSender } from '../sms/sender.js';
 import type { AuthProcess } from './auth-process.js';
@@ -42,7 +43,7 @@ export class ClientLoginProcess {
   constructor(
     private readonly logins: Pick<
       ClientLoginService,
-      'status' | 'grant' | 'revoke' | 'preview' | 'accept'
+      'status' | 'grant' | 'revoke' | 'preview' | 'accept' | 'ownerForPhoneChange'
     >,
     private readonly credentials: Pick<CredentialService, 'hash'>,
     private readonly auth: Pick<AuthProcess, 'startSession'>,
@@ -51,7 +52,22 @@ export class ClientLoginProcess {
     /** Undefined when no SMS sender is configured: only the email way is then offered. */
     private readonly sms: SmsSender | undefined,
     private readonly logger: Logger,
+    /** Sets an account's login number (the same write a member's own change used to make). */
+    private readonly phones?: Pick<RegistrationService, 'attachPhone'>,
   ) {}
+
+  /**
+   * An admin sets or changes the number a client's account signs in with, after the client asked the agency (members
+   * cannot change it themselves). The admin has checked it is the client's number, so it counts as confirmed.
+   */
+  async setLoginPhone(actor: LoginActor, profileId: string, phone: string, correlationId: string) {
+    if (!this.phones) throw new AppError(404, 'NOT_AVAILABLE');
+    const accountId = await this.logins.ownerForPhoneChange(actor, profileId);
+    const result = await this.phones.attachPhone(actor.agencyId, accountId, phone, correlationId);
+    if (result === 'taken') throw new AppError(409, 'PHONE_IN_USE');
+    if (result === 'inactive') throw new AppError(409, 'ACCOUNT_NOT_ACTIVE');
+    return this.logins.status(actor, profileId);
+  }
 
   status(actor: LoginActor, profileId: string) {
     return this.logins.status(actor, profileId);

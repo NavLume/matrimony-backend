@@ -120,6 +120,33 @@ const detailsShape = {
   intent: z.enum(INTENTS, fail('invalidOption')).default('call'),
   origin: originSchema,
   heardFrom: z.enum(HEARD_FROM, fail('invalidOption')).optional(),
+  /**
+   * The country the visitor lives in (ISO 3166 two letters). Bangladesh proves the mobile number by a text-message code;
+   * anywhere else proves the email by a code (no text is sent abroad), so the email is then required.
+   */
+  country: z
+    .string(fail('invalid'))
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, fail('invalid'))
+    .default('BD'),
+  /** A WhatsApp number an adviser may use, mostly for visitors abroad (optional, not proved). */
+  whatsapp: z
+    .string(fail('invalid'))
+    .trim()
+    .max(40, fail('tooLong'))
+    .transform((value) => (value === '' ? undefined : value))
+    .pipe(phoneSchema.optional())
+    .optional(),
+  /** An email address the visitor may leave beside the number (optional; an empty box is no address). */
+  email: z
+    .string(fail('invalid'))
+    .trim()
+    .toLowerCase()
+    .max(254, fail('tooLong'))
+    .transform((value) => (value === '' ? undefined : value))
+    .pipe(z.email(fail('invalid')).optional())
+    .optional(),
 };
 
 /**
@@ -323,6 +350,14 @@ export interface StaffLead {
   reference: string | null;
   name: string;
   phone: string;
+  /** The email address the visitor left, if any. */
+  email: string | null;
+  /** When the email was proved by a code (visitors abroad); null otherwise. */
+  emailVerifiedAt: string | null;
+  /** The country the visitor chose (two letters); null for enquiries made before the choice existed. */
+  country: string | null;
+  /** A WhatsApp number the visitor left, not proved. */
+  whatsapp: string | null;
   status: (typeof LEAD_STATUSES)[number];
   note: string | null;
   createdAt: string;

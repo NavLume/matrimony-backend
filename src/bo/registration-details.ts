@@ -23,6 +23,19 @@ const fail = (key: string) => ({ error: key });
 const choice = <T extends string>(values: readonly T[]) => z.enum(values, fail('invalidOption'));
 
 const detailsShape = {
+  /**
+   * An email the member may give when they register with a Bangladeshi mobile number (optional there; proved by the
+   * text-message code instead). Kept on the profile's contact, unverified; the member can add it to the account later
+   * with an emailed code. Empty means none.
+   */
+  email: z
+    .string(fail('invalid'))
+    .trim()
+    .toLowerCase()
+    .max(254, fail('tooLong'))
+    .transform((value) => (value === '' ? undefined : value))
+    .pipe(z.email(fail('invalid')).optional())
+    .optional(),
   /** Who the profile is for: the member, a child, a sibling, a relative or someone else. */
   managedFor: choice(MANAGED_FOR),
   fullName: z.string(fail('required')).trim().min(1, fail('required')).max(100, fail('tooLong')),
@@ -89,6 +102,6 @@ export function detailsToProfileInput(details: RegistrationDetails, now: Date): 
       occupationCode: details.occupationCode,
       professionCode: details.professionCode,
     },
-    contact: { phone: details.phone },
+    contact: { phone: details.phone, email: details.email },
   });
 }

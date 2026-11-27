@@ -17,6 +17,7 @@ import { AppError } from '../exception/app-error.js';
 import type { ConsultationProcess } from '../process/consultation-process.js';
 import type { ConsultationService } from '../service/consultation-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
+import { requireHuman, type TurnstileVerifier } from '../security/turnstile.js';
 import './context.js';
 
 const adminOnly = { roles: ['admin' as const] };
@@ -45,6 +46,7 @@ export function registerConsultationController(
     | 'addCall'
   >,
   process: Pick<ConsultationProcess, 'sendCode' | 'submit'>,
+  human?: TurnstileVerifier,
 ) {
   const actor = (req: {
     principal: { agencyId: string; id: string; role: ProfileActor['role'] } | null;
@@ -73,6 +75,7 @@ export function registerConsultationController(
     { config: { public: true, rateLimit: { max: 10, timeWindow: 600000 } } },
     async (req, reply) => {
       sameOrigin(req);
+      await requireHuman(human, req);
       const sent = await process.sendCode(
         { agencyId: req.tenant!.id, agencyName: req.tenant!.name },
         consultationCodeSchema.parse(req.body),
@@ -105,6 +108,7 @@ export function registerConsultationController(
     { config: { public: true, rateLimit: { max: 5, timeWindow: 600000 } } },
     async (req, reply) => {
       sameOrigin(req);
+      // No check here: a call request sends no text or email, so it costs nothing (its own tight limit applies).
       await service.requestUnverified(
         req.tenant!.id,
         unverifiedInputSchema.parse(req.body),

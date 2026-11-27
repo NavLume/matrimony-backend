@@ -2841,6 +2841,9 @@ paths:
                 intent: { type: string, enum: [call, visit, whatsapp], default: call }
                 origin: { $ref: '#/components/schemas/LeadOrigin' }
                 heardFrom: { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other], description: 'Optional, what the visitor says; kept apart from the origin.' }
+                email: { type: string, maxLength: 254, description: 'Optional email address the visitor leaves beside the number; an empty string is no address.' }
+                country: { type: string, pattern: '^[A-Za-z]{2}$', description: 'The country the visitor lives in (two letters, default BD). BD proves the mobile by a text-message code; any other country proves the email by a code, so email is then required.' }
+                whatsapp: { type: string, maxLength: 40, description: 'Optional WhatsApp number (not proved).' }
       responses:
         '202':
           description: The code was sent.
@@ -2875,6 +2878,9 @@ paths:
                 intent: { type: string, enum: [call, visit, whatsapp], default: call }
                 origin: { $ref: '#/components/schemas/LeadOrigin' }
                 heardFrom: { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other], description: 'Optional, what the visitor says; kept apart from the origin.' }
+                email: { type: string, maxLength: 254, description: 'Optional email address the visitor leaves beside the number; an empty string is no address.' }
+                country: { type: string, pattern: '^[A-Za-z]{2}$', description: 'The country the visitor lives in (two letters, default BD). BD proves the mobile by a text-message code; any other country proves the email by a code, so email is then required.' }
+                whatsapp: { type: string, maxLength: 40, description: 'Optional WhatsApp number (not proved).' }
       responses:
         '200':
           description: A returning visitor, the same enquiry.
@@ -2908,6 +2914,9 @@ paths:
                 intent: { type: string, enum: [call, visit, whatsapp], default: call }
                 origin: { $ref: '#/components/schemas/LeadOrigin' }
                 heardFrom: { type: string, enum: [facebook, google, youtube, whatsapp, friend, event, office, other], description: 'Optional, what the visitor says; kept apart from the origin.' }
+                email: { type: string, maxLength: 254, description: 'Optional email address the visitor leaves beside the number; an empty string is no address.' }
+                country: { type: string, pattern: '^[A-Za-z]{2}$', description: 'The country the visitor lives in (two letters, default BD). BD proves the mobile by a text-message code; any other country proves the email by a code, so email is then required.' }
+                whatsapp: { type: string, maxLength: 40, description: 'Optional WhatsApp number (not proved).' }
       responses:
         '202':
           description: Received.
@@ -4160,6 +4169,61 @@ paths:
         '403': { $ref: '#/components/responses/Error403' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /api/v1/auth/password/phone/start:
+    post:
+      tags: [Auth]
+      summary: Text a code for a forgotten password, for an account with no email
+      description: |
+        10 per 10 minutes. Only for a registered number of an active account that has no email
+        (404 `PHONE_NOT_REGISTERED` otherwise; an account with an email gets 409 `USE_EMAIL` and
+        resets by email). Same code limits as other phone codes (429 `CODE_RATE_LIMITED`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone, locale]
+              properties:
+                phone: { type: string }
+                locale: { type: string, enum: [bn, en] }
+      responses:
+        '202':
+          description: The code was sent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CodeSent' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '404': { description: PHONE_NOT_REGISTERED or PHONE_NOT_CONFIGURED. }
+        '409': { description: USE_EMAIL. }
+        '429': { description: CODE_RATE_LIMITED. }
+  /api/v1/auth/password/phone/reset:
+    post:
+      tags: [Auth]
+      summary: Choose a new password with the texted code
+      description: 10 per 10 minutes. A wrong code is 400 `CODE_INVALID`, an old one or five wrong ones 400 `CODE_EXPIRED`. Every session of the account ends.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone, code, password]
+              properties:
+                phone: { type: string }
+                code: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: The password was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Status' }
+        '400': { $ref: '#/components/responses/Error400' }
   /api/v1/auth/password/reset:
     post:
       tags: [Auth]
@@ -4637,14 +4701,11 @@ paths:
   /api/v1/me/reauth/start:
     post:
       tags: [Account]
-      summary: Send a code to the account's own phone, to prove it is the owner
+      summary: Email a code to the account's own address, to prove it is the owner
       description: |
-        Step one of adding an email to a phone-only account, and of choosing a new password with a
-        code (`/me/password`). 10 per 10 minutes. The code goes to the
-        number the account already has, never to one from the request, and it belongs to this
-        purpose: it cannot sign anyone in, and a sign-in code cannot be used for it. Same limits as
-        other codes (one a minute and 5 an hour per number). 409 `PHONE_REQUIRED` when the account has
-        no verified phone, 404 `PHONE_NOT_CONFIGURED` when no sender is set up.
+        Step one of choosing a new password (`/me/password`). 10 per 10 minutes. A 6-digit code that
+        works for 10 minutes goes to the account's own email (409 `EMAIL_REQUIRED` without one). No
+        text message is sent.
       security:
         - bearerAuth: []
       requestBody:
@@ -4672,17 +4733,11 @@ paths:
   /api/v1/me/password:
     post:
       tags: [Account]
-      summary: Choose a new password, with a code sent to the account's own phone
+      summary: Choose a new password, with a code emailed to the account's own address
       description: |
-        For an account that has a verified phone, including a member who registered with a phone
-        and forgot the password and may have no email. 10 per 10 minutes. Needs the code from
-        `/me/reauth/start` (400 `CODE_INVALID` to try again, 400 `CODE_EXPIRED` after five wrong
-        ones or an old one), so a stolen session alone cannot do it. The new password follows the
-        usual rules and may not be the email or the phone number (400 with the field problem
-        `sameAsEmail` or `sameAsPhone`; the code is not spent). It ends **every** session of the
-        account, this one included, like any password reset: the person logs in again. The owner is
-        told by email when the account has one. Records `auth.password_reset`. 409
-        `PHONE_REQUIRED` without a verified phone.
+        10 per 10 minutes. Needs the code from `/me/reauth/start` (400 `CODE_INVALID`; more than 5
+        tries in 10 minutes 429 `CODE_RATE_LIMITED`), so a stolen session alone cannot do it. Every
+        session ends and the owner is told by email. 409 `EMAIL_REQUIRED` for an account with no email.
       security:
         - bearerAuth: []
       requestBody:
@@ -4707,18 +4762,38 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /api/v1/me/email/verify:
+    post:
+      tags: [Account]
+      summary: Add the address with the code that was emailed to it
+      description: Step two. A wrong code is 400 `CODE_INVALID`; more than 5 tries in 10 minutes 429 `CODE_RATE_LIMITED`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddEmailCodeInput' }
+      responses:
+        '200':
+          description: The address was added, verified.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Status' }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '409': { description: EMAIL_IN_USE or EMAIL_ALREADY_SET. }
+        '429': { description: CODE_RATE_LIMITED. }
   /api/v1/me/email/start:
     post:
       tags: [Account]
-      summary: Send a link to an address to add it to the account
+      summary: Send a code to an address to add it to the account
       description: |
-        Step two. 10 per 10 minutes. With the right code from `/me/reauth/start` (a wrong one is
-        400 `CODE_INVALID`, five wrong ones or an old one 400 `CODE_EXPIRED`), a link that works
-        once for 1 hour is emailed to the address. Nothing is added until the link is opened. The
-        answer is the same whether or not the address already belongs to an account: that account's
-        owner gets a notice instead of a link. Asking again cancels the earlier link. An address is
-        sent 3 of these emails an hour (429 `EMAIL_RATE_LIMITED`). An existing email is never
-        replaced.
+        Step one, for an account with no email. 10 per 10 minutes. The account's password must be right
+        (401 `INVALID_CREDENTIALS`); then a 6-digit code that works for 10 minutes is emailed to the
+        address. No text message is sent. Nothing is added until `/me/email/verify`. The answer is the
+        same whether or not the address already belongs to an account: that account's owner gets a
+        notice instead. An address is sent 3 of these emails an hour (429 `EMAIL_RATE_LIMITED`).
       security:
         - bearerAuth: []
       requestBody:
@@ -7005,6 +7080,34 @@ paths:
             description: 'AGENT_NOT_AVAILABLE: the target is not an active staff member, or is the same person.',
             content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } },
           }
+  /api/v1/staff/clients/{profileId}/login-phone:
+    put:
+      tags: [Clients]
+      summary: An admin sets a client's login number
+      description: Members cannot add or change their own login number; they ask the agency and an admin sets it here. The admin has checked the number, so it counts as confirmed.
+      parameters:
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone]
+              properties:
+                phone: { type: string }
+      responses:
+        '200':
+          description: The login status with the new number.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientLoginStatus' }
+        '400': { description: INVALID_REQUEST (not a valid mobile number). }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: CLIENT_NOT_FOUND. }
+        '409': { description: 'CLIENT_HAS_NO_LOGIN, PHONE_IN_USE or ACCOUNT_NOT_ACTIVE.' }
   /api/v1/staff/clients/{profileId}/login:
     get:
       tags: [Clients]
@@ -9118,6 +9221,10 @@ components:
           reference,
           name,
           phone,
+          email,
+          emailVerifiedAt,
+          country,
+          whatsapp,
           status,
           note,
           createdAt,
@@ -9151,6 +9258,10 @@ components:
         reference: { type: [string, 'null'] }
         name: { type: string }
         phone: { type: string }
+        email: { type: [string, 'null'] }
+        emailVerifiedAt: { type: [string, 'null'], format: date-time }
+        country: { type: [string, 'null'] }
+        whatsapp: { type: [string, 'null'] }
         status: { type: string, enum: [new, contacted, closed] }
         note: { type: [string, 'null'] }
         createdAt: { type: string, format: date-time }
@@ -9656,6 +9767,8 @@ components:
             items: { type: string },
             description: Calling codes (without +) whose numbers may be sent a code.,
           }
+        turnstileSiteKey:
+          { type: [string, 'null'], description: Cloudflare Turnstile site key for buttons that send a code; null when off. }
     ReauthStartInput:
       type: object
       additionalProperties: false
@@ -9667,21 +9780,22 @@ components:
       additionalProperties: false
       required: [code, password]
       properties:
-        code: { type: string, description: The six digits sent to the account's own phone. }
+        code: { type: string, description: The six digits emailed to the account's own address. }
         password: { type: string, minLength: 10, maxLength: 128 }
     AddEmailStartInput:
       type: object
       additionalProperties: false
-      required: [email, code, locale]
+      required: [email, password, locale]
       properties:
         email: { type: string, format: email }
-        code: { type: string, description: The six digits sent to the account's own phone. }
-        locale:
-          {
-            type: string,
-            enum: [bn, en],
-            description: The language of the email and of the page its link opens.,
-          }
+        password: { type: string, description: The account's current password, to prove it is the owner. }
+        locale: { type: string, enum: [bn, en], description: The language of the email. }
+    AddEmailCodeInput:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: { type: string, description: The six digits emailed to the new address. }
     PhoneStartInput:
       type: object
       additionalProperties: false
@@ -9752,6 +9866,7 @@ components:
         field codes: `required`, `tooLong`, `invalidOption`, `invalidPhone`, `invalidDate`,
         `underAge`, `tooOld`.
       properties:
+        email: { type: string, maxLength: 254, description: 'Optional contact email (kept on the profile, unverified).' }
         managedFor: { $ref: '#/components/schemas/ManagedFor' }
         fullName: { type: string, minLength: 1, maxLength: 100, description: The name of the person the profile is for. }
         dateOfBirth: { type: string, format: date, description: 'Checked against the age limits by gender (Bangladeshi law; at least 21 for a man and 18 for a woman; at most 100). A failure is `underAge` for both.' }
@@ -9771,6 +9886,7 @@ components:
       required: [managedFor, fullName, dateOfBirth, gender, maritalStatus, religionCode, countryCode, highestDegreeCode, occupationCode]
       description: The same answers without the number, for registering by phone (the number is the one the code proved).
       properties:
+        email: { type: string, maxLength: 254, description: 'Optional contact email (kept on the profile, unverified).' }
         managedFor: { $ref: '#/components/schemas/ManagedFor' }
         fullName: { type: string, minLength: 1, maxLength: 100, description: The name of the person the profile is for. }
         dateOfBirth: { type: string, format: date, description: 'Checked against the age limits by gender (Bangladeshi law; at least 21 for a man and 18 for a woman; at most 100). A failure is `underAge` for both.' }
@@ -10954,7 +11070,7 @@ components:
     ClientLoginStatus:
       type: object
       additionalProperties: false
-      required: [state, canGrant, channel, address, locale, expiresAt, invitedByName, accountName]
+      required: [state, canGrant, channel, address, locale, expiresAt, invitedByName, accountName, accountPhone]
       properties:
         state: { type: string, enum: [none, invited, expired, active] }
         canGrant: { type: boolean }
@@ -10965,6 +11081,8 @@ components:
         invitedByName: { type: [string, 'null'] }
         accountName:
           { type: [string, 'null'], description: The client's account name, once it exists. }
+        accountPhone:
+          { type: [string, 'null'], description: The number the client's account signs in with, once it exists. Only an admin changes it. }
 
     ClientLoginPreview:
       type: object

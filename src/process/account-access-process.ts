@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import {
@@ -15,7 +15,7 @@ import type { SessionRepository } from '../cache/repository/session-repository.j
 import type { ThrottleRepository } from '../cache/repository/throttle-repository.js';
 import { AppError } from '../exception/app-error.js';
 import {
-  addEmailEmail,
+  emailCodeEmail,
   emailInUseNotice,
   passwordChangedEmail,
   passwordResetEmail,
@@ -32,11 +32,13 @@ import type { RegistrationService } from '../service/registration-service.js';
 /** How long an emailed link works. The emails state these hours, so change both together. */
 const REGISTRATION_LINK_SECONDS = 24 * 3600;
 const RESET_LINK_SECONDS = 3600;
-/** The link that adds an email to an account is shorter-lived: it is a sensitive change. */
-const ADD_EMAIL_LINK_SECONDS = 3600;
 /** Emails one address can be sent per hour for each purpose, whether or not it has an account. */
 const EMAILS_PER_HOUR = 3;
 const HOUR = 3600;
+/** How long an emailed 6-digit code works. The email states the minutes, so change both together. */
+const EMAIL_CODE_SECONDS = 600;
+/** Wrong codes one account may type in 10 minutes before it must wait. */
+const CODE_TRIES = 5;
 
 /** The agency the request is for, which the emails name and link back to. */
 export interface AccessContext {
@@ -70,11 +72,11 @@ export class AccountAccessProcess {
   constructor(
     private readonly registrations: Pick<
       RegistrationService,
-      'emailRegistered' | 'createVerified' | 'signInMethods' | 'attachEmail'
+      'emailRegistered' | 'createVerified' | 'signInMethods' | 'attachEmail' | 'findByPhone'
     >,
     private readonly credentials: Pick<
       CredentialService,
-      'hash' | 'findByEmail' | 'findById' | 'setPassword'
+      'hash' | 'findByEmail' | 'findById' | 'setPassword' | 'verifyAccount'
     >,
     private readonly tokens: Pick<OneTimeTokenRepository, 'put' | 'take'>,
     private readonly throttle: Pick<ThrottleRepository, 'hit'>,
@@ -83,8 +85,9 @@ export class AccountAccessProcess {
     private readonly mailer: Mailer,
     private readonly box: SecretBox,
     private readonly logger: Logger,
-    /** Undefined when phone codes are not set up; adding an email then is not possible. */
-    private readonly phone?: Pick<PhoneAuthProcess, 'sendReauthCode' | 'checkReauthCode'>,
+    /** No longer used: the account's own checks go by email now (kept so the wiring does not change). */
+    /** Text-message codes, only for a forgotten password on an account with no email. Undefined when SMS is off. */
+    private readonly phone?: Pick<PhoneAuthProcess, 'sendResetCode' | 'checkResetCode'>,
     /** The version of the terms and privacy text the agency shows now, recorded with the person's agreement. */
     private readonly legalVersions: LegalVersionSource = platformLegalVersions,
   ) {}
@@ -148,33 +151,38 @@ export class AccountAccessProcess {
   }
 
   /**
-   * Step one of a sensitive change (adding an email, choosing a new password): a code to the
-   * account's own phone, to prove it is the owner and not someone holding a stolen session.
+   * Before a new password: a 6-digit code to the account's own email, to prove it is the owner and not someone holding
+   * a stolen session. No text message is sent (owner decision, 27 Nov 2026). 409 EMAIL_REQUIRED without an email.
    */
   async sendReauthCode(context: AccessContext, account: Account, locale: 'bn' | 'en') {
-    const phone = this.phone ?? this.noPhone();
     const methods = await this.registrations.signInMethods(context.agencyId, account.id);
-    if (!methods?.phone) throw new AppError(409, 'PHONE_REQUIRED');
-    return phone.sendReauthCode(
-      { agencyId: context.agencyId, agencyName: context.agencyName },
-      account,
-      methods.phone,
-      locale,
+    if (!methods?.email) throw new AppError(409, 'EMAIL_REQUIRED');
+    await this.limitEmails(`password-code-mail:${context.agencyId}:${account.id}`);
+    const code = await this.newCode(context.agencyId, 'email-code-password', {
+      accountId: account.id,
+      email: methods.email,
+    });
+    this.sendInBackground(
+      emailCodeEmail({
+        to: methods.email,
+        locale,
+        agencyName: context.agencyName,
+        code,
+        purpose: 'password',
+      }),
     );
+    return { resendAfter: 60, expiresIn: EMAIL_CODE_SECONDS };
   }
 
   /**
-   * Step two: with the code, a link is sent to the address. Nothing is added yet: the address is
-   * only proven, and added, when the link is opened. The answer is the same whether or not the
-   * address already belongs to an account; that account's owner is told by email instead.
+   * Step one of adding an email to an account that has none: the account's password proves it is the owner, then a
+   * 6-digit code goes to the new address. Nothing is added yet. The answer is the same whether or not the address
+   * already belongs to an account; that account's owner is told by email instead.
    */
   async startAddEmail(context: AccessContext, account: Account, input: AddEmailStartInput) {
-    const phone = this.phone ?? this.noPhone();
     const methods = await this.registrations.signInMethods(context.agencyId, account.id);
     if (methods?.email) throw new AppError(409, 'EMAIL_ALREADY_SET');
-    if (!methods?.phone) throw new AppError(409, 'PHONE_REQUIRED');
-    // The code only the owner of the phone has. A wrong one is counted and cancels the code.
-    await phone.checkReauthCode(context.agencyId, account, methods.phone, input.code);
+    await this.credentials.verifyAccount(context.agencyId, account.id, input.password);
 
     await this.limitEmails(`add-email-mail:${context.agencyId}:${digest(input.email)}`);
     const common = { to: input.email, locale: input.locale, agencyName: context.agencyName };
@@ -184,24 +192,34 @@ export class AccountAccessProcess {
       );
       return;
     }
-    const token = newToken();
-    const key = tokenKey(context.agencyId, token);
-    // Asking again cancels the earlier link of this account, so only the newest works.
-    await this.tokens.put(
-      'email-add',
-      account.id,
-      key,
-      this.box.seal(JSON.stringify({ accountId: account.id, email: input.email }), key),
-      ADD_EMAIL_LINK_SECONDS,
+    const code = await this.newCode(context.agencyId, 'email-code-add', {
+      accountId: account.id,
+      email: input.email,
+    });
+    this.sendInBackground(emailCodeEmail({ ...common, code, purpose: 'add_email' }));
+  }
+
+  /** Step two: the code from the new address's inbox. The address is then proven and added to the account. */
+  async confirmAddEmailCode(
+    agencyId: string,
+    account: Account,
+    code: string,
+    correlationId: string,
+  ) {
+    const pending = await this.takeCode(agencyId, 'email-code-add', account.id, code);
+    const result = await this.registrations.attachEmail(
+      agencyId,
+      pending.accountId,
+      pending.email,
+      correlationId,
     );
-    this.sendInBackground(
-      addEmailEmail({ ...common, link: this.link(context, input.locale, 'confirm-email', token) }),
-    );
+    if (result === 'taken') throw new AppError(409, 'EMAIL_IN_USE');
+    if (result === 'unavailable') throw new AppError(409, 'EMAIL_ALREADY_SET');
   }
 
   /**
-   * Step three: the link was opened and confirmed, so the address is proven and added to the
-   * account that asked. It signs nobody in: the link may be opened on another device.
+   * An older emailed link to add an address (sent before codes replaced links). It still works until it expires.
+   * It signs nobody in.
    */
   async confirmAddEmail(agencyId: string, token: string, correlationId: string) {
     const key = tokenKey(agencyId, token);
@@ -219,9 +237,8 @@ export class AccountAccessProcess {
   }
 
   /**
-   * Sets a new password for the signed-in account, proved by a code sent to its own phone. Every
-   * session of the account ends, as for any password reset, and the owner is told by email when
-   * there is one.
+   * Sets a new password for the signed-in account, proved by the code sent to its own email. Every session of the
+   * account ends, as for any password reset, and the owner is told by email.
    */
   async changePassword(
     context: AccessContext,
@@ -229,36 +246,115 @@ export class AccountAccessProcess {
     input: ChangePasswordInput,
     correlationId: string,
   ) {
-    const phone = this.phone ?? this.noPhone();
     const methods = await this.registrations.signInMethods(context.agencyId, account.id);
-    if (!methods?.phone) throw new AppError(409, 'PHONE_REQUIRED');
+    if (!methods?.email) throw new AppError(409, 'EMAIL_REQUIRED');
     // A password that is the email or the number is among the first things guessed.
-    const same = methods.email && passwordMatchesEmail(input.password, methods.email);
-    if (same || passwordIsPhone(input.password, methods.phone))
+    const same = passwordMatchesEmail(input.password, methods.email);
+    if (same || (methods.phone && passwordIsPhone(input.password, methods.phone)))
       throw new AppError(400, 'INVALID_REQUEST', {
         fields: [{ path: 'password', code: same ? 'sameAsEmail' : 'sameAsPhone' }],
       });
-    await phone.checkReauthCode(context.agencyId, account, methods.phone, input.code);
+    await this.takeCode(context.agencyId, 'email-code-password', account.id, input.code);
 
     const hash = await this.credentials.hash(input.password);
     if (!(await this.credentials.setPassword(context.agencyId, account.id, hash, correlationId)))
       throw new AppError(403, 'ACCOUNT_NOT_ACTIVE');
     await this.sessions.removeAll(account.id);
-    if (methods.email) {
-      const locale =
-        (await this.credentials.findById(context.agencyId, account.id))?.locale ?? 'en';
-      this.sendInBackground(
-        passwordChangedEmail({
-          to: methods.email,
-          locale,
-          agencyName: context.agencyName,
-          resetLink: this.link(context, locale, 'forgot-password'),
-        }),
-      );
-    }
+    const locale = (await this.credentials.findById(context.agencyId, account.id))?.locale ?? 'en';
+    this.sendInBackground(
+      passwordChangedEmail({
+        to: methods.email,
+        locale,
+        agencyName: context.agencyName,
+        resetLink: this.link(context, locale, 'forgot-password'),
+      }),
+    );
   }
 
-  private noPhone(): never {
+  /**
+   * Stores a new 6-digit code for one account and purpose, sealed with what it is for, and returns it to be emailed.
+   * Asking again cancels the earlier code. Only a hash of the code (with the agency and account) is the key.
+   */
+  private async newCode(
+    agencyId: string,
+    purpose: 'email-code-add' | 'email-code-password',
+    payload: { accountId: string; email: string },
+  ): Promise<string> {
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const key = tokenKey(agencyId, `${purpose}.${payload.accountId}.${code}`);
+    await this.tokens.put(
+      purpose,
+      payload.accountId,
+      key,
+      this.box.seal(JSON.stringify(payload), key),
+      EMAIL_CODE_SECONDS,
+    );
+    return code;
+  }
+
+  /** Uses up a right code; a wrong one is counted, and after a few the account must wait. */
+  private async takeCode(
+    agencyId: string,
+    purpose: 'email-code-add' | 'email-code-password',
+    accountId: string,
+    code: string,
+  ) {
+    const tries = await this.throttle.hit(`email-code-try:${agencyId}:${accountId}`, 600);
+    if (tries.count > CODE_TRIES)
+      throw new AppError(429, 'CODE_RATE_LIMITED', { retryAfter: tries.retryAfter });
+    const key = tokenKey(agencyId, `${purpose}.${accountId}.${code}`);
+    const sealed = await this.tokens.take(purpose, key);
+    if (!sealed) throw new AppError(400, 'CODE_INVALID');
+    const pending = pendingAddEmailSchema.parse(JSON.parse(this.box.open(sealed, key)));
+    // The code belongs to this account only.
+    if (pending.accountId !== accountId) throw new AppError(400, 'CODE_INVALID');
+    return pending;
+  }
+
+  /**
+   * A forgotten password on an account that has no email (registered by phone): a code to its mobile number. Only for
+   * a registered number of an active account with no email, so the page cannot be used to make the agency pay for texts
+   * to strangers. Like the login page's old code, this tells the visitor whether a number is registered (404
+   * PHONE_NOT_REGISTERED), a trade-off the owner accepted; an account with an email is told to use it (409 USE_EMAIL).
+   */
+  async requestPhoneReset(context: AccessContext, phone: string, locale: 'bn' | 'en') {
+    const sms = this.phone ?? this.noSms();
+    const found = await this.registrations.findByPhone(context.agencyId, phone);
+    if (!found || found.status !== 'active') throw new AppError(404, 'PHONE_NOT_REGISTERED');
+    const methods = await this.registrations.signInMethods(context.agencyId, found.account.id);
+    if (methods?.email) throw new AppError(409, 'USE_EMAIL');
+    return sms.sendResetCode(
+      { agencyId: context.agencyId, agencyName: context.agencyName },
+      phone,
+      locale,
+    );
+  }
+
+  /** The code and a new password: sets it, ends every session of the account. */
+  async resetPasswordByPhone(
+    context: AccessContext,
+    input: { phone: string; code: string; password: string },
+    correlationId: string,
+  ) {
+    const sms = this.phone ?? this.noSms();
+    if (passwordIsPhone(input.password, input.phone))
+      throw new AppError(400, 'INVALID_REQUEST', {
+        fields: [{ path: 'password', code: 'sameAsPhone' }],
+      });
+    // The code is checked (and a wrong one counted) before anything about the account is looked at.
+    await sms.checkResetCode(context.agencyId, input.phone, input.code);
+    const found = await this.registrations.findByPhone(context.agencyId, input.phone);
+    if (!found || found.status !== 'active') throw new AppError(400, 'CODE_INVALID');
+    const hash = await this.credentials.hash(input.password);
+    if (
+      !(await this.credentials.setPassword(context.agencyId, found.account.id, hash, correlationId))
+    )
+      throw new AppError(403, 'ACCOUNT_NOT_ACTIVE');
+    // Whoever knew the old password, or held a stolen session, is signed out.
+    await this.sessions.removeAll(found.account.id);
+  }
+
+  private noSms(): never {
     throw new AppError(404, 'PHONE_NOT_CONFIGURED');
   }
 

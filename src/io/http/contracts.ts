@@ -51,6 +51,8 @@ export const methodsResponseSchema = {
     phone: { type: 'boolean' },
     /** Calling codes (without +) whose numbers may be sent a code. */
     phoneCountries: { type: 'array', items: { type: 'string' } },
+    /** Cloudflare Turnstile's public site key, when buttons that send a code need it; null when off. */
+    turnstileSiteKey: { type: ['string', 'null'] },
   },
 } as const;
 /** The account a Google sign-in is waiting to be linked to. */

@@ -105,3 +105,16 @@ export const phoneAttachConfirmInputSchema = z
 export function maskPhone(phone: string): string {
   return `${phone.slice(0, 5)}${'•'.repeat(Math.max(0, phone.length - 8))}${phone.slice(-3)}`;
 }
+
+/** A forgotten password on an account with no email: the registered mobile number, to send it a code. */
+export const phoneResetStartSchema = z
+  .object({
+    phone: phoneSchema,
+    locale: z.enum(REGISTRATION_LOCALES, fail('invalidOption')),
+  })
+  .strict();
+
+/** The code from that text message and the new password. */
+export const phoneResetInputSchema = z
+  .object({ phone: phoneSchema, code: phoneCodeSchema, password: newPasswordSchema })
+  .strict();

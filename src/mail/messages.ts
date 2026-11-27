@@ -76,6 +76,58 @@ export function addEmailEmail(context: Context & { link: string }): MailMessage 
       };
 }
 
+/**
+ * A 6-digit code by email, used instead of a text message (owner decision, 27 Nov 2026): to add this address to an
+ * account, or to choose a new password. The minutes match EMAIL_CODE_SECONDS in AccountAccessProcess.
+ */
+export function emailCodeEmail(
+  context: Context & { code: string; purpose: 'add_email' | 'password' | 'consultation' },
+): MailMessage {
+  const { to, locale, agencyName, code, purpose } = context;
+  if (locale === 'bn') {
+    const what =
+      purpose === 'add_email'
+        ? 'আপনার অ্যাকাউন্টে এই ইমেইল যোগ করতে'
+        : purpose === 'consultation'
+          ? 'পরামর্শের অনুরোধ নিশ্চিত করতে'
+          : 'আপনার অ্যাকাউন্টের নতুন পাসওয়ার্ড ঠিক করতে';
+    return {
+      to,
+      subject: `${agencyName}: আপনার কোড ${code}`,
+      text: [
+        'প্রিয় ব্যবহারকারী,',
+        '',
+        `${agencyName}-এ ${what} এই কোডটি লিখুন:`,
+        '',
+        code,
+        '',
+        'কোডটি ১০ মিনিট কাজ করবে। কাউকে বলবেন না।',
+        'আপনি অনুরোধ না করে থাকলে এই ইমেইলটি উপেক্ষা করুন। কিছুই বদলাবে না।',
+      ].join('\n'),
+    };
+  }
+  const what =
+    purpose === 'add_email'
+      ? 'add this email to your account'
+      : purpose === 'consultation'
+        ? 'confirm your consultation request'
+        : 'choose a new password for your account';
+  return {
+    to,
+    subject: `${agencyName}: your code ${code}`,
+    text: [
+      'Hello,',
+      '',
+      `To ${what} at ${agencyName}, enter this code:`,
+      '',
+      code,
+      '',
+      'It works for 10 minutes. Do not share it.',
+      'If you did not ask for this, ignore this email. Nothing will change.',
+    ].join('\n'),
+  };
+}
+
 /** Sent instead of the link when the address already belongs to an account. */
 export function emailInUseNotice(context: Context & { signInLink: string }): MailMessage {
   const { to, locale, agencyName, signInLink } = context;

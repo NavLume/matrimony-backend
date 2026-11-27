@@ -11,6 +11,8 @@ export interface LoginProfile {
   serviceMode: 'self_service' | 'assisted';
   ownerAccountId: string | null;
   ownerName: string | null;
+  /** The owner account's login number (the profile read without a lock only). */
+  ownerPhone: string | null;
   assignedAgentId: string | null;
 }
 
@@ -59,6 +61,7 @@ export class ClientLoginRepository {
       serviceMode: row.service_mode as LoginProfile['serviceMode'],
       ownerAccountId: (row.owner_account_id as string | null) ?? null,
       ownerName: (row.owner_name as string | null) ?? null,
+      ownerPhone: (row.owner_phone as string | null) ?? null,
       assignedAgentId: (row.assigned_agent_id as string | null) ?? null,
     };
   }

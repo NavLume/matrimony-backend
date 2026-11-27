@@ -44,12 +44,16 @@ export interface NewConsultation {
   agentId: string | null;
   intent: Intent;
   heardFrom: HeardFrom | null;
+  email: string | null;
+  country: string | null;
+  whatsapp: string | null;
   mode: StartMode;
   /** A ticket's hash for a proved number; null otherwise. */
   ticketHash: string | null;
 }
 
-const STAFF_SELECT = `SELECT l.id, l.kind, l.reference, l.name, l.phone_e164, l.status, l.note, l.created_at,
+const STAFF_SELECT = `SELECT l.id, l.kind, l.reference, l.name, l.phone_e164, l.email, l.email_verified_at,
+       l.country_code, l.whatsapp_e164, l.status, l.note, l.created_at,
        l.last_verified_at, l.visits, l.office, l.callback_requested_at, l.call_clicked_at,
        l.assigned_agent_id, ag.display_name AS agent_name, hb.display_name AS handled_by_name, l.handled_at,
        l.intent, l.for_whom, l.heard_from, l.verified_at, l.visit_requested_at, l.visit_time, l.whatsapp_opened_at,
@@ -94,12 +98,30 @@ const PROFILE_PHONES = `SELECT p.id AS profile_id, a.phone_e164 AS phone
     JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
    WHERE c.agency_id = $1 AND p.erased_at IS NULL AND c.phone_e164 IS NOT NULL`;
 
+/**
+ * Every email a client can be reached on, for the agency in $1: the client's own login email and the contact email on
+ * the profile (lower case). Erased profiles are left out. Used to join a lead whose email was proved by a code.
+ */
+const PROFILE_EMAILS = `SELECT p.id AS profile_id, lower(a.email) AS email
+    FROM matrimony.member_profiles p
+    JOIN matrimony.accounts a ON a.agency_id = p.agency_id AND a.id = p.owner_account_id
+   WHERE p.agency_id = $1 AND p.erased_at IS NULL AND a.email IS NOT NULL
+  UNION
+  SELECT c.profile_id, lower(btrim(c.email))
+    FROM matrimony.profile_contacts c
+    JOIN matrimony.member_profiles p ON p.agency_id = c.agency_id AND p.id = c.profile_id
+   WHERE c.agency_id = $1 AND p.erased_at IS NULL AND c.email IS NOT NULL AND btrim(c.email) <> ''`;
+
 const staffLead = (row: Row): StaffLead => ({
   id: row.id as string,
   kind: row.kind as StaffLead['kind'],
   reference: text(row.reference),
   name: row.name as string,
   phone: row.phone_e164 as string,
+  email: text(row.email),
+  emailVerifiedAt: iso(row.email_verified_at),
+  country: text(row.country_code),
+  whatsapp: text(row.whatsapp_e164),
   status: row.status as StaffLead['status'],
   note: text(row.note),
   createdAt: (row.created_at as Date).toISOString(),
@@ -273,13 +295,14 @@ export class ConsultationRepository {
       `INSERT INTO matrimony.website_leads
          (agency_id, kind, reference, name, phone_e164, profile_id, source, utm_source, utm_medium, utm_campaign,
           utm_content, referrer_host, landing_path, first_seen_at, office, assigned_agent_id, ticket_hash, intent,
-          click_id, last_verified_at, verified_at, callback_requested_at, code_sent_at, heard_from)
+          click_id, last_verified_at, verified_at, callback_requested_at, code_sent_at, heard_from, email,
+          country_code, whatsapp_e164)
        VALUES ($1, 'consultation', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
                CASE WHEN $19::text = 'verified' THEN now() END,
                CASE WHEN $19::text = 'verified' THEN now() END,
                CASE WHEN $19::text = 'callback' THEN now() END,
                CASE WHEN $19::text = 'code' THEN now() END,
-               $20)
+               $20, $21, $22, $23)
        ON CONFLICT (agency_id, reference) WHERE reference IS NOT NULL DO NOTHING
        RETURNING id`,
       [
@@ -303,6 +326,9 @@ export class ConsultationRepository {
         lead.clickId,
         lead.mode,
         lead.heardFrom,
+        lead.email,
+        lead.country,
+        lead.whatsapp,
       ],
     );
     return ((result.rows[0] as Row | undefined)?.id as string | undefined) ?? null;
@@ -332,6 +358,31 @@ export class ConsultationRepository {
   }
 
   /** A code was asked for again on an open enquiry. */
+  /** A returning visitor left an email address: it replaces the one kept (an empty box never clears it). */
+  async setEmail(tx: Transaction, agencyId: string, id: string, email: string) {
+    await tx.query(
+      `UPDATE matrimony.website_leads SET email = $3 WHERE agency_id = $1 AND id = $2`,
+      [agencyId, id, email],
+    );
+  }
+
+  /** A WhatsApp number the visitor left again: it replaces the one kept. */
+  async setWhatsapp(tx: Transaction, agencyId: string, id: string, whatsapp: string) {
+    await tx.query(
+      `UPDATE matrimony.website_leads SET whatsapp_e164 = $3 WHERE agency_id = $1 AND id = $2`,
+      [agencyId, id, whatsapp],
+    );
+  }
+
+  /** The emailed code was typed: the email is proved (the first time is kept). */
+  async markEmailVerified(tx: Transaction, agencyId: string, id: string) {
+    await tx.query(
+      `UPDATE matrimony.website_leads SET email_verified_at = coalesce(email_verified_at, now())
+        WHERE agency_id = $1 AND id = $2 AND email IS NOT NULL`,
+      [agencyId, id],
+    );
+  }
+
   async markCodeSent(tx: Transaction, agencyId: string, id: string) {
     await tx.query(
       `UPDATE matrimony.website_leads SET code_sent_at = now() WHERE agency_id = $1 AND id = $2`,
@@ -507,11 +558,21 @@ export class ConsultationRepository {
             single AS (
               SELECT phone, (array_agg(DISTINCT profile_id))[1] AS profile_id
                 FROM phones GROUP BY phone HAVING count(DISTINCT profile_id) = 1)
+            emails AS (${PROFILE_EMAILS}),
+            single_email AS (
+              SELECT email, (array_agg(DISTINCT profile_id))[1] AS profile_id
+                FROM emails GROUP BY email HAVING count(DISTINCT profile_id) = 1),
+            matched AS (
+              SELECT l.id, coalesce(s.profile_id, e.profile_id) AS profile_id
+                FROM matrimony.website_leads l
+                LEFT JOIN single s ON s.phone = l.phone_e164
+                LEFT JOIN single_email e ON l.email_verified_at IS NOT NULL AND e.email = l.email
+               WHERE l.agency_id = $1 AND l.client_profile_id IS NULL AND NOT l.auto_link_blocked
+                 AND (s.profile_id IS NOT NULL OR e.profile_id IS NOT NULL))
        UPDATE matrimony.website_leads l
-          SET client_profile_id = s.profile_id, linked_at = now(), link_method = 'auto'
-         FROM single s
-        WHERE l.agency_id = $1 AND l.client_profile_id IS NULL AND NOT l.auto_link_blocked
-          AND l.phone_e164 = s.phone
+          SET client_profile_id = m.profile_id, linked_at = now(), link_method = 'auto'
+         FROM matched m
+        WHERE l.agency_id = $1 AND l.id = m.id
        RETURNING l.id, l.client_profile_id`,
       [agencyId],
     );

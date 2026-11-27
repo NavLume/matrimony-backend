@@ -55,6 +55,11 @@ export class CredentialService {
     return this.check(agencyId, await this.db.byMemberCode(agencyId, memberCode), password);
   }
 
+  /** The signed-in account's own password, asked again before a sensitive change. 401 when it is wrong. */
+  async verifyAccount(agencyId: string, accountId: string, password: string): Promise<Account> {
+    return this.check(agencyId, await this.db.byId(agencyId, accountId), password);
+  }
+
   private async check(
     agencyId: string,
     found: CredentialRecord | null,

@@ -15,6 +15,7 @@ import { AppError } from '../exception/app-error.js';
 import type { ShowcaseProcess } from '../process/showcase-process.js';
 import type { ProfileActor } from '../service/profile-service.js';
 import type { ShowcaseService } from '../service/showcase-service.js';
+import { requireHuman, type TurnstileVerifier } from '../security/turnstile.js';
 import './context.js';
 
 const adminOnly = { roles: ['admin' as const] };
@@ -43,6 +44,7 @@ export function registerShowcaseController(
     | 'requestIntroduction'
   >,
   process: Pick<ShowcaseProcess, 'cards' | 'browse' | 'photo' | 'sendCode' | 'submit'>,
+  human?: TurnstileVerifier,
 ) {
   const actor = (req: {
     principal: { agencyId: string; id: string; role: ProfileActor['role'] } | null;
@@ -110,6 +112,7 @@ export function registerShowcaseController(
     { config: { public: true, rateLimit: { max: 10, timeWindow: 600000 } } },
     async (req, reply) => {
       sameOrigin(req);
+      await requireHuman(human, req);
       const input = leadCodeInputSchema.parse(req.body);
       const sent = await process.sendCode(
         { agencyId: req.tenant!.id, agencyName: req.tenant!.name },

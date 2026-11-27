@@ -8,13 +8,14 @@ import { acceptInvitationInputSchema, invitationLinkInputSchema } from '../bo/st
 import type { RegistrationService } from '../service/registration-service.js';
 import {
   maskPhone,
-  phoneAttachConfirmInputSchema,
-  phoneAttachStartInputSchema,
+  phoneResetInputSchema,
+  phoneResetStartSchema,
   phoneSignupInputSchema,
   phoneStartInputSchema,
   phoneVerifyInputSchema,
 } from '../bo/phone.js';
 import {
+  addEmailCodeInputSchema,
   addEmailStartInputSchema,
   changePasswordInputSchema,
   reauthStartInputSchema,
@@ -46,6 +47,7 @@ import {
   verifyEmailInputSchema,
 } from '../bo/credentials.js';
 import { registrationInputSchema } from '../bo/registration.js';
+import { requireHuman, type TurnstileVerifier } from '../security/turnstile.js';
 import './context.js';
 /** Sign-ins a minute from one address: an office of thirty people starts work together. */
 const OFFICE_LOGINS_PER_MINUTE = 30;
@@ -63,12 +65,7 @@ export function registerAuthController(
       >
     | undefined,
   /** Undefined when no SMS sender is configured. */
-  phone:
-    | Pick<
-        PhoneAuthProcess,
-        'sendCode' | 'verifyCode' | 'pendingSignup' | 'signup' | 'sendAttachCode' | 'confirmAttach'
-      >
-    | undefined,
+  phone: Pick<PhoneAuthProcess, 'sendCode' | 'verifyCode' | 'pendingSignup' | 'signup'> | undefined,
   registrations: Pick<RegistrationService, 'signInMethods'>,
   access: Pick<
     AccountAccessProcess,
@@ -79,10 +76,14 @@ export function registerAuthController(
     | 'sendReauthCode'
     | 'startAddEmail'
     | 'confirmAddEmail'
+    | 'confirmAddEmailCode'
+    | 'requestPhoneReset'
+    | 'resetPasswordByPhone'
     | 'changePassword'
   >,
   invitations: Pick<StaffInvitationProcess, 'preview' | 'accept'>,
   config: AppConfig,
+  human?: TurnstileVerifier,
 ) {
   const prefix = config.NODE_ENV === 'production' ? '__Host-' : '';
   const sessionCookie = `${prefix}matrimony-session`;
@@ -257,6 +258,35 @@ export function registerAuthController(
       return { status: 'password_reset' };
     },
   );
+  // A forgotten password on an account with no email: a code to its registered mobile number.
+  app.post(
+    '/api/v1/auth/password/phone/start',
+    {
+      config: { public: true, rateLimit: { max: 10, timeWindow: 600000 } },
+      schema: { response: { 202: codeSentResponseSchema } },
+    },
+    async (req, reply) => {
+      requireSameOrigin(req);
+      await requireHuman(human, req);
+      const input = phoneResetStartSchema.parse(req.body);
+      const sent = await access.requestPhoneReset(accessContext(req), input.phone, input.locale);
+      return reply.code(202).send({ status: 'code_sent', ...sent });
+    },
+  );
+  // The code and the new password. Every session of the account ends.
+  app.post(
+    '/api/v1/auth/password/phone/reset',
+    {
+      config: { public: true, rateLimit: { max: 10, timeWindow: 600000 } },
+      schema: { response: { 200: statusResponseSchema } },
+    },
+    async (req) => {
+      requireSameOrigin(req);
+      const input = phoneResetInputSchema.parse(req.body);
+      await access.resetPasswordByPhone(accessContext(req), input, req.id);
+      return { status: 'password_reset' };
+    },
+  );
   // Which ways of signing in are on, so the pages only show buttons that work.
   app.get(
     '/api/v1/auth/methods',
@@ -264,8 +294,11 @@ export function registerAuthController(
     async () => ({
       password: true,
       google: google !== undefined,
+      // Registering with a phone number (and resetting a forgotten password by phone, for an account with no email).
+      // Signing in with a code is off; the login page never offers it.
       phone: phone !== undefined,
       phoneCountries: config.SMS_ALLOWED_COUNTRIES,
+      turnstileSiteKey: config.TURNSTILE_SITE_KEY ?? null,
     }),
   );
   // Starts a Google sign-in or registration. Registering needs the same agreements as an email
@@ -417,6 +450,7 @@ export function registerAuthController(
     },
     async (req, reply) => {
       requireSameOrigin(req);
+      await requireHuman(human, req);
       const process = phoneOrFail();
       const input = phoneStartInputSchema.parse(req.body);
       const sent = await process.sendCode(
@@ -518,41 +552,14 @@ export function registerAuthController(
       };
     },
   );
-  // Sends a code to a number the member wants to add or change to.
-  app.post(
-    '/api/v1/me/phone/start',
-    {
-      config: { rateLimit: { max: 10, timeWindow: 600000 } },
-      schema: { response: { 202: codeSentResponseSchema } },
-    },
-    async (req, reply) => {
-      const process = phoneOrFail();
-      const input = phoneAttachStartInputSchema.parse(req.body);
-      const sent = await process.sendAttachCode(
-        { agencyId: req.tenant!.id, agencyName: req.tenant!.name },
-        req.principal!,
-        input.phone,
-        input.locale,
-      );
-      return reply.code(202).send({ status: 'code_sent', ...sent });
-    },
-  );
-  // Checks that code and makes the number the member's own, for signing in as well.
-  app.post(
-    '/api/v1/me/phone/verify',
-    {
-      config: { rateLimit: { max: 10, timeWindow: 60000 } },
-      schema: { response: { 200: statusResponseSchema } },
-    },
-    async (req) => {
-      const process = phoneOrFail();
-      const input = phoneAttachConfirmInputSchema.parse(req.body);
-      await process.confirmAttach(req.tenant!.id, req.principal!, input.phone, input.code, req.id);
-      return { status: 'phone_added' };
-    },
-  );
-  // ---- Adding an email to a phone-only account ----
-  // Step one: a code to the account's own phone, to prove it is the owner.
+  // A member may not add or change their own login number (owner decision, 27 Nov 2026): they ask the agency and
+  // an admin changes it on the client's page (PUT /staff/clients/{profileId}/login-phone). Both old routes refuse.
+  for (const path of ['/api/v1/me/phone/start', '/api/v1/me/phone/verify'])
+    app.post(path, async () => {
+      throw new AppError(403, 'PHONE_CHANGE_ADMIN_ONLY');
+    });
+  // ---- The account's own checks, by email (no text message) ----
+  // Before a new password: a 6-digit code to the account's own email.
   app.post(
     '/api/v1/me/reauth/start',
     {
@@ -565,8 +572,8 @@ export function registerAuthController(
       return reply.code(202).send({ status: 'code_sent', ...sent });
     },
   );
-  // Step two: with that code and the address, a link is emailed. Nothing is added yet, and the
-  // answer is the same whether or not the address already belongs to an account.
+  // Adding an email to a phone-only account, step one: the account's password and the address; a 6-digit code is
+  // emailed to it. Nothing is added yet, and the answer is the same whether or not the address has an account.
   app.post(
     '/api/v1/me/email/start',
     {
@@ -579,7 +586,20 @@ export function registerAuthController(
       return reply.code(202).send({ status: 'email_sent' });
     },
   );
-  // A new password for the signed-in account, proved by a code sent to its own phone. It ends every
+  // Step two: the code from that inbox adds the address, verified.
+  app.post(
+    '/api/v1/me/email/verify',
+    {
+      config: { rateLimit: { max: 10, timeWindow: 600000 } },
+      schema: { response: { 200: statusResponseSchema } },
+    },
+    async (req) => {
+      const { code } = addEmailCodeInputSchema.parse(req.body);
+      await access.confirmAddEmailCode(req.tenant!.id, req.principal!, code, req.id);
+      return { status: 'email_added' };
+    },
+  );
+  // A new password for the signed-in account, proved by a code sent to its own email. It ends every
   // session, this one included, like any password reset.
   app.post(
     '/api/v1/me/password',

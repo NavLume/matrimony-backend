@@ -80,7 +80,11 @@ const schema = z
     // How the codes for phone sign-in are sent. `console` prints each text, with its code, in the
     // backend's terminal, for development only. Left out, phone sign-in is not offered. A real gateway
     // plugs into the SmsSender boundary; production refuses `console`.
-    SMS_DRIVER: z.enum(['console']).optional(),
+    SMS_DRIVER: z.enum(['console', 'smsnetbd']).optional(),
+    // sms.net.bd (Alpha SMS): the API key from its panel (API page). Needed with SMS_DRIVER=smsnetbd. The sender id is
+    // only for an approved masking name; left out, the gateway's own number sends (non-masking).
+    SMSNETBD_API_KEY: z.string().min(1).optional(),
+    SMSNETBD_SENDER_ID: z.string().min(1).max(11).optional(),
     // How push notifications to the mobile app are sent. `console` prints each push in the terminal of
     // the backend, for development only. Left out, phones may register but nothing is sent. A real
     // gateway (Firebase Cloud Messaging) plugs into the PushSender boundary; production refuses `console`.
@@ -97,6 +101,10 @@ const schema = z
     // each agency's exact callback address (https://<host>/api/v1/auth/google/callback) with Google.
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    // Cloudflare Turnstile on the buttons that send a code (text message or email). Both or neither: without them
+    // no check is made. The site key is public (the website reads it from /auth/methods); the secret never leaves here.
+    TURNSTILE_SITE_KEY: z.string().min(1).optional(),
+    TURNSTILE_SECRET_KEY: z.string().min(1).optional(),
     // The mobile app's version rules, per platform (`major.minor.patch`). An app older than the minimum
     // is told to update; the latest is only a hint. The store addresses are where the update screen sends
     // people. Left out, every version is allowed.
@@ -184,6 +192,12 @@ const schema = z
       if (!allowed.includes(new URL(value).protocol))
         ctx.addIssue({ code: 'custom', path: [field], message: 'Unsupported protocol' });
     }
+    if (Boolean(c.TURNSTILE_SITE_KEY) !== Boolean(c.TURNSTILE_SECRET_KEY))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TURNSTILE_SECRET_KEY'],
+        message: 'Set both the Turnstile site key and secret, or neither',
+      });
     if (Boolean(c.GOOGLE_CLIENT_ID) !== Boolean(c.GOOGLE_CLIENT_SECRET))
       ctx.addIssue({
         code: 'custom',
@@ -234,6 +248,12 @@ const schema = z
           code: 'custom',
           path: ['SMS_DRIVER'],
           message: 'Production needs a real SMS gateway, not the development console',
+        });
+      if (c.SMS_DRIVER === 'smsnetbd' && !c.SMSNETBD_API_KEY)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SMSNETBD_API_KEY'],
+          message: 'SMS_DRIVER=smsnetbd needs SMSNETBD_API_KEY',
         });
       if (c.MAIL_DRIVER !== 'smtp')
         ctx.addIssue({

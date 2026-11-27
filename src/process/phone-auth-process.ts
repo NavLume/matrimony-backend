@@ -101,7 +101,11 @@ export class PhoneAuthProcess {
    * that is not revealed). To register, a code goes to any allowed number.
    */
   async sendCode(context: PhoneContext, phone: string, locale: 'bn' | 'en', purpose: PhonePurpose) {
-    return this.send(context, purpose, phone, locale, { onlyIfAccount: purpose === 'login' });
+    // Signing in with a text-message code is off (owner decision, 27 Nov 2026): members sign in with the number (or
+    // email, or member ID) and their password. Codes are kept for registering by phone, website leads and a forgotten
+    // password on an account with no email.
+    if (purpose === 'login') throw new AppError(403, 'PHONE_CODE_LOGIN_OFF');
+    return this.send(context, purpose, phone, locale);
   }
 
   /**
@@ -117,19 +121,22 @@ export class PhoneAuthProcess {
     await this.checkCode(this.scope(agencyId, 'lead', phone), code);
   }
 
+  /**
+   * Sends a code for a forgotten password. The caller has checked that the number belongs to an active account
+   * with no email (an account with an email resets by email, never by a text message).
+   */
+  async sendResetCode(context: PhoneContext, phone: string, locale: 'bn' | 'en') {
+    return this.send(context, 'reset', phone, locale);
+  }
+
+  /** Checks that code. Throws CODE_INVALID (try again) or CODE_EXPIRED (ask for a new one). */
+  async checkResetCode(agencyId: string, phone: string, code: string) {
+    await this.checkCode(this.scope(agencyId, 'reset', phone), code);
+  }
+
   /** Resolves when every text handed over so far has been sent or has failed. For shutdown and tests. */
   async idle() {
     await Promise.allSettled([...this.sending]);
-  }
-
-  /** Sends a code to prove a number the signed-in account wants to add or change to. */
-  async sendAttachCode(
-    context: PhoneContext,
-    account: Account,
-    phone: string,
-    locale: 'bn' | 'en',
-  ) {
-    return this.send(context, `add:${account.id}`, phone, locale);
   }
 
   /**
@@ -150,7 +157,10 @@ export class PhoneAuthProcess {
     await this.checkCode(this.scope(agencyId, `reauth:${account.id}`, phone), code);
   }
 
-  /** Checks the code. A right code signs the person in, or asks them to finish registering. */
+  /**
+   * Checks a registration code and asks the person to finish registering. It never signs anyone in: a number that
+   * already has an account is told so (409) and logs in with its password.
+   */
   async verifyCode(
     agencyId: string,
     phone: string,
@@ -159,15 +169,12 @@ export class PhoneAuthProcess {
     purpose: PhonePurpose,
     correlationId: string,
   ): Promise<PhoneOutcome> {
+    void correlationId; // Kept for the callers; a code no longer starts a session here.
+    if (purpose === 'login') throw new AppError(403, 'PHONE_CODE_LOGIN_OFF');
     await this.checkCode(this.scope(agencyId, purpose, phone), code);
     const found = await this.registrations.findByPhone(agencyId, phone);
-    if (found) {
-      if (found.status !== 'active') throw new AppError(403, 'ACCOUNT_NOT_ACTIVE');
-      return {
-        kind: 'session',
-        ...(await this.auth.startSession(agencyId, found.account, correlationId)),
-      };
-    }
+    // A code never signs anyone in: a number that already has an account logs in with its password.
+    if (found) throw new AppError(409, 'PHONE_ALREADY_REGISTERED');
     // No account yet, and the code was right: nothing is created until they agree to the terms.
     const pendingId = secret();
     const key = this.pendingKey(agencyId, pendingId);
@@ -235,21 +242,6 @@ export class PhoneAuthProcess {
     if (!created.created) throw new AppError(409, 'PHONE_RETRY');
     this.logger.info({ code: 'PHONE_REGISTERED' }, 'A member registered with a phone number');
     return this.auth.startSession(agencyId, created.account, correlationId);
-  }
-
-  /** Adds or changes the number of the signed-in account, once its code is right. */
-  async confirmAttach(
-    agencyId: string,
-    account: Account,
-    phone: string,
-    code: string,
-    correlationId: string,
-  ) {
-    await this.checkCode(this.scope(agencyId, `add:${account.id}`, phone), code);
-    const result = await this.registrations.attachPhone(agencyId, account.id, phone, correlationId);
-    // They hold this number, so telling them another account has it reveals nothing they lack.
-    if (result === 'taken') throw new AppError(409, 'PHONE_IN_USE');
-    if (result === 'inactive') throw new AppError(403, 'ACCOUNT_NOT_ACTIVE');
   }
 
   private async send(

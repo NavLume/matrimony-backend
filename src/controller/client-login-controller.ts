@@ -6,6 +6,7 @@ import {
   clientLoginGrantSchema,
   clientLoginLinkSchema,
 } from '../bo/client-login.js';
+import { phoneSchema } from '../bo/phone.js';
 import { AppError } from '../exception/app-error.js';
 import type { ClientLoginProcess } from '../process/client-login-process.js';
 import { tokensResponseSchema } from '../io/http/contracts.js';
@@ -13,6 +14,7 @@ import './context.js';
 
 const staffOnly = { roles: ['admin' as const, 'agent' as const] };
 const params = z.object({ profileId: z.uuid() });
+const loginPhoneSchema = z.object({ phone: phoneSchema }).strict();
 
 /**
  * Giving a client a login. The staff routes are for an admin or the agent who looks after the client.
@@ -21,7 +23,10 @@ const params = z.object({ profileId: z.uuid() });
  */
 export function registerClientLoginController(
   app: FastifyInstance,
-  logins: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>,
+  logins: Pick<
+    ClientLoginProcess,
+    'status' | 'grant' | 'revoke' | 'preview' | 'accept' | 'setLoginPhone'
+  >,
   config: AppConfig,
 ) {
   const prefix = config.NODE_ENV === 'production' ? '__Host-' : '';
@@ -74,6 +79,19 @@ export function registerClientLoginController(
       await logins.revoke(actor(req), profileId(req), req.id);
       return reply.code(204).send();
     },
+  );
+
+  // An admin sets or changes the number a client's account signs in with (members cannot change it themselves).
+  app.put(
+    '/api/v1/staff/clients/:profileId/login-phone',
+    { config: { roles: ['admin' as const] } },
+    async (req) =>
+      logins.setLoginPhone(
+        actor(req),
+        profileId(req),
+        loginPhoneSchema.parse(req.body).phone,
+        req.id,
+      ),
   );
 
   app.post(

@@ -4,38 +4,38 @@ import { phoneCodeSchema } from './phone.js';
 import { REGISTRATION_LOCALES } from './registration.js';
 
 /**
- * Adding an email to an account that has none. The signed-in member first proves it is them with a
- * code sent to their own phone, then gives the address; a link sent to it finishes the job. Which
- * account, and which phone, always come from the session, never from the request.
+ * Adding an email to an account that has none, and choosing a new password while signed in. No text message is used
+ * (owner decision, 27 Nov 2026): adding an email is proved by the account's password and a 6-digit code sent to the new
+ * address; a new password by a code sent to the account's own email. Which account always comes from the session.
  */
 const fail = (key: string) => ({ error: key });
 
-/** Asking for the code that proves it is the owner. */
+/** Asking for the code (to the account's own email) that proves it is the owner before a new password. */
 export const reauthStartInputSchema = z
   .object({ locale: z.enum(REGISTRATION_LOCALES, fail('invalidOption')) })
   .strict();
 
+/** Step one of adding an email: the address, and the account's password to prove it is the owner. */
 export const addEmailStartInputSchema = z
   .object({
     email: emailSchema,
-    code: phoneCodeSchema,
-    /** The language of the email and of the page its link opens. */
+    password: z.string(fail('required')).min(1, fail('required')).max(200, fail('tooLong')),
+    /** The language of the email. */
     locale: z.enum(REGISTRATION_LOCALES, fail('invalidOption')),
   })
   .strict();
 export type AddEmailStartInput = z.output<typeof addEmailStartInputSchema>;
 
-/** What the emailed link carries, sealed: which account the address is for, and the address. */
+/** Step two: the code that was emailed to the new address. */
+export const addEmailCodeInputSchema = z.object({ code: phoneCodeSchema }).strict();
+
+/** What the stored code carries, sealed: which account the address is for, and the address. */
 export const pendingAddEmailSchema = z.object({
   accountId: z.uuid(),
   email: z.string().min(1),
 });
 
-/**
- * Setting a new password while signed in, for an account that has a verified phone: the code sent
- * to that phone proves it is the owner (and not someone holding a stolen session), as for adding an
- * email. It is how a member who forgot the password gets a new one, since they may have no email.
- */
+/** A new password while signed in, proved by the code sent to the account's own email. */
 export const changePasswordInputSchema = z
   .object({ code: phoneCodeSchema, password: newPasswordSchema })
   .strict();

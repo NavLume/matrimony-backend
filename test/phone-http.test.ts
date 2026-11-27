@@ -51,12 +51,13 @@ async function build(
     verifyCode: [],
     pendingSignup: [],
     signup: [],
-    sendAttachCode: [],
-    confirmAttach: [],
     sendReauthCode: [],
     startAddEmail: [],
     confirmAddEmail: [],
     changePassword: [],
+    confirmAddEmailCode: [],
+    requestPhoneReset: [],
+    resetPasswordByPhone: [],
   };
   const track =
     <T>(name: string, result: T) =>
@@ -124,6 +125,18 @@ async function build(
         'changePassword',
         undefined,
       ) as unknown as AppDependencies['access']['changePassword'],
+      confirmAddEmailCode: track(
+        'confirmAddEmailCode',
+        undefined,
+      ) as unknown as AppDependencies['access']['confirmAddEmailCode'],
+      requestPhoneReset: track('requestPhoneReset', {
+        resendAfter: 60,
+        expiresIn: 300,
+      }) as unknown as AppDependencies['access']['requestPhoneReset'],
+      resetPasswordByPhone: track(
+        'resetPasswordByPhone',
+        undefined,
+      ) as unknown as AppDependencies['access']['resetPasswordByPhone'],
     },
     ...(options.phone === false
       ? {}
@@ -144,13 +157,6 @@ async function build(
               sessionId,
               ...tokens,
             }) as unknown as NonNullable<AppDependencies['phone']>['signup'],
-            sendAttachCode: track('sendAttachCode', {
-              resendAfter: 60,
-              expiresIn: 300,
-            }) as unknown as NonNullable<AppDependencies['phone']>['sendAttachCode'],
-            confirmAttach: track('confirmAttach', undefined) as unknown as NonNullable<
-              AppDependencies['phone']
-            >['confirmAttach'],
           },
         }),
   });
@@ -208,8 +214,6 @@ await test('every phone route is a plain 404 when no SMS sender is configured', 
     ['POST', '/api/v1/auth/phone/verify'],
     ['GET', '/api/v1/auth/phone/signup'],
     ['POST', '/api/v1/auth/phone/signup'],
-    ['POST', '/api/v1/me/phone/start'],
-    ['POST', '/api/v1/me/phone/verify'],
   ] as const) {
     const response = await send(
       method,
@@ -513,77 +517,6 @@ await test('a member with no number, no email or no password is shown that way',
   });
 });
 
-await test('adding a number needs a signed-in member and sends the code for that account', async (t) => {
-  const { app, calls, send } = await build();
-  t.after(() => app.close());
-  const anonymous = await send('POST', '/api/v1/me/phone/start', { phone: number, locale: 'en' });
-  assert.equal(anonymous.statusCode, 401);
-  const response = await send(
-    'POST',
-    '/api/v1/me/phone/start',
-    { phone: '01712345678', locale: 'en' },
-    bearer,
-  );
-  assert.equal(response.statusCode, 202);
-  assert.deepEqual(response.json(), { status: 'code_sent', resendAfter: 60, expiresIn: 300 });
-  const [context, who, phone, locale] = calls.sendAttachCode![0]!;
-  assert.deepEqual(context, { agencyId: agency, agencyName: 'MSBD' });
-  assert.equal((who as { id: string }).id, account.id);
-  assert.equal(phone, number);
-  assert.equal(locale, 'en');
-});
-
-await test('confirming the number for the signed-in account, and refusals that change nothing', async (t) => {
-  const { app, calls, send } = await build();
-  t.after(() => app.close());
-  const anonymous = await send('POST', '/api/v1/me/phone/verify', {
-    phone: number,
-    code: '123456',
-  });
-  assert.equal(anonymous.statusCode, 401);
-  const response = await send(
-    'POST',
-    '/api/v1/me/phone/verify',
-    { phone: number, code: '123456' },
-    bearer,
-  );
-  assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), { status: 'phone_added' });
-  const [agencyId, who, phone, code] = calls.confirmAttach![0]!;
-  assert.equal(agencyId, agency);
-  assert.equal((who as { id: string }).id, account.id);
-  assert.equal(phone, number);
-  assert.equal(code, '123456');
-  // Nothing about the account, the role or an email can be sent with it.
-  const sneaky = await send(
-    'POST',
-    '/api/v1/me/phone/verify',
-    { phone: number, code: '123456', accountId: 'x', locale: 'en' },
-    bearer,
-  );
-  assert.equal(sneaky.statusCode, 400);
-  assert.equal(calls.confirmAttach!.length, 1);
-});
-
-await test('a number that is in use, a wrong code or an old one are safe errors', async (t) => {
-  for (const [error, status, code] of [
-    [new AppError(409, 'PHONE_IN_USE'), 409, 'PHONE_IN_USE'],
-    [new AppError(400, 'CODE_INVALID'), 400, 'CODE_INVALID'],
-    [new AppError(400, 'CODE_EXPIRED'), 400, 'CODE_EXPIRED'],
-  ] as const) {
-    const { app, send } = await build({ fail: { confirmAttach: error } });
-    t.after(() => app.close());
-    const response = await send(
-      'POST',
-      '/api/v1/me/phone/verify',
-      { phone: number, code: '123456' },
-      bearer,
-    );
-    assert.equal(response.statusCode, status);
-    assert.equal(response.json().error.code, code);
-  }
-});
-
 await test('adding an email: the first step sends a code to the account itself, for a signed-in member only', async (t) => {
   const { app, calls, send } = await build();
   t.after(() => app.close());
@@ -611,10 +544,10 @@ await test('adding an email: the first step sends a code to the account itself, 
   assert.equal(calls.sendReauthCode!.length, 1);
 });
 
-await test('adding an email: the second step takes the address and the code, and answers 202 with no cookie', async (t) => {
+await test('adding an email: the first step takes the address and the password, and answers 202 with no cookie', async (t) => {
   const { app, calls, send } = await build();
   t.after(() => app.close());
-  const body = { email: ' Nina@Example.com ', code: '১২৩৪৫৬', locale: 'en' };
+  const body = { email: ' Nina@Example.com ', password: 'my password', locale: 'en' };
   assert.equal((await send('POST', '/api/v1/me/email/start', body)).statusCode, 401);
   const response = await send('POST', '/api/v1/me/email/start', body, bearer);
   assert.equal(response.statusCode, 202);
@@ -622,17 +555,18 @@ await test('adding an email: the second step takes the address and the code, and
   assert.equal(cookiesOf(response), '');
   const [, who, input] = calls.startAddEmail![0]!;
   assert.equal((who as { id: string }).id, account.id);
-  assert.deepEqual(input, { email: 'nina@example.com', code: '123456', locale: 'en' });
+  assert.deepEqual(input, { email: 'nina@example.com', password: 'my password', locale: 'en' });
 });
 
-await test('adding an email: a bad address or code, or anything extra, never reaches the process', async (t) => {
+await test('adding an email: a bad address, no password, or anything extra, never reaches the process', async (t) => {
   const { app, calls, send } = await build();
   t.after(() => app.close());
-  const ok = { email: 'nina@example.com', code: '123456', locale: 'en' };
+  const ok = { email: 'nina@example.com', password: 'my password', locale: 'en' };
   for (const bad of [
     { ...ok, email: 'not-an-email' },
     { ...ok, email: '' },
-    { ...ok, code: '12345' },
+    { ...ok, password: '' },
+    { ...ok, code: '123456' },
     { ...ok, locale: 'fr' },
     { ...ok, accountId: 'x' },
     { ...ok, role: 'admin' },
@@ -644,18 +578,15 @@ await test('adding an email: a bad address or code, or anything extra, never rea
 await test('adding an email: refusals are safe errors that keep their codes', async (t) => {
   for (const [error, status, code] of [
     [new AppError(409, 'EMAIL_ALREADY_SET'), 409, 'EMAIL_ALREADY_SET'],
-    [new AppError(409, 'PHONE_REQUIRED'), 409, 'PHONE_REQUIRED'],
-    [new AppError(400, 'CODE_INVALID'), 400, 'CODE_INVALID'],
-    [new AppError(400, 'CODE_EXPIRED'), 400, 'CODE_EXPIRED'],
+    [new AppError(401, 'INVALID_CREDENTIALS'), 401, 'INVALID_CREDENTIALS'],
     [new AppError(429, 'EMAIL_RATE_LIMITED', { retryAfter: 900 }), 429, 'EMAIL_RATE_LIMITED'],
-    [new AppError(404, 'PHONE_NOT_CONFIGURED'), 404, 'PHONE_NOT_CONFIGURED'],
   ] as const) {
     const { app, send } = await build({ fail: { startAddEmail: error } });
     t.after(() => app.close());
     const response = await send(
       'POST',
       '/api/v1/me/email/start',
-      { email: 'nina@example.com', code: '123456', locale: 'en' },
+      { email: 'nina@example.com', password: 'my password', locale: 'en' },
       bearer,
     );
     assert.equal(response.statusCode, status);
@@ -834,24 +765,21 @@ await test('asking for and checking a code both need to say why: to log in or to
   assert.equal(calls.verifyCode![0]![4], 'login');
 });
 
-await test('adding a number to an account does not take a purpose, since it is always for that account', async (t) => {
-  const { app, calls, send } = await build();
+await test('a member cannot add or change their own number: both old routes refuse (an admin does it)', async (t) => {
+  const { app, send } = await build();
   t.after(() => app.close());
-  const response = await send(
-    'POST',
-    '/api/v1/me/phone/start',
-    { phone: number, locale: 'en' },
-    bearer,
-  );
-  assert.equal(response.statusCode, 202);
-  const refused = await send(
-    'POST',
-    '/api/v1/me/phone/start',
-    { phone: number, locale: 'en', purpose: 'login' },
-    bearer,
-  );
-  assert.equal(refused.statusCode, 400);
-  assert.equal(calls.sendAttachCode!.length, 1);
+  for (const url of ['/api/v1/me/phone/start', '/api/v1/me/phone/verify']) {
+    const anonymous = await send('POST', url, { phone: number, locale: 'en' });
+    assert.equal(anonymous.statusCode, 401, url);
+    const refused = await send(
+      'POST',
+      url,
+      { phone: number, locale: 'en', code: '123456' },
+      bearer,
+    );
+    assert.equal(refused.statusCode, 403, url);
+    assert.equal(refused.json().error.code, 'PHONE_CHANGE_ADMIN_ONLY');
+  }
 });
 
 await test('a country that is not allowed is a plain 400 with a stable code', async (t) => {

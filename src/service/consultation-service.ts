@@ -80,6 +80,8 @@ export class ConsultationService {
     agencyId: string,
     input: ConsultationDetails,
     ownHost: string | null,
+    /** What the code proved: the mobile number (Bangladesh) or the email (a visitor abroad). */
+    proof: 'phone' | 'email' = 'phone',
   ): Promise<ConsultationResult> {
     const ticket = Buffer.from(this.random(32)).toString('base64url');
     return this.db.inTransaction(agencyId, async (unit) => {
@@ -94,6 +96,9 @@ export class ConsultationService {
         const keep = open.agentId && (await unit.isActiveStaff(agencyId, open.agentId));
         const agentId = keep || manual ? null : await unit.chooseAdviser(agencyId);
         await unit.revisit(agencyId, open.id, hash(ticket), agentId);
+        if (input.email) await unit.setEmail(agencyId, open.id, input.email);
+        if (input.whatsapp) await unit.setWhatsapp(agencyId, open.id, input.whatsapp);
+        if (proof === 'email') await unit.markEmailVerified(agencyId, open.id);
         if (!open.verified) {
           // The first proof of an enquiry saved when the code was asked for: a new enquiry for staff (unless they
           // were already told of it as a call request) and, for the visitor, not a return.
@@ -127,6 +132,7 @@ export class ConsultationService {
         mode: 'verified',
         ticketHash: hash(ticket),
       });
+      if (proof === 'email') await unit.markEmailVerified(agencyId, id);
       await this.tellStaff(unit, agencyId, agentId, 'lead.new', reference);
       await unit.appendEvent(this.event(agencyId, null, id, 'lead.created'));
       return {
@@ -149,6 +155,7 @@ export class ConsultationService {
       const open = await unit.openByPhone(agencyId, input.phone, REPEAT_WINDOW_DAYS);
       if (open) {
         await unit.requestAgain(agencyId, open.id);
+        if (input.email) await unit.setEmail(agencyId, open.id, input.email);
         if (!open.callbackRequested)
           await this.tellStaff(unit, agencyId, open.agentId, 'lead.callback', open.reference);
         await unit.appendEvent(this.event(agencyId, null, open.id, 'lead.callback_requested'));
@@ -177,6 +184,7 @@ export class ConsultationService {
       const open = await unit.openByPhone(agencyId, input.phone, REPEAT_WINDOW_DAYS);
       if (open) {
         await unit.markCodeSent(agencyId, open.id);
+        if (input.email) await unit.setEmail(agencyId, open.id, input.email);
         return;
       }
       const { manual, officeName, oldSiteHosts } = await this.agency(unit, agencyId, input.office);
@@ -412,6 +420,9 @@ export class ConsultationService {
         agentId: extra.agentId,
         intent: input.intent,
         heardFrom: input.heardFrom ?? null,
+        email: input.email ?? null,
+        country: input.country ?? null,
+        whatsapp: input.whatsapp ?? null,
         mode: extra.mode,
         ticketHash: extra.ticketHash,
       });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { codeMessage } from '../src/sms/messages.js';
 import { ConsoleSmsSender } from '../src/sms/sender.js';
 
-await test('the code text names the agency, the code and the five minutes, in either language', () => {
+await test('the code text follows the gateway OTP form with the agency name, the same in either language', () => {
   const en = codeMessage({
     to: '+8801712345678',
     locale: 'en',
@@ -11,15 +11,14 @@ await test('the code text names the agency, the code and the five minutes, in ei
     code: '042917',
   });
   assert.equal(en.to, '+8801712345678');
-  assert.match(en.text, /^MSBD: your code is 042917\. It works for 5 minutes\. Do not share it\.$/);
+  assert.equal(en.text, 'Your MSBD OTP Code is 042917. Valid for 5 minutes. Do not share it.');
   const bn = codeMessage({
     to: '+8801712345678',
     locale: 'bn',
-    agencyName: 'এমএসবিডি',
+    agencyName: 'MSBD',
     code: '042917',
   });
-  assert.match(bn.text, /^এমএসবিডি: আপনার কোড 042917/);
-  assert.match(bn.text, /৫ মিনিট/);
+  assert.equal(bn.text, en.text);
 });
 
 await test('a text stays short: one SMS in English, and no link in either language', () => {

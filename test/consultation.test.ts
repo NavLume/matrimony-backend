@@ -135,7 +135,7 @@ interface Row extends NewConsultation {
   codeSent: number;
   called: boolean;
   visit: string | null;
-  whatsapp: boolean;
+  whatsappOpened: boolean;
   forWhom: string | null;
   status: string;
   client?: { profileId: string; method: 'auto' | 'staff' } | null;
@@ -215,7 +215,7 @@ function setup(opts: { mode?: 'automatic' | 'manual'; agents?: string[]; now?: (
         codeSent: lead.mode === 'code' ? 1 : 0,
         called: false,
         visit: null,
-        whatsapp: false,
+        whatsappOpened: false,
         forWhom: null,
         status: 'new',
       });
@@ -232,6 +232,7 @@ function setup(opts: { mode?: 'automatic' | 'manual'; agents?: string[]; now?: (
       row(id).callback = true;
     },
     markCodeSent: async (_a: string, id: string) => void row(id).codeSent++,
+    setEmail: async (_a: string, id: string, email: string) => void (row(id).email = email),
     addCall: async (_a: string, id: string, call: { outcome: string }) => {
       row(id).callLog.push(call.outcome);
       row(id).contacted = true;
@@ -270,7 +271,7 @@ function setup(opts: { mode?: 'automatic' | 'manual'; agents?: string[]; now?: (
     markCallback: async (_a: string, id: string) => void (row(id).callback = true),
     markCalled: async (_a: string, id: string) => void (row(id).called = true),
     markVisit: async (_a: string, id: string, time: string) => void (row(id).visit = time),
-    markWhatsapp: async (_a: string, id: string) => void (row(id).whatsapp = true),
+    markWhatsapp: async (_a: string, id: string) => void (row(id).whatsappOpened = true),
     setForWhom: async (_a: string, id: string, forWhom: string) => void (row(id).forWhom = forWhom),
     adminIds: async () => [ADMIN],
     notify: async (_a: string, to: string, template: string, reference: string) =>
@@ -343,6 +344,7 @@ const input = {
   name: 'Rahima',
   phone: PHONE,
   intent: 'call' as const,
+  country: 'BD',
   origin: { utmSource: 'qr', utmCampaign: 'lalmatia' },
 };
 
@@ -527,7 +529,7 @@ void test('next steps need the ticket: call me and visit tell the agent once, wh
   await act('call');
   const lead = state.rows[0]!;
   assert.deepEqual(
-    [lead.callback, lead.visit, lead.whatsapp, lead.called, lead.forWhom],
+    [lead.callback, lead.visit, lead.whatsappOpened, lead.called, lead.forWhom],
     [true, 'afternoon', true, true, 'child'],
   );
   assert.equal(state.notes.filter((x) => x.template === 'lead.callback').length, 2);
@@ -737,6 +739,41 @@ void test('where the visitor says they heard of us is kept beside the origin, ne
   assert.throws(() =>
     unverifiedInputSchema.parse({ name: 'Rahima', phone: '01712345678', heardFrom: 'tv' }),
   );
+});
+
+void test('an email is optional on every path, kept when given, and updated by a returning visitor', async () => {
+  const { state, service } = setup();
+  // An empty box is no address; a bad one is refused; a good one is kept in lower case.
+  assert.equal(
+    unverifiedInputSchema.parse({ name: 'Rahima', phone: '01712345678', email: '  ' }).email,
+    undefined,
+  );
+  assert.throws(() =>
+    unverifiedInputSchema.parse({ name: 'Rahima', phone: '01712345678', email: 'not-an-email' }),
+  );
+  const parsed = unverifiedInputSchema.parse({
+    name: 'Rahima',
+    phone: '01712345678',
+    email: ' Rahima@Example.COM ',
+  });
+  assert.equal(parsed.email, 'rahima@example.com');
+
+  await service.codeAsked(AGENCY, { ...input, intent: 'whatsapp' }, null);
+  assert.equal(state.rows[0]!.email, null);
+  // The same number comes back with an address: the open enquiry keeps it, no second enquiry is made.
+  await service.start(AGENCY, { ...input, email: 'rahima@example.com' }, null);
+  assert.equal(state.rows.length, 1);
+  assert.equal(state.rows[0]!.email, 'rahima@example.com');
+  // A later visit with the box empty does not clear it.
+  await service.requestUnverified(AGENCY, input, null);
+  assert.equal(state.rows[0]!.email, 'rahima@example.com');
+
+  await service.requestUnverified(
+    AGENCY,
+    { ...input, phone: '+8801812345678', intent: 'visit', email: 'visit@example.com' },
+    null,
+  );
+  assert.equal(state.rows[1]!.email, 'visit@example.com');
 });
 
 void test('the code is checked before anything is saved', async () => {

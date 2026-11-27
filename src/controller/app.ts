@@ -1,3 +1,4 @@
+import { TurnstileVerifier } from '../security/turnstile.js';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -143,10 +144,7 @@ export interface AppDependencies {
     'start' | 'complete' | 'pending' | 'link' | 'pendingSignup' | 'signup'
   >;
   /** Undefined when no SMS sender is configured. */
-  phone?: Pick<
-    PhoneAuthProcess,
-    'sendCode' | 'verifyCode' | 'pendingSignup' | 'signup' | 'sendAttachCode' | 'confirmAttach'
-  >;
+  phone?: Pick<PhoneAuthProcess, 'sendCode' | 'verifyCode' | 'pendingSignup' | 'signup'>;
   registrations: Pick<RegistrationService, 'signInMethods'>;
   access: Pick<
     AccountAccessProcess,
@@ -157,6 +155,9 @@ export interface AppDependencies {
     | 'sendReauthCode'
     | 'startAddEmail'
     | 'confirmAddEmail'
+    | 'confirmAddEmailCode'
+    | 'requestPhoneReset'
+    | 'resetPasswordByPhone'
     | 'changePassword'
   >;
   invitations: Pick<
@@ -183,7 +184,10 @@ export interface AppDependencies {
   consultationProcess?: Parameters<typeof registerConsultationController>[2];
   campaignLinks?: Parameters<typeof registerCampaignLinkController>[1];
   leadReports?: Parameters<typeof registerLeadReportController>[1];
-  clientLogins?: Pick<ClientLoginProcess, 'status' | 'grant' | 'revoke' | 'preview' | 'accept'>;
+  clientLogins?: Pick<
+    ClientLoginProcess,
+    'status' | 'grant' | 'revoke' | 'preview' | 'accept' | 'setLoginPhone'
+  >;
   /** Undefined in tests that do not need it. */
   deletions?: Pick<AccountDeletionProcess, 'request'>;
   /** Undefined in tests that do not need it. */
@@ -376,6 +380,10 @@ export async function buildApp(deps: AppDependencies) {
   app.get('/api/v1/me', { schema: { response: { 200: selfResponseSchema } } }, async (req) =>
     accountResponse(req.principal!),
   );
+  // Cloudflare Turnstile on the buttons that send a code; off without its keys.
+  const human = config.TURNSTILE_SECRET_KEY
+    ? new TurnstileVerifier(config.TURNSTILE_SECRET_KEY, config.IO_TIMEOUT_MS)
+    : undefined;
   registerAuthController(
     app,
     deps.auth,
@@ -385,6 +393,7 @@ export async function buildApp(deps: AppDependencies) {
     deps.access,
     deps.invitations,
     config,
+    human,
   );
   registerProfileController(app, deps.profiles);
   registerPhotoController(app, deps.photos);
@@ -402,9 +411,9 @@ export async function buildApp(deps: AppDependencies) {
   if (deps.coupleMatches) registerCoupleMatchController(app, deps.coupleMatches);
   if (deps.siteContent) registerSiteContentController(app, deps.siteContent);
   if (deps.showcase && deps.showcaseProcess)
-    registerShowcaseController(app, deps.showcase, deps.showcaseProcess);
+    registerShowcaseController(app, deps.showcase, deps.showcaseProcess, human);
   if (deps.consultations && deps.consultationProcess)
-    registerConsultationController(app, deps.consultations, deps.consultationProcess);
+    registerConsultationController(app, deps.consultations, deps.consultationProcess, human);
   if (deps.campaignLinks) registerCampaignLinkController(app, deps.campaignLinks);
   if (deps.leadReports) registerLeadReportController(app, deps.leadReports);
   if (deps.legal) registerLegalController(app, deps.legal);

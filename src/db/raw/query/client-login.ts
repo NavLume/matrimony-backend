@@ -4,13 +4,13 @@ const OPEN = `l.accepted_at IS NULL AND l.revoked_at IS NULL`;
 export const clientLoginQueries = {
   // $1 agency, $2 profile.
   profile: `SELECT p.id, p.full_name, p.service_mode, p.owner_account_id, p.assigned_agent_id,
-       o.display_name AS owner_name
+       o.display_name AS owner_name, o.phone_e164 AS owner_phone
   FROM matrimony.member_profiles p
   LEFT JOIN matrimony.accounts o ON o.agency_id = p.agency_id AND o.id = p.owner_account_id
  WHERE p.agency_id = $1 AND p.id = $2`,
 
   profileForUpdate: `SELECT p.id, p.full_name, p.service_mode, p.owner_account_id, p.assigned_agent_id,
-       NULL::text AS owner_name
+       NULL::text AS owner_name, NULL::text AS owner_phone
   FROM matrimony.member_profiles p
  WHERE p.agency_id = $1 AND p.id = $2 FOR UPDATE`,
 

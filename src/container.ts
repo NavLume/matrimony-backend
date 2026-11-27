@@ -62,6 +62,7 @@ import { ConsultationService } from './service/consultation-service.js';
 import { ConsultationDbService } from './db/service/consultation-db-service.js';
 import { ConsultationRepository } from './db/raw/repository/consultation-repository.js';
 import { ConsultationProcess } from './process/consultation-process.js';
+import { LeadEmailCodes } from './process/lead-email-codes.js';
 import { CampaignLinkService } from './service/campaign-link-service.js';
 import { LeadReportService } from './service/lead-report-service.js';
 import { LeadReportDbService } from './db/service/lead-report-db-service.js';
@@ -119,7 +120,8 @@ import { GoogleAuthProcess } from './process/google-auth-process.js';
 import { GoogleProvider } from './security/google-provider.js';
 import { PhoneAuthProcess } from './process/phone-auth-process.js';
 import { PhoneCodeRepository } from './cache/repository/phone-code-repository.js';
-import { ConsoleSmsSender } from './sms/sender.js';
+import { ConsoleSmsSender, type SmsSender } from './sms/sender.js';
+import { SmsNetBdSender } from './sms/sms-net-bd-sender.js';
 import { SecretBox } from './security/secret-box.js';
 import { AuthProcess } from './process/auth-process.js';
 import { createMongo } from './mongo/config/client.js';
@@ -258,23 +260,33 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       new AgreementDbService(db, new AgreementRepository(), new EventRepository()),
       legalVersions,
     );
-    // Phone sign-in is on only when a way to send the codes is configured.
-    const phone =
-      config.SMS_DRIVER === 'console'
-        ? new PhoneAuthProcess(
-            new ConsoleSmsSender((text) => process.stdout.write(`${text}\n`)),
-            new PhoneCodeRepository(redis),
-            throttle,
-            oneTimeTokens,
-            registrations,
-            credentials,
-            auth,
-            box,
-            logger,
-            config.SMS_ALLOWED_COUNTRIES,
-            legalVersions,
+    // The text-message gateway, when one is set up: sms.net.bd in production, the terminal in development.
+    const smsSender: SmsSender | undefined =
+      config.SMS_DRIVER === 'smsnetbd' && config.SMSNETBD_API_KEY
+        ? new SmsNetBdSender(
+            config.SMSNETBD_API_KEY,
+            config.IO_TIMEOUT_MS,
+            config.SMSNETBD_SENDER_ID,
           )
-        : undefined;
+        : config.SMS_DRIVER === 'console'
+          ? new ConsoleSmsSender((text) => process.stdout.write(`${text}\n`))
+          : undefined;
+    // Phone codes (registering, leads, a forgotten password without email) are on only with a gateway.
+    const phone = smsSender
+      ? new PhoneAuthProcess(
+          smsSender,
+          new PhoneCodeRepository(redis),
+          throttle,
+          oneTimeTokens,
+          registrations,
+          credentials,
+          auth,
+          box,
+          logger,
+          config.SMS_ALLOWED_COUNTRIES,
+          legalVersions,
+        )
+      : undefined;
     const mailer = createMailer(config);
     const invitations = new StaffInvitationProcess(
       new StaffInvitationService(
@@ -305,14 +317,12 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       auth,
       throttle,
       mailer,
-      // Texts go out only where a sender is set up, the same condition as phone sign-in.
-      config.SMS_DRIVER === 'console'
-        ? new ConsoleSmsSender((text) =>
-            process.stdout.write(`${text}
-`),
-          )
-        : undefined,
+      // Email only (owner decision, 27 Nov 2026): texts are kept for one-time codes, so the link is never
+      // sent by SMS, even once a provider is set up; a request for it answers 409 SMS_NOT_AVAILABLE.
+      undefined,
       logger,
+      // An admin changes a client's login number from the client's page (members cannot).
+      registrations,
     );
     const guardians = new GuardianProcess(
       new GuardianService(
@@ -397,10 +407,7 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
         new EventRepository(),
       ),
       {
-        sms:
-          config.SMS_DRIVER === 'console'
-            ? new ConsoleSmsSender((text) => process.stdout.write(`${text}\n`))
-            : undefined,
+        sms: smsSender,
       },
       (agencyId) => identities.tenantById(agencyId),
       logger,
@@ -483,7 +490,12 @@ export async function createApiContainer(config: AppConfig, logger: Logger) {
       showcase: showcaseService,
       showcaseProcess: new ShowcaseProcess(showcaseService, storage, phone),
       consultations,
-      consultationProcess: new ConsultationProcess(consultations, phone),
+      // A visitor abroad proves their email by a code (works without any SMS provider).
+      consultationProcess: new ConsultationProcess(
+        consultations,
+        phone,
+        new LeadEmailCodes(new PhoneCodeRepository(redis), throttle, box, mailer, logger),
+      ),
       leadReports: new LeadReportService(new LeadReportDbService(db, new LeadReportRepository())),
       campaignLinks: new CampaignLinkService(
         new CampaignLinkDbService(db, new CampaignLinkRepository(), new EventRepository()),

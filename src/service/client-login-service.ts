@@ -153,6 +153,19 @@ export class ClientLoginService {
     });
   }
 
+  /**
+   * The account behind a client's profile, for an admin who changes its login number (members cannot, owner decision
+   * of 27 Nov 2026). Admins only; 409 CLIENT_HAS_NO_LOGIN for a profile no account owns.
+   */
+  async ownerForPhoneChange(actor: LoginActor, profileId: string): Promise<string> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const profile = await this.managed(unit, actor, profileId);
+      if (!profile.ownerAccountId) throw new AppError(409, 'CLIENT_HAS_NO_LOGIN');
+      return profile.ownerAccountId;
+    });
+  }
+
   private async managed(
     unit: ClientLoginUnit,
     actor: LoginActor,
@@ -177,9 +190,16 @@ export class ClientLoginService {
       expiresAt: null,
       invitedByName: null,
       accountName: null,
+      accountPhone: null,
     } as const;
     if (profile.ownerAccountId) {
-      return { ...empty, state: 'active', canGrant: false, accountName: profile.ownerName };
+      return {
+        ...empty,
+        state: 'active',
+        canGrant: false,
+        accountName: profile.ownerName,
+        accountPhone: profile.ownerPhone,
+      };
     }
     const canGrant = profile.serviceMode === 'assisted';
     const open = await unit.open(agencyId, profile.id);
@@ -193,6 +213,7 @@ export class ClientLoginService {
       expiresAt: open.expiresAt,
       invitedByName: open.invitedByName,
       accountName: null,
+      accountPhone: null,
     };
   }
 
