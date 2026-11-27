@@ -1,7 +1,48 @@
 import type { Transaction } from '../../config/database.js';
+import type { AdminStory } from '../../../bo/success-story.js';
 import { profileQueries } from '../query/profile.js';
 
 type Row = Record<string, unknown>;
+
+/** The consent a story's source needs before it is published (the same rule as the database check of migration 071). */
+const CAN_PUBLISH = `CASE WHEN source = 'manual' THEN consent_recorded_at IS NOT NULL
+       ELSE consent_a_at IS NOT NULL AND consent_b_at IS NOT NULL END`;
+
+const STORY_COLUMNS = `id, source, names, story, story_year, to_char(wedding_date, 'YYYY-MM-DD') AS wedding_date, status,
+       ${CAN_PUBLISH} AS can_publish, consent_note, consent_recorded_at, photo_file IS NOT NULL AS has_photo,
+       removed_at IS NOT NULL AS removed, created_at, published_at`;
+
+const iso = (value: unknown) => (value instanceof Date ? value.toISOString() : null);
+
+function toAdminStory(row: Row): AdminStory {
+  return {
+    id: row.id as string,
+    source: row.source as AdminStory['source'],
+    names: (row.names as AdminStory['names'] | null) ?? {},
+    story: (row.story as AdminStory['story']) ?? null,
+    year: (row.story_year as number | null) ?? null,
+    weddingDate: (row.wedding_date as string | null) ?? null,
+    status: row.status as AdminStory['status'],
+    canPublish: row.can_publish === true,
+    consentNote: (row.consent_note as string | null) ?? null,
+    consentRecordedAt: iso(row.consent_recorded_at),
+    hasPhoto: row.has_photo === true,
+    removed: row.removed === true,
+    createdAt: iso(row.created_at) ?? '',
+    publishedAt: iso(row.published_at),
+  };
+}
+
+/** What an admin writes on a story added by hand. */
+export interface ManualStoryWrite {
+  names: Record<string, string>;
+  text: Record<string, string>;
+  year: number | null;
+  weddingDate: string | null;
+  /** How the couple gave permission; null when they have not (yet). */
+  consentNote: string | null;
+  by: string;
+}
 
 export interface MatchProfile {
   id: string;
@@ -154,7 +195,7 @@ export class CoupleMatchRepository {
     status: 'published' | 'hidden',
   ): Promise<{ changed: boolean; consentBoth: boolean } | null> {
     const found = await tx.query(
-      `SELECT (consent_a_at IS NOT NULL AND consent_b_at IS NOT NULL) AS both_ok
+      `SELECT ${CAN_PUBLISH} AS both_ok
          FROM matrimony.success_stories WHERE agency_id = $1 AND id = $2 FOR UPDATE`,
       [agencyId, storyId],
     );
@@ -196,6 +237,7 @@ export class CoupleMatchRepository {
           SET names = '{}'::jsonb, story = NULL, story_year = NULL, status = 'hidden',
               photo_file = NULL, wedding_date = NULL,
               consent_a_at = NULL, consent_b_at = NULL, consent_by = NULL, published_at = NULL,
+              consent_recorded_at = NULL, consent_recorded_by = NULL, consent_note = NULL,
               removed_at = now(), removed_by = $3, removed_reason = $4, updated_at = now()
         WHERE agency_id = $1 AND id = $2`,
       [agencyId, storyId, by, reason],
@@ -244,6 +286,105 @@ export class CoupleMatchRepository {
       `UPDATE matrimony.member_profiles SET status = 'active'
         WHERE agency_id = $1 AND id = $2 AND status = 'matched'`,
       [agencyId, profileId],
+    );
+  }
+
+  /** Every success story of the agency, from a match or added by hand, newest first. */
+  async listStories(tx: Transaction, agencyId: string, limit: number): Promise<AdminStory[]> {
+    const result = await tx.query(
+      `SELECT ${STORY_COLUMNS} FROM matrimony.success_stories
+        WHERE agency_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [agencyId, limit],
+    );
+    return (result.rows as Row[]).map(toAdminStory);
+  }
+
+  async story(tx: Transaction, agencyId: string, storyId: string): Promise<AdminStory | null> {
+    const result = await tx.query(
+      `SELECT ${STORY_COLUMNS} FROM matrimony.success_stories WHERE agency_id = $1 AND id = $2`,
+      [agencyId, storyId],
+    );
+    const row = result.rows[0] as Row | undefined;
+    return row ? toAdminStory(row) : null;
+  }
+
+  /** A story added by hand; the permission is recorded now, by the admin, when a note is given. Returns its id. */
+  async insertManualStory(
+    tx: Transaction,
+    agencyId: string,
+    s: ManualStoryWrite & { publish: boolean },
+  ): Promise<string> {
+    const result = await tx.query(
+      `INSERT INTO matrimony.success_stories
+         (agency_id, source, match_id, names, story, story_year, wedding_date,
+          consent_recorded_at, consent_recorded_by, consent_note, status, published_at, created_by)
+       VALUES ($1, 'manual', NULL, $2::jsonb, $3::jsonb, $4, $5::date,
+               CASE WHEN $6::text IS NOT NULL THEN now() END, CASE WHEN $6::text IS NOT NULL THEN $7::uuid END, $6,
+               CASE WHEN $8::boolean THEN 'published' ELSE 'draft' END, CASE WHEN $8::boolean THEN now() END, $7)
+       RETURNING id`,
+      [
+        agencyId,
+        JSON.stringify(s.names),
+        Object.keys(s.text).length > 0 ? JSON.stringify(s.text) : null,
+        s.year,
+        s.weddingDate,
+        s.consentNote,
+        s.by,
+        s.publish,
+      ],
+    );
+    return (result.rows[0] as Row).id as string;
+  }
+
+  /** The state of a story an admin is about to edit, locked. Null when there is no such story. */
+  async lockStoryForEdit(tx: Transaction, agencyId: string, storyId: string) {
+    const result = await tx.query(
+      `SELECT source, status, removed_at IS NOT NULL AS removed, consent_note
+         FROM matrimony.success_stories WHERE agency_id = $1 AND id = $2 FOR UPDATE`,
+      [agencyId, storyId],
+    );
+    const row = result.rows[0] as Row | undefined;
+    return row
+      ? {
+          source: row.source as AdminStory['source'],
+          status: row.status as AdminStory['status'],
+          removed: row.removed === true,
+          consentNote: (row.consent_note as string | null) ?? null,
+        }
+      : null;
+  }
+
+  /**
+   * Replaces the words, date and permission of a story added by hand. The permission keeps its time and author while
+   * the note stays the same; a new note is recorded now, by this admin; none clears it.
+   */
+  async updateManualStory(
+    tx: Transaction,
+    agencyId: string,
+    storyId: string,
+    s: ManualStoryWrite,
+  ): Promise<void> {
+    await tx.query(
+      `UPDATE matrimony.success_stories
+          SET names = $3::jsonb, story = $4::jsonb, story_year = $5, wedding_date = $6::date,
+              consent_recorded_at = CASE WHEN $7::text IS NULL THEN NULL
+                                         WHEN consent_note IS NOT DISTINCT FROM $7::text THEN consent_recorded_at
+                                         ELSE now() END,
+              consent_recorded_by = CASE WHEN $7::text IS NULL THEN NULL
+                                         WHEN consent_note IS NOT DISTINCT FROM $7::text THEN consent_recorded_by
+                                         ELSE $8::uuid END,
+              consent_note = $7, updated_at = now()
+        WHERE agency_id = $1 AND id = $2 AND source = 'manual' AND removed_at IS NULL`,
+      [
+        agencyId,
+        storyId,
+        JSON.stringify(s.names),
+        Object.keys(s.text).length > 0 ? JSON.stringify(s.text) : null,
+        s.year,
+        s.weddingDate,
+        s.consentNote,
+        s.by,
+      ],
     );
   }
 

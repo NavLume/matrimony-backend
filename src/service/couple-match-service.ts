@@ -2,6 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { canManage } from '../bo/access.js';
 import type { MarkMatchedInput, UndoMatchInput } from '../bo/couple-match.js';
 import type { WorkflowEvent } from '../bo/event.js';
+import {
+  MAX_ADMIN_STORIES,
+  type AdminStory,
+  type ManualStoryCreateInput,
+  type ManualStoryUpdateInput,
+} from '../bo/success-story.js';
 import type { MatchProfile } from '../db/raw/repository/couple-match-repository.js';
 import type { CoupleMatchDbService } from '../db/service/couple-match-db-service.js';
 import { AppError } from '../exception/app-error.js';
@@ -10,7 +16,13 @@ import type { ProfileActor } from './profile-service.js';
 
 type EventType = Extract<
   WorkflowEvent['type'],
-  'match.recorded' | 'match.undone' | 'story.published' | 'story.hidden' | 'story.removed'
+  | 'match.recorded'
+  | 'match.undone'
+  | 'story.created'
+  | 'story.updated'
+  | 'story.published'
+  | 'story.hidden'
+  | 'story.removed'
 >;
 
 /**
@@ -122,7 +134,10 @@ export class CoupleMatchService {
     });
   }
 
-  /** Publishes a success story (only once both clients agreed) or hides it again. Admins only. */
+  /**
+   * Publishes a success story or hides it again. Admins only. A match story needs both clients' agreement; one added
+   * by hand needs the couple's permission recorded by the admin (409 CONSENT_MISSING otherwise).
+   */
   async setStoryStatus(
     actor: ProfileActor,
     storyId: string,
@@ -167,6 +182,78 @@ export class CoupleMatchService {
     // The couple's face goes with the story. A file that cannot be deleted now is no longer linked or served.
     if (photo)
       await this.files?.delete(`${actor.agencyId}/stories/${photo}`).catch(() => undefined);
+  }
+
+  /** Every success story, from a match or added by hand, newest first (at most MAX_ADMIN_STORIES). Admins only. */
+  async listStories(actor: ProfileActor): Promise<{ stories: AdminStory[] }> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    const stories = await this.db.inTransaction(actor.agencyId, (unit) =>
+      unit.listStories(actor.agencyId, MAX_ADMIN_STORIES),
+    );
+    return { stories };
+  }
+
+  /**
+   * Adds a success story of a couple who did not meet on the platform (see bo/success-story.ts). Admins only. It may
+   * be published at once only with the couple's permission recorded (400, field `consent`).
+   */
+  async createManualStory(
+    actor: ProfileActor,
+    input: ManualStoryCreateInput,
+    correlationId: string,
+  ): Promise<AdminStory> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    if (input.publish && !input.consent)
+      throw new AppError(400, 'INVALID_REQUEST', {
+        fields: [{ path: 'consent', code: 'required' }],
+      });
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const id = await unit.insertManualStory(actor.agencyId, {
+        ...this.write(actor, input),
+        publish: input.publish,
+      });
+      await unit.appendEvent(this.event('story.created', actor, id, correlationId));
+      if (input.publish)
+        await unit.appendEvent(this.event('story.published', actor, id, correlationId));
+      return (await unit.story(actor.agencyId, id))!;
+    });
+  }
+
+  /**
+   * Changes a story added by hand: its names, words, date, year and the couple's permission. A match story's words
+   * come from the matched step and are not edited here (409 STORY_NOT_MANUAL). The permission of a published story
+   * cannot be taken away while it shows: it is hidden first (409 STORY_PUBLISHED).
+   */
+  async updateManualStory(
+    actor: ProfileActor,
+    storyId: string,
+    input: ManualStoryUpdateInput,
+    correlationId: string,
+  ): Promise<AdminStory> {
+    if (actor.role !== 'admin') throw new AppError(403, 'ROLE_FORBIDDEN');
+    return this.db.inTransaction(actor.agencyId, async (unit) => {
+      const current = await unit.lockStoryForEdit(actor.agencyId, storyId);
+      if (!current) throw new AppError(404, 'STORY_NOT_FOUND');
+      if (current.source !== 'manual') throw new AppError(409, 'STORY_NOT_MANUAL');
+      if (current.removed) throw new AppError(409, 'STORY_ALREADY_REMOVED');
+      if (current.status === 'published' && !input.consent)
+        throw new AppError(409, 'STORY_PUBLISHED');
+      await unit.updateManualStory(actor.agencyId, storyId, this.write(actor, input));
+      await unit.appendEvent(this.event('story.updated', actor, storyId, correlationId));
+      return (await unit.story(actor.agencyId, storyId))!;
+    });
+  }
+
+  /** The stored form of a story added by hand. With only a wedding date, its year is the story's year. */
+  private write(actor: ProfileActor, input: ManualStoryUpdateInput) {
+    return {
+      names: input.names,
+      text: input.text,
+      year: input.year ?? (input.weddingDate ? Number(input.weddingDate.slice(0, 4)) : null),
+      weddingDate: input.weddingDate,
+      consentNote: input.consent?.note ?? null,
+      by: actor.accountId,
+    };
   }
 
   private allowed(actor: ProfileActor, a: MatchProfile, b: MatchProfile) {

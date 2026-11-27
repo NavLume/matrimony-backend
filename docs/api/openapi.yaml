@@ -2304,11 +2304,80 @@ paths:
       responses:
         '204': { description: Undone. }
 
+  /api/v1/admin/success-stories:
+    get:
+      tags: [Matches]
+      summary: Every success story, from a match or added by hand, newest first (admin, at most 500)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The stories.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [stories]
+                properties:
+                  stories: { type: array, items: { $ref: '#/components/schemas/AdminStory' } }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+    post:
+      tags: [Matches]
+      summary: Add a success story by hand, for a couple who did not meet on the platform (admin)
+      description: |
+        At least one name. `consent` records that the couple gave permission to publish, with how and when; a draft may be
+        saved without it, but `publish: true` needs it (400, field `consent`). With only a wedding date, its year is the
+        story's year. The photo is added with `PUT .../{storyId}/photo`. Events `story.created` (and `story.published`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/ManualStoryInput' }
+                - type: object
+                  properties:
+                    publish: { type: boolean, default: false }
+      responses:
+        '201': { description: Added., content: { application/json: { schema: { $ref: '#/components/schemas/AdminStory' } } } }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+
+  /api/v1/admin/success-stories/{storyId}:
+    put:
+      tags: [Matches]
+      summary: Change a story added by hand (admin)
+      description: |
+        Replaces the names, words, year, wedding date and permission. The permission keeps its time while the note is
+        unchanged. 409 `STORY_NOT_MANUAL` (a match story), `STORY_ALREADY_REMOVED`, `STORY_PUBLISHED` (the permission of
+        a story on the site cannot be taken away; hide it first). Event `story.updated`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: storyId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManualStoryInput' }
+      responses:
+        '200': { description: Changed., content: { application/json: { schema: { $ref: '#/components/schemas/AdminStory' } } } }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { description: 'STORY_NOT_FOUND.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'STORY_NOT_MANUAL, STORY_ALREADY_REMOVED or STORY_PUBLISHED.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
   /api/v1/admin/success-stories/{storyId}/status:
     put:
       tags: [Matches]
       summary: Publish a success story or hide it again (admin)
-      description: Publishing needs both clients' agreement (409 `CONSENT_MISSING`).
+      description: Publishing needs the consent of the story's source (409 `CONSENT_MISSING`), both clients' agreement for a match story, the permission recorded by the admin for one added by hand.
       security:
         - bearerAuth: []
       parameters:
@@ -7886,6 +7955,62 @@ components:
             connections: { type: integer }
             matched: { type: integer }
             successFeeCollected: { type: integer }
+    ManualStoryInput:
+      type: object
+      additionalProperties: false
+      required: [names]
+      properties:
+        names:
+          type: object
+          additionalProperties: false
+          description: At least one of the two.
+          properties:
+            bn: { type: string, maxLength: 120 }
+            en: { type: string, maxLength: 120 }
+        text:
+          type: object
+          additionalProperties: false
+          properties:
+            bn: { type: string, maxLength: 1500 }
+            en: { type: string, maxLength: 1500 }
+        year: { type: [integer, 'null'], minimum: 1900, maximum: 2100 }
+        weddingDate: { type: [string, 'null'], format: date }
+        consent:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [note]
+          description: The couple gave permission to publish. Null or left out, not (yet).
+          properties:
+            note: { type: string, minLength: 5, maxLength: 300, description: How and when, e.g. written permission from both, 20 Nov 2026. }
+    AdminStory:
+      type: object
+      additionalProperties: false
+      required: [id, source, names, story, year, weddingDate, status, canPublish, consentNote, consentRecordedAt, hasPhoto, removed, createdAt, publishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        source: { type: string, enum: [match, manual] }
+        names:
+          type: object
+          additionalProperties: false
+          properties:
+            bn: { type: string }
+            en: { type: string }
+        story:
+          type: [object, 'null']
+          additionalProperties: false
+          properties:
+            bn: { type: string }
+            en: { type: string }
+        year: { type: [integer, 'null'] }
+        weddingDate: { type: [string, 'null'], format: date }
+        status: { type: string, enum: [draft, published, hidden] }
+        canPublish: { type: boolean, description: The consent its source needs is there. }
+        consentNote: { type: [string, 'null'] }
+        consentRecordedAt: { type: [string, 'null'], format: date-time }
+        hasPhoto: { type: boolean }
+        removed: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        publishedAt: { type: [string, 'null'], format: date-time }
     MarkMatchedInput:
       type: object
       additionalProperties: false
@@ -9331,7 +9456,7 @@ components:
           {
             type: [string, 'null'],
             format: date,
-            description: 'YYYY-MM-DD. The member must be 18 to 100 years old.',
+            description: 'YYYY-MM-DD. The person must be 18 to 100 years old, and at least 21 when the gender is male (Bangladeshi law). A failure is `underAge`.',
           }
         gender: { anyOf: [{ $ref: '#/components/schemas/Gender' }, { type: 'null' }] }
         maritalStatus: { anyOf: [{ $ref: '#/components/schemas/MaritalStatus' }, { type: 'null' }] }
@@ -9629,12 +9754,13 @@ components:
       properties:
         managedFor: { $ref: '#/components/schemas/ManagedFor' }
         fullName: { type: string, minLength: 1, maxLength: 100, description: The name of the person the profile is for. }
-        dateOfBirth: { type: string, format: date, description: Checked against the age limits (18 to 100). }
+        dateOfBirth: { type: string, format: date, description: 'Checked against the age limits by gender (Bangladeshi law; at least 21 for a man and 18 for a woman; at most 100). A failure is `underAge` for both.' }
         gender: { $ref: '#/components/schemas/Gender' }
         maritalStatus: { $ref: '#/components/schemas/MaritalStatus' }
         religionCode: { $ref: '#/components/schemas/Religion' }
         countryCode: { $ref: '#/components/schemas/Country' }
         districtCode: { $ref: '#/components/schemas/District', description: Needed when the country is Bangladesh and ignored otherwise. }
+        originDistrictCode: { $ref: '#/components/schemas/District', description: 'Optional home district in Bangladesh of someone living abroad; saved as the profile''s originDistrictCode. Ignored when the country is Bangladesh.' }
         highestDegreeCode: { $ref: '#/components/schemas/Degree' }
         occupationCode: { $ref: '#/components/schemas/Occupation' }
         professionCode: { $ref: '#/components/schemas/Profession' }
@@ -9647,12 +9773,13 @@ components:
       properties:
         managedFor: { $ref: '#/components/schemas/ManagedFor' }
         fullName: { type: string, minLength: 1, maxLength: 100, description: The name of the person the profile is for. }
-        dateOfBirth: { type: string, format: date, description: Checked against the age limits (18 to 100). }
+        dateOfBirth: { type: string, format: date, description: 'Checked against the age limits by gender (Bangladeshi law; at least 21 for a man and 18 for a woman; at most 100). A failure is `underAge` for both.' }
         gender: { $ref: '#/components/schemas/Gender' }
         maritalStatus: { $ref: '#/components/schemas/MaritalStatus' }
         religionCode: { $ref: '#/components/schemas/Religion' }
         countryCode: { $ref: '#/components/schemas/Country' }
         districtCode: { $ref: '#/components/schemas/District', description: Needed when the country is Bangladesh and ignored otherwise. }
+        originDistrictCode: { $ref: '#/components/schemas/District', description: 'Optional home district in Bangladesh of someone living abroad; saved as the profile''s originDistrictCode. Ignored when the country is Bangladesh.' }
         highestDegreeCode: { $ref: '#/components/schemas/Degree' }
         occupationCode: { $ref: '#/components/schemas/Occupation' }
         professionCode: { $ref: '#/components/schemas/Profession' }

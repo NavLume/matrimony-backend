@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   ageOn,
   applyChanges,
+  dateOfBirthProblem,
+  minimumAgeFor,
   describeChanges,
   describeContent,
   diffProfileData,
@@ -88,6 +90,31 @@ await test('dates of birth: format, real calendar dates and the age limits', () 
   assert.deepEqual(dob('2008-10-07'), ['profile.dateOfBirth: underAge']);
   assert.deepEqual(dob('1925-10-07'), []);
   assert.deepEqual(dob('1925-10-06'), ['profile.dateOfBirth: tooOld']);
+});
+
+await test('the minimum age follows Bangladeshi law: 21 for a man, 18 for a woman or no gender yet', () => {
+  const dob = (value: string, gender?: string) =>
+    problems({ profile: { fullName: 'A', dateOfBirth: value, ...(gender ? { gender } : {}) } });
+  // 19 years old on the fixed today.
+  assert.deepEqual(dob('2007-05-01', 'female'), []);
+  assert.deepEqual(dob('2007-05-01'), []);
+  assert.deepEqual(dob('2007-05-01', 'male'), ['profile.dateOfBirth: underAge']);
+  // A man who is exactly 21 today is fine; one day short is not.
+  assert.deepEqual(dob('2005-10-06', 'male'), []);
+  assert.deepEqual(dob('2005-10-07', 'male'), ['profile.dateOfBirth: underAge']);
+  // Under 18 is reported once, whatever the gender.
+  assert.deepEqual(dob('2010-01-01', 'male'), ['profile.dateOfBirth: underAge']);
+  assert.deepEqual(dob('2010-01-01', 'female'), ['profile.dateOfBirth: underAge']);
+});
+
+await test('dateOfBirthProblem and minimumAgeFor give the same rule to every caller', () => {
+  assert.equal(minimumAgeFor('male'), 21);
+  assert.equal(minimumAgeFor('female'), 18);
+  assert.equal(minimumAgeFor(null), 18);
+  assert.equal(dateOfBirthProblem('2006-01-01', 'male', today), 'underAge');
+  assert.equal(dateOfBirthProblem('2006-01-01', 'female', today), null);
+  assert.equal(dateOfBirthProblem('2006-02-30', 'female', today), 'invalidDate');
+  assert.equal(dateOfBirthProblem('1900-01-01', 'male', today), 'tooOld');
 });
 
 await test('profession, smoking, children and relocation are coded; preferences take lists of them', () => {

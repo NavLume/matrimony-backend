@@ -70,8 +70,34 @@ const wholeNumber = (min: number, max: number) =>
   );
 
 const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** The lowest age anyone may have or look for: Bangladesh's legal minimum marriage age for a bride. */
 export const MIN_AGE = 18;
+/** Bangladesh's legal minimum marriage age for a groom. */
+export const MIN_AGE_MALE = 21;
 export const MAX_AGE = 100;
+
+/**
+ * The legal minimum age for the person a profile is for: 21 for a man, 18 for a woman. While the
+ * gender is not chosen yet the lower limit applies; the check runs again once it is chosen.
+ */
+export const minimumAgeFor = (gender: string | null | undefined): number =>
+  gender === 'male' ? MIN_AGE_MALE : MIN_AGE;
+
+/**
+ * What is wrong with a date of birth for a person of this gender, or null when it is acceptable.
+ * The same key (`underAge`) is used for both genders; the message explains the rule for both.
+ */
+export function dateOfBirthProblem(
+  dateOfBirth: string,
+  gender: string | null | undefined,
+  now: Date,
+): 'invalidDate' | 'underAge' | 'tooOld' | null {
+  const age = ageOn(dateOfBirth, now);
+  if (age === null || age < 0) return 'invalidDate';
+  if (age < minimumAgeFor(gender)) return 'underAge';
+  if (age > MAX_AGE) return 'tooOld';
+  return null;
+}
 
 /** Whole years between a calendar date written as YYYY-MM-DD and `today`, or null if it is not a real date. */
 export function ageOn(dateOfBirth: string, today: Date): number | null {
@@ -103,12 +129,12 @@ export function profileInputSchema(now: Date = new Date()) {
       .string()
       .nullable()
       .default(null)
+      // The limits that hold whatever the gender. The groom's higher minimum is checked on the
+      // whole profile below, where the gender can be seen.
       .superRefine((value, ctx) => {
         if (value === null) return;
-        const age = ageOn(value, now);
-        if (age === null || age < 0) ctx.addIssue({ code: 'custom', message: 'invalidDate' });
-        else if (age < MIN_AGE) ctx.addIssue({ code: 'custom', message: 'underAge' });
-        else if (age > MAX_AGE) ctx.addIssue({ code: 'custom', message: 'tooOld' });
+        const problem = dateOfBirthProblem(value, null, now);
+        if (problem) ctx.addIssue({ code: 'custom', message: problem });
       }),
   );
 
@@ -163,7 +189,14 @@ export function profileInputSchema(now: Date = new Date()) {
       hobbies: text(500),
       aboutMe: text(2000),
     })
-    .strict();
+    .strict()
+    .superRefine((value, ctx) => {
+      if (value.dateOfBirth === null || value.gender === null) return;
+      // Only what the field's own check above cannot see, so a problem is never reported twice.
+      if (dateOfBirthProblem(value.dateOfBirth, null, now) !== null) return;
+      if (dateOfBirthProblem(value.dateOfBirth, value.gender, now) === 'underAge')
+        ctx.addIssue({ code: 'custom', message: 'underAge', path: ['dateOfBirth'] });
+    });
 
   const contact = z.preprocess(
     (value) => value ?? {},

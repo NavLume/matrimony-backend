@@ -6,6 +6,7 @@ import {
   storyStatusSchema,
   undoMatchSchema,
 } from '../bo/couple-match.js';
+import { manualStoryCreateSchema, manualStoryUpdateSchema } from '../bo/success-story.js';
 import type { CoupleMatchService } from '../service/couple-match-service.js';
 import type { ProfileActor } from '../service/profile-service.js';
 import './context.js';
@@ -18,7 +19,16 @@ const storyParams = z.object({ storyId: z.uuid() });
 /** The matched step and the publishing of success stories (see bo/couple-match.ts). */
 export function registerCoupleMatchController(
   app: FastifyInstance,
-  matches: Pick<CoupleMatchService, 'markMatched' | 'undoMatch' | 'setStoryStatus' | 'removeStory'>,
+  matches: Pick<
+    CoupleMatchService,
+    | 'markMatched'
+    | 'undoMatch'
+    | 'setStoryStatus'
+    | 'removeStory'
+    | 'listStories'
+    | 'createManualStory'
+    | 'updateManualStory'
+  >,
 ) {
   const actor = (req: {
     principal: { agencyId: string; id: string; role: ProfileActor['role'] } | null;
@@ -57,6 +67,38 @@ export function registerCoupleMatchController(
       );
       return reply.code(204).send();
     },
+  );
+
+  // Every success story, and the ones an admin adds by hand for couples who met before the website.
+  app.get('/api/v1/admin/success-stories', { config: adminOnly }, async (req) =>
+    matches.listStories(actor(req)),
+  );
+
+  app.post(
+    '/api/v1/admin/success-stories',
+    { config: { ...adminOnly, ...write } },
+    async (req, reply) =>
+      reply
+        .code(201)
+        .send(
+          await matches.createManualStory(
+            actor(req),
+            manualStoryCreateSchema.parse(req.body ?? {}),
+            req.id,
+          ),
+        ),
+  );
+
+  app.put(
+    '/api/v1/admin/success-stories/:storyId',
+    { config: { ...adminOnly, ...write } },
+    async (req) =>
+      matches.updateManualStory(
+        actor(req),
+        storyParams.parse(req.params).storyId,
+        manualStoryUpdateSchema.parse(req.body ?? {}),
+        req.id,
+      ),
   );
 
   app.put(

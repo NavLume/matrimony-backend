@@ -11,7 +11,7 @@ import {
   RELIGIONS,
 } from './dictionaries.js';
 import { phoneSchema } from './phone-number.js';
-import { ageOn, MAX_AGE, MIN_AGE, profileInputSchema, type ProfileInput } from './profile.js';
+import { dateOfBirthProblem, profileInputSchema, type ProfileInput } from './profile.js';
 
 /**
  * The few things asked while registering, so the new member's profile starts as a filled-in draft
@@ -34,6 +34,11 @@ const detailsShape = {
   countryCode: choice(COUNTRIES),
   /** Asked only for Bangladesh. */
   districtCode: choice(DISTRICTS).optional(),
+  /**
+   * The home district in Bangladesh of someone living abroad (optional). Saved as the profile's
+   * district of origin; ignored for someone living in Bangladesh.
+   */
+  originDistrictCode: choice(DISTRICTS).optional(),
   highestDegreeCode: choice(DEGREES),
   /** The kind of work: salaried, business, student and so on. */
   occupationCode: choice(OCCUPATIONS),
@@ -43,16 +48,12 @@ const detailsShape = {
 
 /** Without the number: the phone path already has it, proved by a code. */
 const checkDetails = (
-  value: { countryCode: string; districtCode?: string; dateOfBirth: string },
+  value: { countryCode: string; districtCode?: string; dateOfBirth: string; gender: string },
   ctx: z.RefinementCtx,
 ) => {
-  const age = ageOn(value.dateOfBirth, new Date());
-  if (age === null || age < 0)
-    ctx.addIssue({ code: 'custom', message: 'invalidDate', path: ['dateOfBirth'] });
-  else if (age < MIN_AGE)
-    ctx.addIssue({ code: 'custom', message: 'underAge', path: ['dateOfBirth'] });
-  else if (age > MAX_AGE)
-    ctx.addIssue({ code: 'custom', message: 'tooOld', path: ['dateOfBirth'] });
+  // Bangladesh's legal minimum marriage age: 21 for a groom, 18 for a bride.
+  const problem = dateOfBirthProblem(value.dateOfBirth, value.gender, new Date());
+  if (problem) ctx.addIssue({ code: 'custom', message: problem, path: ['dateOfBirth'] });
   if (value.countryCode === 'bangladesh' && !value.districtCode)
     ctx.addIssue({ code: 'custom', message: 'required', path: ['districtCode'] });
 };
@@ -82,6 +83,8 @@ export function detailsToProfileInput(details: RegistrationDetails, now: Date): 
       religionCode: details.religionCode,
       countryCode: details.countryCode,
       currentDistrictCode: details.countryCode === 'bangladesh' ? details.districtCode : undefined,
+      originDistrictCode:
+        details.countryCode === 'bangladesh' ? undefined : details.originDistrictCode,
       highestDegreeCode: details.highestDegreeCode,
       occupationCode: details.occupationCode,
       professionCode: details.professionCode,

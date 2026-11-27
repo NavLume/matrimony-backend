@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkflowEvent } from '../src/bo/event.js';
 import { markMatchedSchema, undoMatchSchema } from '../src/bo/couple-match.js';
+import { manualStoryCreateSchema, manualStoryUpdateSchema } from '../src/bo/success-story.js';
 import type { MatchProfile } from '../src/db/raw/repository/couple-match-repository.js';
 import type { CoupleMatchUnit } from '../src/db/service/couple-match-db-service.js';
 import { AppError } from '../src/exception/app-error.js';
@@ -346,4 +347,153 @@ await test('undoing follows the rules of marking: only an admin, or the agent of
   );
   assert.equal(undoMatchSchema.safeParse({ reason: 'x' }).success, false);
   assert.equal(undoMatchSchema.safeParse({}).success, false);
+});
+
+/** A unit for the stories an admin adds by hand: one story, kept in memory. */
+function storySetup(
+  current: { source: 'match' | 'manual'; status: string; removed?: boolean } | null,
+) {
+  const events: WorkflowEvent[] = [];
+  const writes: unknown[] = [];
+  const stored = { id: ID(600), source: 'manual', status: 'draft' };
+  const unit = {
+    insertManualStory: async (_a: string, s: unknown) => {
+      writes.push(s);
+      return ID(600);
+    },
+    lockStoryForEdit: async () =>
+      current ? { removed: false, consentNote: null, ...current } : null,
+    updateManualStory: async (_a: string, _id: string, s: unknown) => void writes.push(s),
+    story: async () => stored,
+    listStories: async (_a: string, limit: number) => [{ ...stored, limit }],
+    appendEvent: async (event: WorkflowEvent) => void events.push(event),
+  };
+  const service = new CoupleMatchService(
+    {
+      inTransaction: async <T>(_agency: string, work: (u: CoupleMatchUnit) => Promise<T>) =>
+        work(unit as unknown as CoupleMatchUnit),
+    },
+    () => new Date('2026-11-27T10:00:00Z'),
+    () => ID(700),
+  );
+  return { service, events, writes };
+}
+
+const manual = (body: object) => manualStoryCreateSchema.parse(body);
+
+await test("an admin adds a story by hand; publishing at once needs the couple's permission", async () => {
+  const { service, events, writes } = storySetup(null);
+  await service.createManualStory(
+    actor('admin', ADMIN),
+    manual({
+      names: { en: 'Rahim and Karima' },
+      weddingDate: '2014-02-14',
+      consent: { note: 'written permission from both' },
+      publish: true,
+    }),
+    'r',
+  );
+  // With only a wedding date, its year is the story's year.
+  assert.deepEqual(writes[0], {
+    names: { en: 'Rahim and Karima' },
+    text: {},
+    year: 2014,
+    weddingDate: '2014-02-14',
+    consentNote: 'written permission from both',
+    by: ADMIN,
+    publish: true,
+  });
+  assert.deepEqual(
+    events.map((e) => [e.type, e.subjectId]),
+    [
+      ['story.created', ID(600)],
+      ['story.published', ID(600)],
+    ],
+  );
+  // Events carry ids only: never the names, the words or the note.
+  assert.doesNotMatch(JSON.stringify(events), /Rahim|permission/);
+
+  await assert.rejects(
+    () =>
+      service.createManualStory(
+        actor('admin', ADMIN),
+        manual({ names: { en: 'X and Y' }, publish: true }),
+        'r',
+      ),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.status === 400 &&
+      JSON.stringify(error.details).includes('consent'),
+  );
+  // A draft needs no permission.
+  await service.createManualStory(actor('admin', ADMIN), manual({ names: { en: 'X and Y' } }), 'r');
+  assert.equal(events.at(-1)?.type, 'story.created');
+});
+
+await test('only an admin lists, adds and edits stories; an agent is refused', async () => {
+  const { service, writes } = storySetup({ source: 'manual', status: 'draft' });
+  const agent = actor('agent', SALMA);
+  await assert.rejects(() => service.listStories(agent), code(403, 'ROLE_FORBIDDEN'));
+  await assert.rejects(
+    () => service.createManualStory(agent, manual({ names: { en: 'X' } }), 'r'),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
+  await assert.rejects(
+    () => service.updateManualStory(agent, ID(600), manual({ names: { en: 'X' } }), 'r'),
+    code(403, 'ROLE_FORBIDDEN'),
+  );
+  assert.equal(writes.length, 0);
+  const listed = await service.listStories(actor('admin', ADMIN));
+  assert.equal((listed.stories[0] as unknown as { limit: number }).limit, 500);
+});
+
+await test('editing: only stories added by hand, never a removed one, and a shown story keeps its permission', async () => {
+  const edit = manualStoryUpdateSchema.parse({ names: { en: 'X and Y' } });
+  const admin = actor('admin', ADMIN);
+  await assert.rejects(
+    () => storySetup(null).service.updateManualStory(admin, ID(600), edit, 'r'),
+    code(404, 'STORY_NOT_FOUND'),
+  );
+  await assert.rejects(
+    () =>
+      storySetup({ source: 'match', status: 'draft' }).service.updateManualStory(
+        admin,
+        ID(600),
+        edit,
+        'r',
+      ),
+    code(409, 'STORY_NOT_MANUAL'),
+  );
+  await assert.rejects(
+    () =>
+      storySetup({ source: 'manual', status: 'hidden', removed: true }).service.updateManualStory(
+        admin,
+        ID(600),
+        edit,
+        'r',
+      ),
+    code(409, 'STORY_ALREADY_REMOVED'),
+  );
+  await assert.rejects(
+    () =>
+      storySetup({ source: 'manual', status: 'published' }).service.updateManualStory(
+        admin,
+        ID(600),
+        edit,
+        'r',
+      ),
+    code(409, 'STORY_PUBLISHED'),
+  );
+  const ok = storySetup({ source: 'manual', status: 'published' });
+  await ok.service.updateManualStory(
+    admin,
+    ID(600),
+    manualStoryUpdateSchema.parse({
+      names: { en: 'X and Y' },
+      consent: { note: 'both agreed by phone' },
+    }),
+    'r',
+  );
+  assert.equal((ok.writes[0] as { consentNote: string }).consentNote, 'both agreed by phone');
+  assert.equal(ok.events[0]?.type, 'story.updated');
 });

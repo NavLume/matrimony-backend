@@ -16,7 +16,7 @@ import { z } from 'zod';
  */
 const fail = (key: string) => ({ error: key });
 
-const localized = (max: number) =>
+export const localized = (max: number) =>
   z
     .object({
       bn: z.string().trim().max(max, fail('tooLong')).optional(),

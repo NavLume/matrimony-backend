@@ -49,6 +49,42 @@ await test('a district is needed for Bangladesh only; the age limits apply', () 
   assert.deepEqual(issues({ ...details, dateOfBirth: 'soon' }), ['dateOfBirth:invalidDate']);
 });
 
+await test('the minimum age depends on the gender: 21 for a groom, 18 for a bride', () => {
+  const year = new Date().getUTCFullYear();
+  // Nineteen or twenty years old today (18 to 20), whatever the date.
+  const underTwentyOne = `${year - 20}-01-01`;
+  assert.deepEqual(issues({ ...details, gender: 'female', dateOfBirth: underTwentyOne }), []);
+  assert.deepEqual(issues({ ...details, gender: 'male', dateOfBirth: underTwentyOne }), [
+    'dateOfBirth:underAge',
+  ]);
+  assert.deepEqual(issues({ ...details, gender: 'male', dateOfBirth: `${year - 22}-01-01` }), []);
+});
+
+await test('someone living abroad may give a home district; it becomes the district of origin', () => {
+  const now = new Date('2026-10-28T00:00:00Z');
+  const abroad = detailsToProfileInput(
+    registrationDetailsSchema.parse({
+      ...details,
+      countryCode: 'canada',
+      districtCode: undefined,
+      originDistrictCode: 'sylhet',
+    }),
+    now,
+  );
+  assert.equal(abroad.profile.currentDistrictCode, null);
+  assert.equal(abroad.profile.originDistrictCode, 'sylhet');
+  // In Bangladesh only the current district is saved.
+  const home = detailsToProfileInput(
+    registrationDetailsSchema.parse({ ...details, originDistrictCode: 'sylhet' }),
+    now,
+  );
+  assert.equal(home.profile.currentDistrictCode, 'dhaka');
+  assert.equal(home.profile.originDistrictCode, null);
+  assert.deepEqual(issues({ ...details, countryCode: 'canada', originDistrictCode: 'paris' }), [
+    'originDistrictCode:invalidOption',
+  ]);
+});
+
 await test('the phone path asks for the same answers without a number', () => {
   const without: Record<string, unknown> = { ...details };
   delete without.phone;

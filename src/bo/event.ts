@@ -95,6 +95,8 @@ export const eventSchema = z
       'meeting.confirmed',
       'match.recorded',
       'match.undone',
+      'story.created',
+      'story.updated',
       'story.published',
       'story.hidden',
       'story.removed',
