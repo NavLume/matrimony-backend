@@ -17,7 +17,7 @@ import {
   PROFESSIONS,
   RELIGIONS,
   RELIGIOUS_PRACTICES,
-  COUNTRIES,
+  isCountryCode,
   RELOCATION_OPTIONS,
   SECTS,
   SMOKING_HABITS,
@@ -185,7 +185,10 @@ export function profileInputSchema(now: Date = new Date()) {
       smokingCode: optionalCode(SMOKING_HABITS),
       childrenCode: optionalCode(CHILDREN_STATUSES),
       relocationCode: optionalCode(RELOCATION_OPTIONS),
-      countryCode: optionalCode(COUNTRIES),
+      countryCode: z.preprocess(
+        blankToNull,
+        z.string().refine(isCountryCode, fail('invalidOption')).nullable().default(null),
+      ),
       hobbies: text(500),
       aboutMe: text(2000),
     })

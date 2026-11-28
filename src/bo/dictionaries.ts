@@ -113,6 +113,13 @@ export const COUNTRIES = [
   'other',
 ] as const;
 
+/**
+ * A country a person lives in: one of the named ones above (kept as they were, so stored profiles stay valid), or any
+ * other country by its ISO 3166 two-letter code, such as IN or NP (owner, 28 November 2026: every country listed).
+ */
+export const isCountryCode = (value: string): boolean =>
+  (COUNTRIES as readonly string[]).includes(value) || /^[A-Z]{2}$/.test(value);
+
 /** Who the profile is for, when it is not the account holder. */
 export const MANAGED_FOR = ['self', 'child', 'sibling', 'relative', 'other'] as const;
 

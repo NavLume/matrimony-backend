@@ -68,6 +68,7 @@ export class PhotoRepository {
     byteSize: number,
     uploadedBy: string,
     contentHash: string | null = null,
+    approved = false,
   ) {
     await tx.query(photoQueries.insert, [
       agencyId,
@@ -78,6 +79,13 @@ export class PhotoRepository {
       uploadedBy,
       contentHash,
     ]);
+    if (approved) {
+      // Approved on upload: published straight away, the main photo if the client has none, nobody to tell.
+      await tx.query(photoQueries.insertApprovedReview, [agencyId, profileId, uploadedBy, photoId]);
+      await tx.query(photoQueries.publish, [agencyId, photoId]);
+      await tx.query(photoQueries.makeMainIfNone, [agencyId, photoId, profileId]);
+      return;
+    }
     await tx.query(photoQueries.insertReview, [agencyId, profileId, uploadedBy, photoId]);
     await notifyReviewers(tx, agencyId, profileId, uploadedBy, 'photo');
   }

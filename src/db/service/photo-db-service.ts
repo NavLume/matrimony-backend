@@ -28,7 +28,7 @@ export interface PhotoUnit {
   setPrivacy(agencyId: string, profileId: string, privacy: PhotoPrivacy): Promise<void>;
   find(agencyId: string, profileId: string, photoId: string): Promise<PhotoFile | null>;
   count(agencyId: string, profileId: string): Promise<number>;
-  /** Adds the photo as waiting for review. */
+  /** Adds the photo as waiting for review, or already approved (an admin's upload for a client). */
   insert(
     agencyId: string,
     profileId: string,
@@ -38,6 +38,7 @@ export interface PhotoUnit {
     uploadedBy: string,
     /** A fingerprint of the processed photo, so the same picture on two profiles can be noticed. */
     contentHash?: string | null,
+    approved?: boolean,
   ): Promise<void>;
   remove(agencyId: string, photoId: string): Promise<void>;
   makePrimary(agencyId: string, profileId: string, photoId: string): Promise<void>;
@@ -69,8 +70,8 @@ export class PhotoDbService {
         repo.setPrivacy(tx, agencyId, profileId, privacy),
       find: (agencyId, profileId, photoId) => repo.find(tx, agencyId, profileId, photoId),
       count: (agencyId, profileId) => repo.count(tx, agencyId, profileId),
-      insert: (agencyId, profileId, photoId, key, size, by, hash) =>
-        repo.insert(tx, agencyId, profileId, photoId, key, size, by, hash ?? null),
+      insert: (agencyId, profileId, photoId, key, size, by, hash, approved) =>
+        repo.insert(tx, agencyId, profileId, photoId, key, size, by, hash ?? null, approved ?? false),
       remove: (agencyId, photoId) => repo.remove(tx, agencyId, photoId),
       makePrimary: (agencyId, profileId, photoId) =>
         repo.makePrimary(tx, agencyId, profileId, photoId),

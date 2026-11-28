@@ -13,7 +13,7 @@ import type { ProfileActor } from './profile-service.js';
 
 type EventType = Extract<
   WorkflowEvent['type'],
-  'photo.uploaded' | 'photo.removed' | 'photo.privacy_changed'
+  'photo.uploaded' | 'photo.approved' | 'photo.removed' | 'photo.privacy_changed'
 >;
 
 /**
@@ -27,8 +27,8 @@ const OWN: PhotoTarget = { kind: 'own' };
  * The rules for a client's photos.
  *
  * - A member manages their own photos, on a profile they have already saved. Staff manage the photos of the
- *   clients they look after, with or without a login: a photo an agent adds waits for review like any other,
- *   and an agent's own upload is reviewed by an admin (nobody reviews their own submission).
+ *   clients they look after, with or without a login: a photo an agent adds waits for an admin's review like
+ *   any other, while an admin's upload for a client is approved at once (the admin is the reviewer).
  * - At most `MAX_PHOTOS` at a time. The check is repeated inside the transaction that holds the
  *   profile's row lock, so two uploads at once cannot both pass the same check.
  * - A new photo waits for a reviewer. Only an approved photo can be made the main photo.
@@ -72,7 +72,7 @@ export class PhotoService {
     });
   }
 
-  /** Records the photo once its files are stored. It starts as waiting for review. */
+  /** Records the photo once its files are stored. It waits for review, unless an admin added it for a client. */
   async attach(
     actor: ProfileActor,
     reservation: PhotoReservation,
@@ -87,6 +87,7 @@ export class PhotoService {
       // The reservation belongs to the profile it was made for.
       if (profile.id !== reservation.profileId) throw new AppError(409, 'PROFILE_STATE_INVALID');
       await this.requireRoom(unit, actor, profile.id);
+      const approvedOnUpload = target.kind === 'client' && actor.role === 'admin';
       await unit.insert(
         actor.agencyId,
         profile.id,
@@ -95,10 +96,16 @@ export class PhotoService {
         byteSize,
         actor.accountId,
         contentHash,
+        approvedOnUpload,
       );
       await unit.appendEvent(
         this.event('photo.uploaded', actor, reservation.photoId, correlationId),
       );
+      if (approvedOnUpload) {
+        await unit.appendEvent(
+          this.event('photo.approved', actor, reservation.photoId, correlationId),
+        );
+      }
       return this.listOf(unit, actor, profile.id);
     });
   }

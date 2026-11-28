@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  COUNTRIES,
+  isCountryCode,
   DEGREES,
   DISTRICTS,
   GENDERS,
@@ -44,7 +44,7 @@ const detailsShape = {
   gender: choice(GENDERS),
   maritalStatus: choice(MARITAL_STATUSES),
   religionCode: choice(RELIGIONS),
-  countryCode: choice(COUNTRIES),
+  countryCode: z.string(fail('invalidOption')).refine(isCountryCode, fail('invalidOption')),
   /** Asked only for Bangladesh. */
   districtCode: choice(DISTRICTS).optional(),
   /**

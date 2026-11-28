@@ -9511,8 +9511,8 @@ components:
       enum: [no, within_country, abroad]
     Country:
       type: string
-      description: The country a person lives in; empty means Bangladesh.
-      enum: [bangladesh, united_states, united_kingdom, canada, australia, saudi_arabia, united_arab_emirates, qatar, kuwait, oman, malaysia, singapore, japan, italy, germany, france, other]
+      description: The country a person lives in; empty means Bangladesh. One of bangladesh, united_states, united_kingdom, canada, australia, saudi_arabia, united_arab_emirates, qatar, kuwait, oman, malaysia, singapore, japan, italy, germany, france, other (the names kept from before), or any other country by its ISO 3166 two-letter code such as IN.
+      pattern: '^([a-z_]+|[A-Z]{2})$'
     ManagedFor:
       type: string
       enum: [self, child, sibling, relative, other]

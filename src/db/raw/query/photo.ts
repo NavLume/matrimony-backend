@@ -43,6 +43,16 @@ export const photoQueries = {
   insertReview: `INSERT INTO matrimony.profile_reviews
  (agency_id, profile_id, submitted_by_account_id, kind, photo_id)
  VALUES ($1, $2, $3, 'photo_add', $4)`,
+  // An admin's upload for a client: recorded as a review the admin approved at once, so the history stays whole.
+  insertApprovedReview: `INSERT INTO matrimony.profile_reviews
+ (agency_id, profile_id, submitted_by_account_id, kind, photo_id, status, reviewer_account_id, reviewed_at)
+ VALUES ($1, $2, $3, 'photo_add', $4, 'approved', $3, now())`,
+  publish: `UPDATE matrimony.profile_photos SET status = 'published'
+ WHERE agency_id = $1 AND id = $2 AND status = 'staged'`,
+  makeMainIfNone: `UPDATE matrimony.profile_photos SET is_primary = true
+ WHERE agency_id = $1 AND id = $2 AND NOT EXISTS (
+   SELECT 1 FROM matrimony.profile_photos
+   WHERE agency_id = $1 AND profile_id = $3 AND is_primary)`,
 
   // A removed photo keeps its row (the history stays), loses its place as the main photo and
   // cancels any review still waiting on it.

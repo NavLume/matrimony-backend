@@ -172,7 +172,8 @@ export function leadFromRegistration(input: RegistrationInput): UnverifiedInput 
   if (!phone) return null;
   const country = phone.startsWith('+880')
     ? 'BD'
-    : (ISO_OF[input.details?.countryCode ?? ''] ?? 'BD');
+    : (ISO_OF[input.details?.countryCode ?? ''] ??
+      (/^[A-Z]{2}$/.test(input.details?.countryCode ?? '') ? input.details!.countryCode : 'BD'));
   return {
     name: input.displayName.slice(0, 80),
     phone,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { COUNTRIES, DISTRICTS, PROFESSIONS, RELIGIONS } from './dictionaries.js';
+import { DISTRICTS, PROFESSIONS, RELIGIONS, isCountryCode } from './dictionaries.js';
 import { phoneCodeSchema } from './phone.js';
 import { phoneSchema } from './phone-number.js';
 import { REGISTRATION_LOCALES } from './registration.js';
@@ -120,7 +120,7 @@ export const browseQuerySchema = z.object({
   district: code(DISTRICTS),
   religion: code(RELIGIONS),
   profession: code(PROFESSIONS),
-  country: code(COUNTRIES),
+  country: z.preprocess(blank, z.string().refine(isCountryCode, fail('invalidOption')).optional()),
   ageMin: ageParam,
   ageMax: ageParam,
   page: z.preprocess(blank, z.coerce.number().int().min(1).max(200).default(1)),
