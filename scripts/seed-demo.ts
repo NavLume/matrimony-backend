@@ -12,6 +12,8 @@ import type { ProfileActor } from '../src/service/profile-service.js';
 // verified clients, one matchmaker who looks after them, released matches, proposals, a chat, a meeting and money.
 //
 //   docker compose run --rm tools npx tsx scripts/seed-demo.ts            create (prints each password once)
+//   docker compose run --rm tools npx tsx scripts/seed-demo.ts --showcase just before the demo: show them in
+//                                                                        "Meet our members" on the public site
 //   docker compose run --rm tools npx tsx scripts/seed-demo.ts --remove   after the demo: erase them
 //
 // Every demo account has an address at demo.invalid (a domain that can never receive mail), which is how --remove
@@ -20,6 +22,10 @@ import type { ProfileActor } from '../src/service/profile-service.js';
 
 const DOMAIN = 'demo.invalid';
 const remove = process.argv.includes('--remove');
+const showcase = process.argv.includes('--showcase');
+const correlationShow = 'demo-showcase';
+// Drawings with no faces (the website's own sample pictures), one per demo client, for the blurred showcase cards.
+const PHOTOS = ['g1', 'g2', 'g3', 'g4', 'g5', 'cta'];
 
 const migrationUrl = process.env.MIGRATION_DATABASE_URL;
 if (!migrationUrl) throw new Error('MIGRATION_DATABASE_URL is required');
@@ -50,6 +56,11 @@ if (remove) {
       await tx.query('BEGIN');
       await tx.query("SELECT set_config('app.agency_id', $1, true)", [agencyId]);
       if (row.profile_id) {
+        // Off the public site first.
+        await tx.query(
+          'DELETE FROM matrimony.website_showcase WHERE agency_id = $1 AND profile_id = $2',
+          [agencyId, row.profile_id],
+        );
         await tx.query(
           `UPDATE matrimony.member_profiles SET status = 'closed' WHERE agency_id = $1 AND id = $2`,
           [agencyId, row.profile_id],
@@ -74,6 +85,67 @@ if (remove) {
   }
   await owner.end();
   console.log(`Removed ${found.rows.length} demo accounts (profiles erased, logins turned off).`);
+  process.exit(0);
+}
+
+if (showcase) {
+  const config = loadConfig();
+  const container = await createApiContainer(config, createLogger(config));
+  const adminRow = await owner.query<{ id: string }>(
+    `SELECT id FROM matrimony.accounts WHERE agency_id = $1 AND role = 'admin' AND status = 'active' ORDER BY created_at LIMIT 1`,
+    [agencyId],
+  );
+  const adminActor: ProfileActor = { agencyId, accountId: adminRow.rows[0]!.id, role: 'admin' };
+  const demo = await owner.query<{ account_id: string; profile_id: string }>(
+    `SELECT a.id AS account_id, p.id AS profile_id
+       FROM matrimony.accounts a
+       JOIN matrimony.member_profiles p ON p.agency_id = a.agency_id AND p.owner_account_id = a.id
+      WHERE a.agency_id = $1 AND a.email LIKE $2 AND a.status = 'active' AND p.status = 'active'
+      ORDER BY a.created_at`,
+    [agencyId, `%@${DOMAIN}`],
+  );
+  if (!demo.rowCount)
+    throw new Error('No demo clients yet: run the script without --showcase first.');
+  const { readFile } = await import('node:fs/promises');
+  for (const [index, row] of demo.rows.entries()) {
+    const actor: ProfileActor = { agencyId, accountId: row.account_id, role: 'member' };
+    const has = await owner.query(
+      `SELECT 1 FROM matrimony.profile_photos WHERE agency_id = $1 AND profile_id = $2 LIMIT 1`,
+      [agencyId, row.profile_id],
+    );
+    if (!has.rowCount) {
+      const file = new URL(`./demo-photos/${PHOTOS[index % PHOTOS.length]}.webp`, import.meta.url);
+      await container.photos.upload(actor, await readFile(file), correlationShow);
+      const review = await owner.query<{ id: string }>(
+        `SELECT id FROM matrimony.profile_reviews
+          WHERE agency_id = $1 AND profile_id = $2 AND kind = 'photo_add' AND status = 'pending'
+          ORDER BY created_at DESC LIMIT 1`,
+        [agencyId, row.profile_id],
+      );
+      if (review.rows[0])
+        await container.reviews.approve(adminActor, review.rows[0].id, {}, correlationShow);
+    }
+    await owner.query(
+      'UPDATE matrimony.member_profiles SET website_hidden = false WHERE agency_id = $1 AND id = $2',
+      [agencyId, row.profile_id],
+    );
+    try {
+      await container.showcase.addEntry(adminActor, row.profile_id, correlationShow);
+    } catch (error) {
+      console.log('Not added to the showcase:', (error as Error).message);
+    }
+  }
+  const current = await container.showcase.settingsOf(agencyId);
+  await container.showcase.setSettings(
+    adminActor,
+    { enabled: true, limit: Math.max(current.limit, demo.rows.length) },
+    correlationShow,
+  );
+  await container.close();
+  await owner.end();
+  console.log(
+    `${demo.rows.length} demo clients are in "Meet our members". Remove them after the demo with --remove.`,
+  );
   process.exit(0);
 }
 
