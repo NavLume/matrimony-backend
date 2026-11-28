@@ -58,17 +58,19 @@ export async function blurPreview(thumb: Buffer): Promise<Buffer> {
  */
 export async function showcaseBlur(thumb: Buffer): Promise<Buffer> {
   const upright = await sharp(thumb).rotate().toBuffer();
-  const crop = { width: 16, height: 20, fit: 'cover' as const, position: 'attention' as const };
+  // Lighter than before (owner, 28 November 2026: the cards were too blurred): shapes and colours read, a face
+  // still does not. The base keeps about 30x38 points of the picture; a finer layer adds a little detail on top.
+  const crop = { width: 60, height: 75, fit: 'cover' as const, position: 'attention' as const };
   const base = await sharp(upright)
-    .resize({ width: 8, height: 10, fit: 'cover' })
+    .resize({ width: 30, height: 38, fit: 'cover' })
     .resize({ width: 240, height: 300, kernel: 'cubic' })
-    .blur(16)
+    .blur(6)
     .toBuffer();
   const soft = await sharp(upright)
     .resize(crop)
     .resize({ width: 240, height: 300, kernel: 'cubic' })
-    .blur(10)
-    .ensureAlpha(0.2)
+    .blur(3.5)
+    .ensureAlpha(0.35)
     .png()
     .toBuffer();
   return sharp(base)

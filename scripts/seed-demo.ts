@@ -135,10 +135,15 @@ if (showcase) {
       console.log('Not added to the showcase:', (error as Error).message);
     }
   }
+  // Room for every card: the members already shown plus the demo ones (at most 24, the setting's ceiling).
   const current = await container.showcase.settingsOf(agencyId);
+  const shown = await owner.query<{ count: string }>(
+    'SELECT count(*) FROM matrimony.website_showcase WHERE agency_id = $1',
+    [agencyId],
+  );
   await container.showcase.setSettings(
     adminActor,
-    { enabled: true, limit: Math.max(current.limit, demo.rows.length) },
+    { enabled: true, limit: Math.min(24, Math.max(current.limit, Number(shown.rows[0]!.count))) },
     correlationShow,
   );
   await container.close();
