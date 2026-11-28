@@ -6,8 +6,8 @@ import { newPasswordSchema } from '../src/bo/credentials.js';
 import { PasswordHasher } from '../src/security/password-hasher.js';
 import { databaseSsl } from '../src/db/config/tls.js';
 
-// Operator tool: gives every active client (member) account of an agency the same password, for example for a demo.
-// Staff (admin, agent) and guardians are never touched. The password is typed without echo, never passed on the
+// Operator tool: gives every active account of one role (clients, `--role member`, the default; or agents,
+// `--role agent`) the same password, for example for a demo. Admins and guardians are never touched. The password is typed without echo, never passed on the
 // command line, so it is not left in a shell history.
 //
 // Without --apply it only counts what it would change. With --apply it first writes the current password hashes of
@@ -26,8 +26,11 @@ const { values } = parseArgs({
     apply: { type: 'boolean', default: false },
     backup: { type: 'string' },
     restore: { type: 'string' },
+    role: { type: 'string', default: 'member' },
   },
 });
+const role = z.enum(['member', 'agent']).parse(values.role);
+const who = role === 'member' ? 'client' : 'agent';
 const agencyId = z.uuid().parse(values.agency);
 const url = process.env.MIGRATION_DATABASE_URL;
 if (!url) throw new Error('MIGRATION_DATABASE_URL is required');
@@ -109,29 +112,29 @@ try {
       }
     }
     await client.query('COMMIT');
-    console.log(`Restored the saved passwords of ${saved.accounts.length} client accounts.`);
+    console.log(`Restored the saved passwords of ${saved.accounts.length} accounts.`);
   } else {
     const found = await client.query<Row>(
       `SELECT a.id, a.email, c.password_hash
          FROM matrimony.accounts a
          LEFT JOIN matrimony.account_credentials c ON c.agency_id = a.agency_id AND c.account_id = a.id
-        WHERE a.agency_id = $1 AND a.role = 'member' AND a.status = 'active'
+        WHERE a.agency_id = $1 AND a.role = $2 AND a.status = 'active'
         ORDER BY a.created_at`,
-      [agencyId],
+      [agencyId, role],
     );
     const rows = found.rows;
     const withPassword = rows.filter((row) => row.password_hash).length;
-    console.log(`Active client accounts: ${rows.length}`);
+    console.log(`Active ${who} accounts: ${rows.length}`);
     console.log(`  with a password now:    ${withPassword}`);
     console.log(`  without a password now: ${rows.length - withPassword} (they would get one)`);
-    console.log('Staff, guardians, invited and turned-off accounts are not touched.');
+    console.log('Other roles, guardians, invited and turned-off accounts are not touched.');
 
     if (!values.apply) {
       await client.query('ROLLBACK');
       console.log('Nothing changed. Run again with --apply --backup <file> to set the password.');
     } else {
       const password = newPasswordSchema.parse(
-        await readHidden('New password for every client (not shown): '),
+        await readHidden(`New password for every ${who} (not shown): `),
       );
       const again = await readHidden('Type it again: ');
       if (again.normalize('NFKC') !== password)
@@ -157,7 +160,7 @@ try {
         );
       }
       await client.query('COMMIT');
-      console.log(`Password set for ${rows.length} client accounts.`);
+      console.log(`Password set for ${rows.length} ${who} accounts.`);
     }
   }
 } catch (error) {
