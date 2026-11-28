@@ -568,7 +568,7 @@ export class ConsultationRepository {
       `WITH phones AS (${PROFILE_PHONES}),
             single AS (
               SELECT phone, (array_agg(DISTINCT profile_id))[1] AS profile_id
-                FROM phones GROUP BY phone HAVING count(DISTINCT profile_id) = 1)
+                FROM phones GROUP BY phone HAVING count(DISTINCT profile_id) = 1),
             emails AS (${PROFILE_EMAILS}),
             single_email AS (
               SELECT email, (array_agg(DISTINCT profile_id))[1] AS profile_id
